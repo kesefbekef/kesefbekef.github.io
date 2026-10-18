@@ -203,6 +203,7 @@ async function send(raw, source = 'text') {
     openExportSheet(kind, /אתמול/.test(raw) ? new Date(Date.now() - 864e5) : /שעבר|קודם/.test(raw) ? xp.shiftAnchor(kind, new Date(), -1) : new Date());
     return;
   }
+  if (FEEDBACK_RE.test(raw)) { $('#inp').blur(); openFeedback(raw.replace(FEEDBACK_RE, '').trim(), raw); return; }
   if (help.isHelpRequest(raw)) { $('#inp').blur(); openHelp(raw, help.wantsGuide(raw) && !help.answer(raw).length); return; }
   const named = detectWho(raw);
   const items = parseMessage(named.text);
@@ -899,6 +900,7 @@ function openSettings() { openSheet(`<h3>⚙️ הגדרות</h3>
   <div class="card" id="lockCard" style="margin-bottom:12px"></div>
   <button class="btn ghost full" id="toHelp" style="margin-bottom:10px">❓ עזרה ואיך משתמשים</button>
   <button class="btn ghost full" id="toShare" style="margin-bottom:10px">📤 שתף את האפליקציה עם חבר</button>
+  <button class="btn ghost full" id="toFeedback" style="margin-bottom:10px">💌 שליחת משוב / הצעה / תקלה</button>
   ${isStandalone() ? '' : '<button class="btn ghost full" id="toInstall" style="margin-bottom:10px">📲 התקנה על המסך (כמו אפליקציה)</button>'}
   <button class="btn grad full parent-only" id="toExcel" style="margin-bottom:10px">📊 הורדת סיכום לאקסל</button>
   <div class="row2" style="margin-bottom:10px"><button class="btn ghost" id="exp">⬇️ גיבוי</button><button class="btn ghost" id="imp">⬆️ שחזור מגיבוי</button></div>
@@ -909,6 +911,7 @@ function openSettings() { openSheet(`<h3>⚙️ הגדרות</h3>
   sh.querySelector('#toExcel').onclick = () => openExportSheet();
   sh.querySelector('#toHelp').onclick = () => openHelp();
   sh.querySelector('#toShare').onclick = () => openHelp('איך משתפים את האפליקציה עם חבר');
+  sh.querySelector('#toFeedback').onclick = () => openFeedback();
   sh.querySelector('#toInstall')?.addEventListener('click', openInstallSheet);
   sh.querySelector('#exp').onclick = async () => {
     const blob = new Blob([JSON.stringify(await db.exportAll(), null, 1)], { type: 'application/json' });
@@ -921,6 +924,50 @@ function openSettings() { openSheet(`<h3>⚙️ הגדרות</h3>
     catch (err) { toast('הקובץ לא נראה כמו גיבוי של האפליקציה', true); }
   };
 }); }
+
+// ---------- משוב: נשלח אוטומטית במייל למוישי + נשמר בענן ----------
+const FEEDBACK_TO = 'mvindish@gmail.com';
+const FEEDBACK_RE = /^(משוב|פידבק|הערה|הערות|הצעה|הצעת שיפור|רעיון|יש לי רעיון|יש לי הערה|יש לי הצעה|באג|תקלה|בעיה|דיווח|feedback)(?=[\s:,-]|$)[\s:,-]*/i;
+const KINDS = { idea: '💡 רעיון', bug: '🐞 משהו לא עובד', love: '❤️ מחמאה', other: '💬 אחר' };
+
+function openFeedback(text = '', hint = text) {
+  let kind = /באג|תקלה|בעיה|לא עובד/.test(hint) ? 'bug' : /רעיון|הצעה|שיפור/.test(hint) ? 'idea' : /תודה|מעולה|אוהב|כל הכבוד|מדהים/.test(hint) ? 'love' : 'other';
+  const me = personOf(S.me);
+  openSheet(`<h3>💌 שליחת משוב</h3>
+    <div class="sub" style="margin:-6px 0 12px">כל הערה, רעיון או תקלה מגיעים ישירות למוישי — ועוזרים לשפר את האפליקציה 🙏</div>
+    <div class="chips" style="flex-wrap:wrap;margin-bottom:12px">${Object.entries(KINDS).map(([k, n]) => `<button class="chip ${k === kind ? 'on' : ''}" data-fk="${k}">${n}</button>`).join('')}</div>
+    <textarea id="fMsg" rows="5" placeholder="מה תרצו לספר? למשל: היה נחמד אם…" style="width:100%;border-radius:16px;border:1px solid var(--line);background:var(--card2);padding:12px 14px;outline:none;resize:vertical;margin-bottom:10px">${esc(text)}</textarea>
+    <label class="field"><span>איך לחזור אליך (לא חובה)</span><input id="fContact" value="${esc([me?.name, syncUser?.email].filter(Boolean).join(' · '))}" placeholder="שם / טלפון / מייל"></label>
+    <label style="display:flex;gap:8px;align-items:center;margin-bottom:12px" class="sub"><input type="checkbox" id="fDev" checked style="width:18px;height:18px;accent-color:#EC4899"> לצרף פרטי מכשיר (עוזר לתקן תקלות)</label>
+    <div class="err" id="fErr"></div>
+    <button class="btn grad full" id="fSend">📨 שליחה</button>`, sh => {
+    sh.querySelectorAll('[data-fk]').forEach(b => b.onclick = () => { kind = b.dataset.fk; sh.querySelectorAll('[data-fk]').forEach(x => x.classList.toggle('on', x === b)); });
+    sh.querySelector('#fMsg').oninput = () => sh.querySelector('#fErr').textContent = '';
+    sh.querySelector('#fSend').onclick = async e => {
+      const message = sh.querySelector('#fMsg').value.trim();
+      if (message.length < 2) { sh.querySelector('#fErr').textContent = 'צריך לכתוב משהו 🙂'; return; }
+      const contact = sh.querySelector('#fContact').value.trim();
+      const device = sh.querySelector('#fDev').checked
+        ? `${navigator.userAgent.match(/iPhone|iPad|Android[^;)]*|Mac|Windows/)?.[0] || 'מכשיר'} · ${screen.width}×${screen.height} · ${isStandalone() ? 'מותקנת' : 'דפדפן'} · ${sync.isParent() ? 'הורה' : 'ילד'}`
+        : '';
+      e.target.disabled = true; e.target.textContent = 'שולח…';
+      const cloud = sync.saveFeedback({ app: 'kesef-bekef', kind, message, contact, device }).catch(() => false);
+      let mailed = false;
+      try {
+        const r = await fetch(`https://formsubmit.co/ajax/${FEEDBACK_TO}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ _subject: `💌 משוב חדש — כסף בכיף (${KINDS[kind]})`, _template: 'table', _captcha: 'false',
+            'סוג': KINDS[kind], 'משוב': message, 'פרטים לחזרה': contact || '—', 'משפחה': sync.household()?.name || '—', 'מכשיר': device || '—' }),
+        });
+        mailed = r.ok;
+      } catch { mailed = false; }
+      const saved = await cloud;
+      if (mailed || saved) { closeSheet(); confetti(); toast('💌 תודה! המשוב נשלח'); return; }
+      e.target.disabled = false; e.target.textContent = '📨 שליחה';
+      sh.querySelector('#fErr').innerHTML = `לא הצלחתי לשלוח (אין אינטרנט?). אפשר <a href="mailto:${FEEDBACK_TO}?subject=${encodeURIComponent('משוב — כסף בכיף')}&body=${encodeURIComponent(message)}" style="color:#F9A8D4">לשלוח במייל רגיל</a>`;
+    };
+  });
+}
 
 // ---------- שיתוף האפליקציה עם חבר (משפחה חדשה, בלי קוד) ----------
 async function shareApp() {
@@ -948,6 +995,7 @@ function openHelp(question = '', showGuide = false) {
     const bubble = (cls, html) => {
       const d = document.createElement('div'); d.className = cls + ' new'; d.innerHTML = html; d.style.maxWidth = '100%'; box.appendChild(d);
       d.querySelector('[data-share-app]')?.addEventListener('click', shareApp);
+      d.querySelector('[data-feedback-app]')?.addEventListener('click', () => openFeedback());
       return d;
     };
     const showGuideFrame = () => {

@@ -83,6 +83,12 @@ export async function joinHousehold(code) {
 
 export const isParent = () => !hh || hh.role !== 'child';
 
+export async function saveFeedback(row) {
+  if (!enabled() || !(await user())) return false;
+  const { error } = await (await client()).from('feedback').insert({ ...row, household_id: hh?.id || null });
+  return !error;
+}
+
 // ניהול משפחה (רק להורים — נאכף גם בשרת)
 export async function listMembers() {
   const { data, error } = await (await client()).rpc('list_members');
