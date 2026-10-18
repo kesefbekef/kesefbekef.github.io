@@ -896,6 +896,7 @@ $('#exportBtn').onclick = () => openExportSheet(S.view === 'chat' ? 'month' : 'm
 // ---------- הגדרות וגיבוי ----------
 $('#settingsBtn').onclick = () => openSettings();
 function openSettings() { openSheet(`<h3>⚙️ הגדרות</h3>
+  <div class="card" id="meCard" style="margin-bottom:12px"></div>
   <div class="card" id="syncCard" style="margin-bottom:12px"></div>
   <div class="card" id="lockCard" style="margin-bottom:12px"></div>
   <button class="btn ghost full" id="toHelp" style="margin-bottom:10px">❓ עזרה ואיך משתמשים</button>
@@ -906,6 +907,7 @@ function openSettings() { openSheet(`<h3>⚙️ הגדרות</h3>
   <div class="row2" style="margin-bottom:10px"><button class="btn ghost" id="exp">⬇️ גיבוי</button><button class="btn ghost" id="imp">⬆️ שחזור מגיבוי</button></div>
   <input type="file" id="impFile" accept="application/json,.json" hidden>
   <div class="sub" style="text-align:center;margin-top:8px">${S.tx.length} רשומות · ${Object.keys(S.learned).length} מילים שלמדתי</div>`, sh => {
+  drawMe(sh.querySelector('#meCard'));
   drawSync(sh.querySelector('#syncCard'));
   drawLockCard(sh.querySelector('#lockCard'));
   sh.querySelector('#toExcel').onclick = () => openExportSheet();
@@ -1142,6 +1144,96 @@ function drawLockCard(el) {
   };
 }
 
+// ---------- אזור אישי (כמו הפרופיל בוואטסאפ) ----------
+const MORE_FACES = ['🧔', '👨', '👩', '👱‍♀️', '👦', '👧', '🧒', '👶', '👴', '👵', '🧑', '👩‍🦰', '🧕', '👨‍🦱', '🙂', '😎', '🦁', '🐻', '🦄', '⭐', '💜', '🌸'];
+function drawMe(el) {
+  if (!syncUser && !UITEST) { el.style.display = 'none'; return; }
+  const hh = UITEST ? FAKE_HH : sync.household();
+  const parent = sync.isParent();
+  let p = personOf(S.me);
+  const savePeople = async () => { await db.setKV('people', S.people); renderAll(); drawMe(el); };
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:14px">
+      <button id="meFace" aria-label="שינוי אייקון" style="width:76px;height:76px;flex:none;border-radius:50%;border:3px solid transparent;background:linear-gradient(var(--bg),var(--bg)) padding-box,conic-gradient(#FEDA75,#FA7E1E,#D62976,#962FBF,#4F5BD5,#FEDA75) border-box;font-size:40px;cursor:pointer">${p?.e || '🙂'}</button>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:6px"><b style="font-size:21px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p?.name || 'בלי שם')}</b><button class="chip" data-me-edit="name" aria-label="שינוי שם">✏️</button></div>
+        <div class="sub" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">✉️ ${esc(syncUser?.email || '')}</div>
+        <div class="sub">📞 ${p?.phone ? esc(p.phone) : 'לא הוזן'} <button class="chip" data-me-edit="phone" style="padding:2px 8px" aria-label="עריכת טלפון">✏️</button></div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:12px;padding:10px 12px;border-radius:14px;background:var(--card2)">
+      <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">👨‍👩‍👧 <b>${esc(hh?.name || 'בלי משפחה')}</b> · ${parent ? '👨‍👩 הורה' : '🧒 ילד'}</span>
+      ${parent && hh ? '<button class="chip" data-me-edit="family">✏️ שינוי שם</button>' : ''}
+    </div>
+    <div id="meEdit"></div>
+    <div class="row2" style="margin-top:10px"><button class="btn ghost" data-me-edit="password">🔑 שינוי סיסמה</button><button class="btn ghost" data-me-edit="switch">🔄 משפחה אחרת</button></div>
+    <button class="btn danger full" id="meOut" style="margin-top:10px">🚪 יציאה מהחשבון</button>`;
+  const box = el.querySelector('#meEdit');
+  const form = (html, onSave) => {
+    box.innerHTML = `<div style="margin-top:12px;padding:12px;border-radius:16px;border:1px solid var(--line);background:var(--card)">${html}
+      <div class="err" id="meErr"></div><div class="row2"><button class="btn ghost" id="meCancel">ביטול</button><button class="btn grad" id="meSave">שמירה</button></div></div>`;
+    box.querySelector('#meCancel').onclick = () => { box.innerHTML = ''; };
+    box.querySelectorAll('input').forEach(i => i.oninput = () => box.querySelector('#meErr').textContent = '');
+    box.querySelector('#meSave').onclick = async () => {
+      try { await onSave(); } catch (x) { box.querySelector('#meErr').textContent = x.message; }
+    };
+    box.querySelector('input')?.focus();
+  };
+  el.querySelector('#meFace').onclick = () => {
+    box.innerHTML = `<div style="margin-top:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(46px,1fr));gap:8px">${MORE_FACES.map(f => `<button class="chip" data-face="${f}" style="font-size:24px;padding:6px;max-width:none">${f}</button>`).join('')}</div>`;
+    box.querySelectorAll('[data-face]').forEach(b => b.onclick = async () => { if (!p) return; p.e = b.dataset.face; await savePeople(); toast('✨ האייקון עודכן'); });
+  };
+  el.querySelectorAll('[data-me-edit]').forEach(b => b.onclick = () => {
+    const k = b.dataset.meEdit;
+    if (k === 'name') form(`<label class="field"><span>השם שלי</span><input id="meIn" value="${esc(p?.name || '')}"></label>`, async () => {
+      const v = box.querySelector('#meIn').value.trim();
+      if (!v) throw new Error('צריך לכתוב שם');
+      if (S.people.some(x => x.name === v && x !== p)) throw new Error('השם הזה כבר קיים במשפחה');
+      p.name = v; await savePeople(); toast('✅ השם עודכן');
+    });
+    if (k === 'phone') form(`<label class="field"><span>הטלפון שלי (לא חובה)</span><input id="meIn" type="tel" inputmode="tel" value="${esc(p?.phone || '')}" placeholder="050-0000000"></label>`, async () => {
+      p.phone = box.querySelector('#meIn').value.trim(); await savePeople(); toast('✅ נשמר');
+    });
+    if (k === 'family') form(`<label class="field"><span>שם המשפחה</span><input id="meIn" value="${esc(hh?.name || '')}" maxlength="60"></label>`, async () => {
+      const v = box.querySelector('#meIn').value.trim();
+      if (!v) throw new Error('צריך לכתוב שם');
+      if (!UITEST) await sync.renameHousehold(v);
+      drawMe(el); drawSync(document.querySelector('#syncCard')); toast('✅ שם המשפחה עודכן');
+    });
+    if (k === 'password') form(`<label class="field"><span>סיסמה חדשה (לפחות 6 תווים)</span><input id="meIn" type="password" autocomplete="new-password"></label>
+      <label class="field"><span>שוב את אותה סיסמה</span><input id="meIn2" type="password" autocomplete="new-password"></label>`, async () => {
+      const a = box.querySelector('#meIn').value, c = box.querySelector('#meIn2').value;
+      if (a.length < 6) throw new Error('לפחות 6 תווים');
+      if (a !== c) throw new Error('הסיסמאות לא זהות');
+      if (!UITEST) await sync.changePassword(a);
+      box.innerHTML = ''; toast('🔑 הסיסמה עודכנה');
+    });
+    if (k === 'switch') {
+      form(`<div class="sub" style="margin-bottom:10px;line-height:1.6">עוברים למשפחה אחרת עם קוד — או יוצאים ופותחים משפחה חדשה.<br>⚠️ הנתונים של "${esc(hh?.name || '')}" יימחקו מהטלפון הזה${parent ? ' (ואם אין בה אף אחד אחר — יימחקו לגמרי)' : ''}.</div>
+        <label class="field"><span>קוד המשפחה החדשה (ריק = לפתוח משפחה חדשה)</span><input id="meIn" maxlength="6" style="text-transform:uppercase;letter-spacing:3px;text-align:center"></label>`, async () => {
+        const code = box.querySelector('#meIn').value.trim();
+        if (code && code.length < 6) throw new Error('הקוד הוא 6 תווים');
+        const btn = box.querySelector('#meSave');
+        if (!btn.dataset.armed) { btn.dataset.armed = '1'; btn.textContent = 'בטוח? לחץ שוב'; return; }
+        if (UITEST) { toast('(בדיקה) היה עובר משפחה'); return; }
+        await sync.leaveHousehold();
+        S.tx = []; S.people = []; S.me = null; S.budgets = {}; S.learned = {};
+        let joinErr = '';
+        if (code) { try { await sync.joinHousehold(code); await sync.connected(); } catch (x) { joinErr = x.message; } }
+        await reloadFromDb(); closeSheet(); showGate();
+        if (joinErr) { toast(`יצאת מהמשפחה, אבל ההצטרפות לא הצליחה: ${joinErr}. אפשר לנסות שוב כאן`, true); return; }
+        toast(code ? '🎉 עברת למשפחה החדשה' : 'יצאת מהמשפחה — עכשיו פותחים משפחה חדשה');
+      });
+      box.querySelector('#meSave').textContent = 'מעבר';
+    }
+  });
+  el.querySelector('#meOut').onclick = async e => {
+    if (!e.target.dataset.armed) { e.target.dataset.armed = '1'; e.target.textContent = 'בטוח? לחץ שוב לצאת'; return; }
+    if (UITEST) return;
+    await sync.signOut(); syncUser = null; closeSheet(); showGate();
+  };
+}
+
 // ---------- סנכרון בין הטלפונים ----------
 let syncUser = null, joinCode = new URLSearchParams(location.search).get('join') || '', joinName = new URLSearchParams(location.search).get('name') || '';
 const inputStyle = 'width:100%;height:44px;border-radius:14px;border:1px solid var(--line);background:var(--card2);padding:0 12px;outline:none;margin-bottom:8px;font-size:16px';
@@ -1191,9 +1283,7 @@ async function drawSync(el) {
   }
   if (hh.role === 'child') {
     el.innerHTML = `<b>☁️ ${esc(hh.name)}</b> <span class="sub" id="syncState">· מסונכרן ✓</span>
-      <div class="sub" style="margin:4px 0 10px">${esc(syncUser.email)} · 🧒 חשבון ילד — אפשר להוסיף הוצאות והכנסות ולראות את מה שרשמת</div>
-      <button class="btn ghost full" id="sOut">יציאה</button>`;
-    el.querySelector('#sOut').onclick = async () => { await sync.signOut(); syncUser = null; closeSheet(); showGate(); };
+      <div class="sub" style="margin-top:4px">🧒 חשבון ילד — אפשר להוסיף הוצאות והכנסות ולראות את מה שרשמת</div>`;
     return;
   }
   const inviteHref = (role, name) => {
@@ -1224,7 +1314,7 @@ async function drawSync(el) {
       <input id="pplName" placeholder="הוספת בן משפחה, למשל: יעל" style="flex:1;min-width:0;height:44px;border-radius:14px;border:1px solid var(--line);background:var(--card2);padding:0 12px;outline:none;font-size:16px">
       <button class="btn grad" id="pplAdd" style="height:44px">הוספה</button></div>
     <div class="sub" style="margin-top:10px;line-height:1.6">📱 מחובר — יש לו טלפון משלו (הורה רואה הכל, ילד רק מוסיף)<br>✏️ רק שם — רושמים בשבילו, למשל "יעל: גלידה 15"</div>
-    <button class="btn ghost full" id="sOut" style="margin-top:10px">יציאה מהחשבון</button>`;
+`;
 
   el.querySelectorAll('[data-copy]').forEach(b => b.onclick = async () => {
     try { await navigator.clipboard.writeText(b.dataset.copy); b.textContent = '✅ הועתק'; } catch { b.textContent = b.dataset.copy; }
@@ -1276,7 +1366,6 @@ async function drawSync(el) {
     el.querySelector('#pplName').value = ''; renderAll(); drawFamily();
     toast(`👋 ${p.e} ${name} נוסף/ה — אפשר לרשום על שמו/ה, או ללחוץ "📱 הזמנה"`);
   };
-  el.querySelector('#sOut').onclick = async () => { await sync.signOut(); syncUser = null; closeSheet(); showGate(); };
 }
 
 async function reloadFromDb() {

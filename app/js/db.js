@@ -51,4 +51,12 @@ export async function importAll(data) {
   if (data.people) await setKV('people', data.people);
 }
 
+// מעבר משפחה: מוחקים מהמכשיר את נתוני המשפחה הקודמת (בענן הם נשארים אצלה)
+export async function clearFamilyData() {
+  const db = await open();
+  await done(db.transaction('tx', 'readwrite').objectStore('tx').clear());
+  for (const k of ['budgets', 'learned', 'people', 'outbox', 'lastSync', 'household', 'me'])
+    await done(db.transaction('kv', 'readwrite').objectStore('kv').delete(k));
+}
+
 export const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
