@@ -166,3 +166,7 @@ button.card{text-align:inherit;width:100%;cursor:pointer}
 .pad button{width:72px;height:72px;border-radius:50%;border:1px solid var(--line);background:var(--card2);font-size:26px;cursor:pointer;backdrop-filter:blur(10px)}
 .pad button:active{background:rgba(255,255,255,.25)}
 .lock .bio{position:relative}
+
+.gate{z-index:90;justify-content:flex-start;padding-top:calc(60px + env(safe-area-inset-top,0px));overflow-y:auto}
+.gate h2{text-align:center;margin-bottom:6px}
+.gate .sub{text-align:center}

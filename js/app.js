@@ -111,18 +111,19 @@ function catGrid(selected, withIncome = true) {
 function botHTML(t) {
   const c = catOf(t.cat);
   let title, sub = '';
-  if (t.cat === 'income') { title = `+${fmt(t.amount)} הכנסה נרשמה!`; sub = esc(t.desc); }
+  if (t.cat === 'income') { title = `${esc(t.desc)} · +${fmt(t.amount)}`; sub = 'הכנסה נרשמה 🎉'; }
   else {
-    title = `${fmt(t.inst > 1 ? t.total : t.amount)} · ${c.n}`;
-    if (t.inst > 1) sub = `${t.inst} תשלומים של ${fmt(t.amount)} · `;
+    title = `${esc(t.desc)} · ${fmt(t.inst > 1 ? t.total : t.amount)}`;
+    sub = `${c.n} · `;
+    if (t.inst > 1) sub += `${t.inst} תשלומים של ${fmt(t.amount)} · `;
     const m = ym(new Date(t.date)), left = budgetOf(t.cat) - spentIn(t.cat, m);
-    sub += left >= 0 ? `נשארו ${fmt(left)} ב${c.n}` : `⚠️ חריגה של ${fmt(-left)} מהתקציב`;
+    sub += left >= 0 ? `נשארו ${fmt(left)}` : `⚠️ חריגה של ${fmt(-left)}`;
   }
   const day = ymd(new Date(t.date)) !== ymd(new Date(t.created)) ? ` · ${new Date(t.date).toLocaleDateString('he-IL')}` : '';
-  const pay = t.pay ? `<button data-act="pay" data-id="${t.id}">${PAY[t.pay].e} ${PAY[t.pay].n}</button>` : `<button data-act="pay" data-id="${t.id}">💳 איך שולם?</button>`;
+  const pay = t.pay ? `<button data-act="pay" data-id="${t.id}">${PAY[t.pay].e} ${PAY[t.pay].n}</button>` : '';
   return `<div class="cat-ic" style="background:${c.g}">${c.e}</div>
     <div><b>${title}</b><div class="sub">${sub}${day}</div>
-    <div class="acts">${S.people.length ? `<button data-act="who" data-id="${t.id}">${t.who ? whoLabel(t.who) : '👤 של מי?'}</button>` : ''}${pay}<button data-act="fix" data-id="${t.id}">✏️ תיקון</button><button data-act="undo" data-id="${t.id}">↩️ ביטול</button></div></div>`;
+    <div class="acts">${t.who && personOf(t.who) ? `<button data-act="who" data-id="${t.id}">${whoLabel(t.who)}</button>` : ''}${pay}<button data-act="fix" data-id="${t.id}">✏️ תיקון</button><button data-act="undo" data-id="${t.id}">↩️ ביטול</button></div></div>`;
 }
 
 function fileSummaryHTML(list, msg) {
@@ -1000,7 +1001,7 @@ async function drawSync(el) {
       <div class="sub">קוד הצטרפות לבני הבית</div>
       <div style="font-size:30px;font-weight:800;letter-spacing:6px;direction:ltr">${hh.invite_code}</div></div>
     <div class="row2"><a class="btn grad" style="display:grid;place-items:center;text-decoration:none" href="https://wa.me/?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">📤 שליחה בוואטסאפ</a><button class="btn ghost" id="sOut">יציאה</button></div>`;
-  el.querySelector('#sOut').onclick = async () => { await sync.signOut(); syncUser = null; drawSync(el); toast('יצאת. הנתונים נשארו במכשיר'); };
+  el.querySelector('#sOut').onclick = async () => { await sync.signOut(); syncUser = null; closeSheet(); showGate(); };
 }
 
 async function reloadFromDb() {
@@ -1026,7 +1027,109 @@ load().then(async () => {
     onStatus: st => { const el = document.querySelector('#syncState'); if (el) el.textContent = st === 'ok' ? '· מסונכרן ✓' : '· ממתין לרשת…'; },
   });
   syncUser = r.user;
-  if (joinCode && sync.enabled() && !r.household) { openSettings(); toast('👋 הוזמנת למשפחה! נרשמים ומצטרפים עם הקוד'); }
+  await reloadFromDb();
+  showGate();
 });
+
+// ---------- מסך פתיחה: נרשמים לפני שמתחילים ----------
+async function gateStep() {
+  if (!sync.enabled()) return null;
+  if (!syncUser) return 'auth';
+  if (!sync.household()) return 'family';
+  const mine = S.people.find(p => p.uid === syncUser.id);
+  if (!mine) return 'name';
+  if (S.me !== mine.id) { S.me = mine.id; await db.setKV('me', S.me); }
+  return null;
+}
+
+async function showGate() {
+  const step = await gateStep();
+  const g = $('#gate');
+  if (!step) { g.classList.remove('on'); renderAll(); return; }
+  g.classList.add('on');
+  const body = $('#gateBody');
+  const err = msg => { body.querySelector('.err').textContent = msg; };
+  const busy = (btn, on) => { btn.disabled = on; btn.style.opacity = on ? .6 : 1; };
+
+  if (step === 'auth') {
+    body.innerHTML = `<h2>ברוכים הבאים ✨</h2>
+      <p class="sub" style="margin-bottom:16px">${joinCode ? '👋 הוזמנת למשפחה! קודם נרשמים — ' : ''}נרשמים פעם אחת, וכל בני הבית רואים את אותם נתונים מכל טלפון</p>
+      <input id="gEmail" type="email" autocomplete="email" placeholder="מייל" style="${inputStyle}">
+      <input id="gPass" type="password" autocomplete="new-password" placeholder="סיסמה (לפחות 6 תווים)" style="${inputStyle}">
+      <div class="err"></div>
+      <button class="btn grad full" id="gUp" style="margin-bottom:8px">הרשמה</button>
+      <button class="btn ghost full" id="gIn">כבר נרשמתי — כניסה</button>`;
+    const go2 = async (fn, btn) => {
+      const e = body.querySelector('#gEmail').value.trim(), p = body.querySelector('#gPass').value;
+      if (!/^\S+@\S+\.\S+$/.test(e)) return err('צריך מייל תקין');
+      if (p.length < 6) return err('הסיסמה צריכה להיות לפחות 6 תווים');
+      busy(btn, true);
+      try {
+        await fn(e, p); syncUser = await sync.user();
+        try { await sync.loadHousehold(); } catch {}
+        if (sync.household()) { await sync.connected(); await reloadFromDb(); }
+        showGate();
+      } catch (x) { err(x.message); busy(btn, false); }
+    };
+    body.querySelector('#gUp').onclick = e => go2(sync.signUp, e.target);
+    body.querySelector('#gIn').onclick = e => go2(sync.signIn, e.target);
+    body.querySelectorAll('input').forEach(i => i.oninput = () => err(''));
+    return;
+  }
+
+  if (step === 'family') {
+    body.innerHTML = `<h2>👨‍👩‍👧 המשפחה</h2>
+      <p class="sub" style="margin-bottom:16px">מי שמתחיל — פותח משפחה ושולח קוד לבני הבית. מי שקיבל קוד — מצטרף</p>
+      ${joinCode ? '' : `<input id="gName" placeholder="שם המשפחה, למשל: משפחת כהן" style="${inputStyle}">
+      <button class="btn grad full" id="gNew" style="margin-bottom:18px">פתיחת משפחה חדשה</button>`}
+      <input id="gCode" placeholder="קוד הצטרפות (6 תווים)" value="${esc(joinCode)}" style="${inputStyle};text-transform:uppercase;letter-spacing:3px;text-align:center">
+      <button class="btn ${joinCode ? 'grad' : 'ghost'} full" id="gJoin">🔑 הצטרפות עם קוד</button>
+      <div class="err" style="margin-top:8px"></div>
+      <button class="chip" id="gOut" style="margin-top:10px">יציאה מהחשבון</button>`;
+    const run = async (fn, btn) => {
+      busy(btn, true);
+      try { await fn(); await sync.connected(); await reloadFromDb(); confetti(); showGate(); }
+      catch (x) { err(x.message); busy(btn, false); }
+    };
+    body.querySelector('#gNew')?.addEventListener('click', e => run(() => sync.createHousehold(body.querySelector('#gName').value.trim()), e.target));
+    body.querySelector('#gJoin').onclick = e => {
+      const c = body.querySelector('#gCode').value.trim();
+      if (c.length < 6) return err('הקוד הוא 6 תווים');
+      run(() => sync.joinHousehold(c), e.target);
+    };
+    body.querySelector('#gOut').onclick = async () => { await sync.signOut(); syncUser = null; showGate(); };
+    return;
+  }
+
+  // step === 'name'
+  const free = S.people.filter(p => !p.uid);
+  let face = 0;
+  body.innerHTML = `<h2>🙋 איך קוראים לך?</h2>
+    <p class="sub" style="margin-bottom:16px">כל מה שתרשום יופיע אוטומטית על השם שלך</p>
+    ${free.length ? `<div class="sub" style="margin-bottom:6px">אולי זה אתה?</div><div class="chips" style="flex-wrap:wrap;margin-bottom:14px">${free.map(p => `<button class="chip" data-claim="${p.id}">אני ${p.e} ${esc(p.name)}</button>`).join('')}</div>` : ''}
+    <div style="display:flex;gap:8px"><button class="round attach" id="gFace" style="width:48px;height:48px" aria-label="בחירת אייקון">${FACES[0]}</button>
+      <input id="gMe" placeholder="השם שלי" style="${inputStyle};margin:0;flex:1"></div>
+    <div class="err" style="margin-top:8px"></div>
+    <button class="btn grad full" id="gSave" style="margin-top:10px">יאללה, מתחילים! 🚀</button>`;
+  const finish = async () => { await db.setKV('people', S.people); await db.setKV('me', S.me); confetti(); showGate(); toast('🎉 ברוך הבא!'); };
+  body.querySelectorAll('[data-claim]').forEach(b => b.onclick = async () => {
+    const p = S.people.find(x => x.id === b.dataset.claim); p.uid = syncUser.id; S.me = p.id; await finish();
+  });
+  body.querySelector('#gFace').onclick = e => { face = (face + 1) % FACES.length; e.target.textContent = FACES[face]; };
+  body.querySelector('#gMe').oninput = () => err('');
+  body.querySelector('#gSave').onclick = async () => {
+    const name = body.querySelector('#gMe').value.trim();
+    if (!name) return err('צריך לכתוב שם');
+    if (S.people.some(p => p.name === name)) return err('השם הזה כבר קיים — אם זה אתה, לחץ עליו למעלה');
+    const p = { id: db.newId(), name, e: FACES[face], uid: syncUser.id };
+    S.people.push(p); S.me = p.id; await finish();
+  };
+}
+
+// ---------- עדכונים אוטומטיים ----------
+if ('serviceWorker' in navigator) {
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController) toast('✨ האפליקציה עודכנה לגרסה חדשה'); });
+}
 
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
