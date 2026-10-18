@@ -57,6 +57,39 @@ p.lead{font-size:clamp(19px,3.6vw,26px);color:#E4DBF7;margin:14px 0 22px}
 nav.toc{position:sticky;top:0;z-index:5;background:rgba(251,248,255,.92);backdrop-filter:blur(10px);border-bottom:1px solid #EDE7F8}
 nav.toc .wrap{display:flex;gap:8px;overflow-x:auto;padding-top:10px;padding-bottom:10px;scrollbar-width:none}
 nav.toc a{flex:none;text-decoration:none;font-size:15px;font-weight:600;padding:8px 14px;border-radius:999px;background:#F3E8FF;color:#6D28D9}
+
+/* ---- פיד בסגנון אינסטגרם ---- */
+.ig{background:#0B0712;color:#F5F0FF;padding:40px 0 56px}
+.stories{display:flex;gap:16px;overflow-x:auto;padding:6px 18px 22px;scrollbar-width:none;max-width:980px;margin:0 auto}
+.stories::-webkit-scrollbar{display:none}
+.story{flex:none;width:78px;text-align:center;text-decoration:none;color:#E9E2F7;font-size:13px}
+.story .ring{width:74px;height:74px;border-radius:50%;padding:3px;background:conic-gradient(from 200deg,#FEDA75,#FA7E1E,#D62976,#962FBF,#4F5BD5,#FEDA75);margin:0 auto 6px;animation:spin 6s linear infinite}
+.story .ring span{display:grid;place-items:center;width:100%;height:100%;border-radius:50%;background:#0B0712;border:3px solid #0B0712;font-size:30px;animation:spin 6s linear infinite reverse}
+@keyframes spin{to{transform:rotate(360deg)}}
+.feed{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:22px;max-width:1060px;margin:0 auto;padding:0 18px}
+.post{background:#15101F;border:1px solid #2A2238;border-radius:22px;overflow:hidden}
+.post .top{display:flex;align-items:center;gap:10px;padding:12px 14px}
+.post .av{width:36px;height:36px;border-radius:50%;padding:2px;background:linear-gradient(45deg,#FEDA75,#FA7E1E,#D62976,#962FBF)}
+.post .av span{display:grid;place-items:center;width:100%;height:100%;border-radius:50%;background:#15101F;font-size:17px}
+.post .who{font-weight:700;font-size:15px}.post .who small{display:block;font-weight:400;color:#A79BC0;font-size:12px}
+.post .pic{aspect-ratio:1/1;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:26px;gap:12px;position:relative;overflow:hidden}
+.post .pic .big{font-size:84px;line-height:1;filter:drop-shadow(0 10px 24px rgba(0,0,0,.35))}
+.post .pic h3{font-size:clamp(26px,6vw,34px);font-weight:800;line-height:1.15;color:#fff;text-shadow:0 4px 20px rgba(0,0,0,.25)}
+.post .pic .tag{font-size:15px;font-weight:700;background:rgba(255,255,255,.22);backdrop-filter:blur(6px);padding:6px 14px;border-radius:999px;color:#fff}
+.post .acts{display:flex;gap:16px;padding:12px 14px 4px;font-size:24px}
+.post .cap{padding:4px 14px 16px;font-size:15.5px;line-height:1.55;color:#E2DAF2}
+.post .cap b{color:#fff}.post .cap .h{color:#C4A8FF}
+.p1{background:linear-gradient(135deg,#7C3AED,#EC4899)} .p2{background:linear-gradient(135deg,#F97316,#EC4899)}
+.p3{background:linear-gradient(135deg,#06B6D4,#7C3AED)} .p4{background:linear-gradient(135deg,#22C55E,#14B8A6)}
+.p5{background:linear-gradient(135deg,#3B82F6,#06B6D4)} .p6{background:linear-gradient(135deg,#0EA5E9,#22C55E)}
+.p7{background:linear-gradient(135deg,#FEDA75,#FA7E1E,#D62976)} .p8{background:linear-gradient(135deg,#F59E0B,#EF4444)}
+.p9{background:linear-gradient(135deg,#16A34A,#65A30D)} .p10{background:linear-gradient(135deg,#962FBF,#4F5BD5)}
+.p11{background:linear-gradient(135deg,#EC4899,#F43F5E)} .p12{background:linear-gradient(135deg,#334155,#7C3AED)}
+.post .pic:after{content:"";position:absolute;width:70%;height:70%;border-radius:50%;background:rgba(255,255,255,.12);top:-25%;left:-20%}
+.ig h2{text-align:center;max-width:980px;margin:0 auto 6px;padding:0 18px}
+.ig .sub2{text-align:center;color:#BFB3DA;font-size:18px;margin-bottom:18px;padding:0 18px}
+.divider{text-align:center;padding:40px 18px 0}
+.divider span{display:inline-block;font-weight:800;font-size:22px;padding:12px 26px;border-radius:999px;background:var(--g);color:#fff;box-shadow:0 10px 30px rgba(236,72,153,.35)}
 footer{padding:28px 0;text-align:center;color:#8B82A6;font-size:14px}
 </style>
 </head>
@@ -67,7 +100,7 @@ footer{padding:28px 0;text-align:center;color:#8B82A6;font-size:14px}
     <div class="eyebrow">הכסף של הבית — סוף סוף בשליטה 💜</div>
     <h1>כסף בכיף ✨</h1>
     <p class="lead">בונים תקציב חכם, רושמים הוצאות כמו הודעה בוואטסאפ,<br>ורואים בדיוק לאן הולך כל שקל.</p>
-    <a class="btn" href="../">📲 לפתיחת האפליקציה</a>
+    <a class="btn" href="../">📲 לפתיחת האפליקציה</a> <a class="btn ghost" href="#features" style="margin-top:10px">🔥 מה היא יודעת?</a>
     <div class="phone">
       <div class="me">אושר עד 500</div>
       <div class="bot">🛒 אושר עד · 500₪<small>מזון וסופר · נשארו 2,000₪</small></div>
@@ -78,8 +111,90 @@ footer{padding:28px 0;text-align:center;color:#8B82A6;font-size:14px}
   </div>
 </section>
 
+
+<section class="ig" id="features">
+  <h2>כל מה שהכסף שלכם היה צריך 🔥</h2>
+  <p class="sub2">גוללים כמו באינסטגרם — ומגלים מה כסף בכיף יודע לעשות</p>
+  <div class="stories"><a class="story" href="#f-budget"><div class="ring"><span>🎯</span></div>תקציב</a><a class="story" href="#f-write"><div class="ring"><span>💬</span></div>רישום</a><a class="story" href="#f-voice"><div class="ring"><span>🎤</span></div>קול</a><a class="story" href="#f-files"><div class="ring"><span>📎</span></div>עו״ש</a><a class="story" href="#f-balance"><div class="ring"><span>⚖️</span></div>מאזן</a><a class="story" href="#f-insights"><div class="ring"><span>💡</span></div>חיסכון</a><a class="story" href="#f-excel"><div class="ring"><span>📊</span></div>אקסל</a><a class="story" href="#f-family"><div class="ring"><span>👨‍👩‍👧</span></div>משפחה</a><a class="story" href="#f-lock"><div class="ring"><span>🔒</span></div>נעילה</a></div>
+  <div class="feed">
+    <article class="post" id="f-budget">
+      <div class="top"><div class="av"><span>💰</span></div><div class="who">kesefbekef<small>כסף בכיף ✨</small></div></div>
+      <div class="pic p1"><div class="big">🎯</div><h3>תקציב שבונה את עצמו</h3><span class="tag">#תקציב_חכם</span></div>
+      <div class="acts">❤️ 💬 ➤</div>
+      <div class="cap"><b>kesefbekef</b> מחליטים כמה מותר לכל דבר — או נותנים לה <b>להמליץ לבד</b> לפי ההרגלים שלכם. ולפני שחורגים? היא כבר מזהירה 🚦 <span class="h">#תקציב_שלא_נשאר_על_הנייר</span></div>
+    </article>
+    <article class="post" id="f-write">
+      <div class="top"><div class="av"><span>💰</span></div><div class="who">kesefbekef<small>כסף בכיף ✨</small></div></div>
+      <div class="pic p2"><div class="big">💬</div><h3>הוצאה נרשמת בשנייה</h3><span class="tag">#כמו_בוואטסאפ</span></div>
+      <div class="acts">❤️ 💬 ➤</div>
+      <div class="cap"><b>kesefbekef</b> כותבים <b>"אושר עד 500"</b> ושולחים. זהו. בלי טפסים, בלי לבחור קטגוריות, בלי כאב ראש. <span class="h">#פשוט_ככה</span></div>
+    </article>
+    <article class="post" id="f-voice">
+      <div class="top"><div class="av"><span>💰</span></div><div class="who">kesefbekef<small>כסף בכיף ✨</small></div></div>
+      <div class="pic p3"><div class="big">🎤</div><h3>מדברים — והיא רושמת</h3><span class="tag">#בלי_ידיים</span></div>
+      <div class="acts">❤️ 💬 ➤</div>
+      <div class="cap"><b>kesefbekef</b> באמצע הנהיגה? אומרים <b>"תדלקתי במאה שמונים"</b> — וזה כבר בפנים. בעברית, בקול. <span class="h">#אפס_הקלדה</span></div>
+    </article>
+    <article class="post" id="f-smart">
+      <div class="top"><div class="av"><span>💰</span></div><div class="who">kesefbekef<small>כסף בכיף ✨</small></div></div>
+      <div class="pic p4"><div class="big">🧠</div><h3>מסדרת לבד, ולומדת אתכם</h3><span class="tag">#ניהול_חכם</span></div>
+      <div class="acts">❤️ 💬 ➤</div>
+      <div class="cap"><b>kesefbekef</b> סופר, דלק, מסעדה, חוגים — היא יודעת. תיקנתם פעם אחת? <b>היא זוכרת לתמיד.</b> <span class="h">#חכמה_מכם_ומכולם</span></div>
+    </article>
+    <article class="post" id="f-files">
+      <div class="top"><div class="av"><span>💰</span></div><div class="who">kesefbekef<small>כסף בכיף ✨</small></div></div>
+      <div class="pic p5"><div class="big">📎</div><h3>קוראת את העו״ש והאשראי</h3><span class="tag">#בלי_להקליד</span></div>
+      <div class="acts">❤️ 💬 ➤</div>
+      <div class="cap"><b>kesefbekef</b> מעלים <b>אקסל, PDF או צילום מסך</b> מכל בנק וכל כרטיס — גם כמה קבצים יחד, גם חודשים אחורה. כל התנועות נכנסות לבד. <span class="h">#ישראכרט #מקס #כאל #כל_הבנקים</span></div>
+    </article>
+    <article class="post" id="f-dups">
+      <div class="top"><div class="av"><span>💰</span></div><div class="who">kesefbekef<small>כסף בכיף ✨</small></div></div>
+      <div class="pic p6"><div class="big">🛡️</div><h3>אפס כפילויות</h3><span class="tag">#מדויק</span></div>
+      <div class="acts">❤️ 💬 ➤</div>
+      <div class="cap"><b>kesefbekef</b> מה שכבר רשמתם — לא נספר פעמיים. <b>חיובי אשראי ומשיכות מזומן</b> מזוהים לבד, כדי שהמספרים יהיו אמיתיים. <span class="h">#סוף_לבלגן</span></div>
+    </article>
+    <article class="post" id="f-balance">
+      <div class="top"><div class="av"><span>💰</span></div><div class="who">kesefbekef<small>כסף בכיף ✨</small></div></div>
+      <div class="pic p7"><div class="big">⚖️</div><h3>מאזן שמראה את האמת</h3><span class="tag">#מאזן_משפחתי</span></div>
+      <div class="acts">❤️ 💬 ➤</div>
+      <div class="cap"><b>kesefbekef</b> הכנסות מול הוצאות, <b>חודש אחרי חודש</b>. כמה נחסך, כמה ברח, ולאן. התמונה המלאה — כבר מהיום הראשון. <span class="h">#יודעים_איפה_עומדים</span></div>
+    </article>
+    <article class="post" id="f-insights">
+      <div class="top"><div class="av"><span>💰</span></div><div class="who">kesefbekef<small>כסף בכיף ✨</small></div></div>
+      <div class="pic p8"><div class="big">💡</div><h3>תובנות שמחזירות כסף</h3><span class="tag">#חוסכים_בכיף</span></div>
+      <div class="acts">❤️ 💬 ➤</div>
+      <div class="cap"><b>kesefbekef</b> <b>"ויתור על 2 ארוחות בחוץ = 3,000₪ בשנה"</b>. מנויים שנשכחו, הוצאות קבועות שאפשר להוזיל, חריגות — הכל על השולחן. <span class="h">#כסף_שנשאר_בכיס</span></div>
+    </article>
+    <article class="post" id="f-excel">
+      <div class="top"><div class="av"><span>💰</span></div><div class="who">kesefbekef<small>כסף בכיף ✨</small></div></div>
+      <div class="pic p9"><div class="big">📊</div><h3>אקסל צבעוני בלחיצה</h3><span class="tag">#דוחות_יפים</span></div>
+      <div class="acts">❤️ 💬 ➤</div>
+      <div class="cap"><b>kesefbekef</b> סיכום <b>יומי, שבועי, חודשי, שנתי או בין תאריכים</b> — מעוצב, צבעוני, ומוכן גם לניתוח עם AI. <span class="h">#מוכן_לרואה_החשבון</span></div>
+    </article>
+    <article class="post" id="f-family">
+      <div class="top"><div class="av"><span>💰</span></div><div class="who">kesefbekef<small>כסף בכיף ✨</small></div></div>
+      <div class="pic p10"><div class="big">👨‍👩‍👧</div><h3>כל המשפחה, אפליקציה אחת</h3><span class="tag">#ביחד</span></div>
+      <div class="acts">❤️ 💬 ➤</div>
+      <div class="cap"><b>kesefbekef</b> כל אחד מהטלפון שלו, הכל מתעדכן אצל כולם. <b>הורים רואים הכל, ילדים רק מוסיפים.</b> <span class="h">#ניהול_הורים</span></div>
+    </article>
+    <article class="post" id="f-pay">
+      <div class="top"><div class="av"><span>💰</span></div><div class="who">kesefbekef<small>כסף בכיף ✨</small></div></div>
+      <div class="pic p11"><div class="big">💳</div><h3>תשלומים, מזומן, ביט</h3><span class="tag">#שליטה_מלאה</span></div>
+      <div class="acts">❤️ 💬 ➤</div>
+      <div class="cap"><b>kesefbekef</b> <b>"ספה 6000 ב-12 תשלומים"</b> נפרס לבד על פני השנה. ויודעים בדיוק כמה יצא במזומן, באשראי ובביט. <span class="h">#אין_הפתעות</span></div>
+    </article>
+    <article class="post" id="f-lock">
+      <div class="top"><div class="av"><span>💰</span></div><div class="who">kesefbekef<small>כסף בכיף ✨</small></div></div>
+      <div class="pic p12"><div class="big">🔒</div><h3>נעול רק בשבילכם</h3><span class="tag">#פרטיות</span></div>
+      <div class="acts">❤️ 💬 ➤</div>
+      <div class="cap"><b>kesefbekef</b> <b>טביעת אצבע, Face ID או קוד.</b> מסונכרן ומאובטח בענן, עובד גם בלי קליטה, ומתעדכן לבד. <span class="h">#שקט_נפשי</span></div>
+    </article>
+  </div>
+  <div class="divider"><span>📲 בואו נתחיל — המדריך צעד אחר צעד 👇</span></div>
+</section>
+
 <nav class="toc"><div class="wrap">
-  <a href="#install">📲 התקנה</a><a href="#budget">🎯 תקציב</a><a href="#android">🤖 אנדרואיד</a><a href="#iphone">🍏 אייפון</a><a href="#signup">🔑 הרשמה</a><a href="#join">👨‍👩‍👧 הצטרפות</a><a href="#use">💬 שימוש</a><a href="#tips">⭐ טיפים</a>
+  <a href="#features">🔥 מה יש</a><a href="#install">📲 התקנה</a><a href="#budget">🎯 תקציב</a><a href="#android">🤖 אנדרואיד</a><a href="#iphone">🍏 אייפון</a><a href="#signup">🔑 הרשמה</a><a href="#join">👨‍👩‍👧 הצטרפות</a><a href="#use">💬 שימוש</a><a href="#tips">⭐ טיפים</a>
 </div></nav>
 
 <section>
