@@ -804,6 +804,7 @@ function openSettings() { openSheet(`<h3>⚙️ הגדרות</h3>
   <div class="card" id="syncCard" style="margin-bottom:12px"></div>
   <div class="card" id="lockCard" style="margin-bottom:12px"></div>
   <button class="btn ghost full" id="toHelp" style="margin-bottom:10px">❓ עזרה ואיך משתמשים</button>
+  <button class="btn ghost full" id="toShare" style="margin-bottom:10px">📤 שתף את האפליקציה עם חבר</button>
   ${isStandalone() ? '' : '<button class="btn ghost full" id="toInstall" style="margin-bottom:10px">📲 התקנה על המסך (כמו אפליקציה)</button>'}
   <button class="btn grad full parent-only" id="toExcel" style="margin-bottom:10px">📊 הורדת סיכום לאקסל</button>
   <div class="row2" style="margin-bottom:10px"><button class="btn ghost" id="exp">⬇️ גיבוי</button><button class="btn ghost" id="imp">⬆️ שחזור מגיבוי</button></div>
@@ -813,6 +814,7 @@ function openSettings() { openSheet(`<h3>⚙️ הגדרות</h3>
   drawLockCard(sh.querySelector('#lockCard'));
   sh.querySelector('#toExcel').onclick = () => openExportSheet();
   sh.querySelector('#toHelp').onclick = () => openHelp();
+  sh.querySelector('#toShare').onclick = () => openHelp('איך משתפים את האפליקציה עם חבר');
   sh.querySelector('#toInstall')?.addEventListener('click', openInstallSheet);
   sh.querySelector('#exp').onclick = async () => {
     const blob = new Blob([JSON.stringify(await db.exportAll(), null, 1)], { type: 'application/json' });
@@ -825,6 +827,14 @@ function openSettings() { openSheet(`<h3>⚙️ הגדרות</h3>
     catch (err) { toast('הקובץ לא נראה כמו גיבוי של האפליקציה', true); }
   };
 }); }
+
+// ---------- שיתוף האפליקציה עם חבר (משפחה חדשה, בלי קוד) ----------
+async function shareApp() {
+  try {
+    if (navigator.share) { await navigator.share({ title: 'כסף בכיף', text: help.SHARE_TEXT.replace(help.SHARE_URL, '').trim(), url: help.SHARE_URL }); return; }
+    await navigator.clipboard.writeText(help.SHARE_TEXT); toast('🔗 הקישור הועתק — אפשר להדביק לחבר');
+  } catch (e) { if (e.name !== 'AbortError') toast('🔗 ' + help.SHARE_URL); }
+}
 
 // ---------- עזרה: שאלות ותשובות בחלון נפרד (לא נשמר בצ'אט) ----------
 function openHelp(question = '', showGuide = false) {
@@ -841,7 +851,11 @@ function openHelp(question = '', showGuide = false) {
     <div class="chips" style="flex-wrap:wrap;margin-bottom:12px">${topics.map(t => `<button class="chip" data-topic="${t.id}">${t.t}</button>`).join('')}</div>
     <div class="sub" style="text-align:center">עדיין תקוע? מוישי וינדיש · <a href="tel:0542964361" style="color:#F9A8D4">054-2964361</a> · <a href="mailto:mvindish@gmail.com" style="color:#F9A8D4">mvindish@gmail.com</a></div>`, sh => {
     const box = sh.querySelector('#hAns');
-    const bubble = (cls, html) => { const d = document.createElement('div'); d.className = cls + ' new'; d.innerHTML = html; d.style.maxWidth = '100%'; box.appendChild(d); return d; };
+    const bubble = (cls, html) => {
+      const d = document.createElement('div'); d.className = cls + ' new'; d.innerHTML = html; d.style.maxWidth = '100%'; box.appendChild(d);
+      d.querySelector('[data-share-app]')?.addEventListener('click', shareApp);
+      return d;
+    };
     const showGuideFrame = () => {
       sh.querySelector('#hGuide').innerHTML = `<iframe src="guide/" title="המדריך" style="width:100%;height:65vh;border:0;border-radius:18px;margin-bottom:12px;background:#FBF8FF"></iframe>`;
       sh.querySelector('#hOpenGuide').style.display = 'none';
