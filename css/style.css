@@ -189,3 +189,8 @@ input,select,textarea{font-size:16px}
 .paynow button{background:var(--card);border:1px solid var(--line);border-radius:999px;padding:5px 10px;font-size:12px;cursor:pointer;color:var(--text)}
 .paynow button:active{background:var(--g1)}
 .paynow .skip{background:none;border:none;color:var(--muted);text-decoration:underline;padding:5px 4px}
+
+/* הדגשת שורה אחרי "להראות לי" */
+.tx.flash{animation:flash 2.4s ease}
+@keyframes flash{0%,40%{background:rgba(236,72,153,.35);box-shadow:0 0 0 2px #EC4899 inset;border-radius:14px}100%{background:transparent}}
+#v-budget .stat{cursor:pointer}

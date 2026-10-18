@@ -225,24 +225,64 @@ async function send(raw, source = 'text') {
     return;
   }
 
-  const msg = db.newId(), now = new Date(), ids = [];
+  const msg = db.newId(), now = new Date();
   const pay = detectPay(raw);
-  const before = {};
-  for (const it of items) {
+  const pending = items.map(it => {
     const income = items.length === 1 ? isIncome(raw) : isIncome(it.desc);
     let desc = it.desc, cat = income ? 'income' : classify(desc, S.learned);
     if (!income && stripVav(desc) !== desc) { const c2 = classify(stripVav(desc), S.learned); if (c2 !== 'other') { cat = c2; desc = stripVav(desc); } }
     const date = new Date(now); date.setDate(date.getDate() + it.dayOffset);
     const inst = !income && it.installments > 1 ? it.installments : 0;
-    const t = { id: db.newId(), msg, raw, desc, cat, source, created: now.toISOString(), date: date.toISOString(),
+    return { id: db.newId(), msg, raw, desc, cat, source, created: now.toISOString(), date: date.toISOString(),
       amount: inst ? Math.round(it.amount / inst * 100) / 100 : it.amount, total: it.amount, inst, pay: pay || (inst ? 'credit' : null),
       who: named.who || S.me || null };
-    const m = ym(date);
-    if (cat !== 'income' && !(cat in before)) before[cat] = spentIn(cat, m);
+  });
+
+  // ⚠️ כפילות: אותו סכום בערך + אותה קטגוריה או שם דומה, באותו חודש — שואלים לפני שרושמים
+  const dups = pending.map(t => ({ t, d: findDup(t) })).filter(x => x.d);
+  typing.remove();
+  if (dups.length) {
+    const { t, d } = dups[0];
+    const by = d.who && personOf(d.who) ? ` ע"י ${esc(whoLabel(d.who))}` : '';
+    const b = document.createElement('div'); b.className = 'bot new';
+    b.innerHTML = `<div class="cat-ic" style="background:linear-gradient(135deg,#F59E0B,#F97316)">⚠️</div>
+      <div><b>נראה שזה כבר נרשם</b><div class="sub">"${esc(d.desc)} · ${fmt(d.inst > 1 ? d.total : d.amount)}"${by} ב-${new Date(d.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}${dups.length > 1 ? ` (ועוד ${dups.length - 1})` : ''}</div>
+      <div class="acts" style="flex-wrap:wrap;gap:10px"><button data-dup="same">✋ זו אותה הוצאה — לא לרשום</button><button data-dup="add">➕ להכניס בכל זאת</button><button data-dup="show">👀 להראות לי</button></div></div>`;
+    $('#chat').appendChild(b);
+    $('#main').scrollTo({ top: $('#main').scrollHeight, behavior: 'smooth' });
+    b.querySelector('[data-dup="add"]').onclick = () => { b.remove(); commitTx(pending); };
+    b.querySelector('[data-dup="same"]').onclick = () => {
+      me.style.opacity = '.45'; me.style.textDecoration = 'line-through';
+      b.innerHTML = `<div class="cat-ic" style="background:var(--card2)">👌</div><div><b>בסדר, לא נרשם שוב</b></div>`;
+    };
+    b.querySelector('[data-dup="show"]').onclick = () => showTx(d.id);
+    return;
+  }
+  await commitTx(pending);
+}
+
+function similarDesc(a, b) {
+  const norm = x => x.toLowerCase().replace(/[^\p{L}\s]/gu, ' ').split(/\s+/).filter(w => w.length >= 2);
+  const A = norm(a), B = norm(b);
+  return A.some(w => B.includes(w)) || a.includes(b) || b.includes(a);
+}
+function findDup(t) {
+  const amt = t.inst > 1 ? t.total : t.amount, inc = t.cat === 'income';
+  return S.tx.filter(x => x.id !== t.id && (x.cat === 'income') === inc &&
+      Math.abs((x.inst > 1 ? x.total : x.amount) - amt) <= Math.max(1, amt * 0.03) &&
+      (ym(new Date(x.date)) === ym(new Date(t.date)) || Math.abs(new Date(x.date) - new Date(t.date)) <= 5 * 864e5) &&
+      (x.cat === t.cat || similarDesc(x.desc, t.desc)))
+    .sort((a, b) => Math.abs(new Date(a.date) - new Date(t.date)) - Math.abs(new Date(b.date) - new Date(t.date)))[0];
+}
+
+async function commitTx(pending) {
+  const ids = [], before = {};
+  for (const t of pending) {
+    const m = ym(new Date(t.date));
+    if (t.cat !== 'income' && !(t.cat in before)) before[t.cat] = spentIn(t.cat, m);
     S.tx.push(t); await db.putTx(t); ids.push(t.id);
   }
   renderAll(ids);
-
   // חגיגות והתראות
   const added = S.tx.filter(t => ids.includes(t.id));
   if (added.some(t => t.cat === 'income')) { confetti(); toast('💸 הכנסה חדשה! ' + fmt(added.filter(t => t.cat === 'income').reduce((s, t) => s + t.amount, 0))); }
@@ -252,6 +292,19 @@ async function send(raw, source = 'text') {
     else if (before[cat] < b * .8 && after >= b * .8) toast(`⚠️ הגעת ל-80% מתקציב ${CATS[cat].n}`, true);
   }
   for (const cat of new Set(added.map(t => t.cat))) $(`#st-${cat}`)?.classList.add('pop');
+}
+
+// קפיצה לשורה מסוימת ברשימת התנועות, עם הדגשה
+function showTx(id) {
+  const t = S.tx.find(x => x.id === id); if (!t) return;
+  closeSheet();
+  S.month = ym(new Date(t.date)); S.catFilter = null; S.whoFilter = null; S.search = ''; $('#search').value = '';
+  go('tx');
+  setTimeout(() => {
+    const row = document.querySelector(`#txList [data-id="${id}"]`); if (!row) return;
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash');
+  }, 60);
 }
 
 $('#chat').addEventListener('click', e => {
@@ -327,8 +380,37 @@ function renderStories() {
 }
 $('#stories').addEventListener('click', e => {
   const b = e.target.closest('[data-cat]'); if (!b) return;
-  S.catFilter = b.dataset.cat; S.month = thisMonth(); go('tx');
+  openCategory(b.dataset.cat, thisMonth());
 });
+
+// פירוט קטגוריה: כמה יצא, על מה, מתי ומי — לכל חודש
+function openCategory(id, m = S.month) {
+  const c = catOf(id), isInc = id === 'income';
+  const list = txInMonth(m).filter(t => t.cat === id).sort((a, b) => b.date.localeCompare(a.date));
+  const total = list.reduce((s, t) => s + amountIn(t, m), 0);
+  const b = isInc ? 0 : budgetOf(id), p = b ? Math.min(100, total / b * 100) : 0, over = b && total > b;
+  openSheet(`<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+      <div class="cat-ic" style="background:${c.g};width:52px;height:52px;font-size:26px">${c.e}</div>
+      <div style="flex:1;min-width:0"><h3 style="margin:0">${c.n}</h3><div class="sub">${list.length} ${isInc ? 'הכנסות' : 'הוצאות'}</div></div></div>
+    <div class="monthnav" style="justify-content:space-between;margin-bottom:12px"><button data-cm="-1" aria-label="חודש קודם">›</button><span>${monthLabel(m)}</span><button data-cm="1" aria-label="חודש הבא">‹</button></div>
+    <div class="card" style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px"><span class="sub">${isInc ? 'נכנס החודש' : 'יצא החודש'}</span>
+        <b style="font-size:26px;direction:ltr" class="${over ? 'over' : ''}">${fmt(total)}${b ? ` <span class="sub" style="font-size:14px">/ ${fmt(b)}</span>` : ''}</b></div>
+      ${b ? `<div class="pbar"><i style="width:${p}%;background:${over ? 'linear-gradient(90deg,#F43F5E,#FB7185)' : c.g}"></i></div>
+      <div class="sub" style="margin-top:6px">${over ? `⚠️ חריגה של ${fmt(total - b)}` : `נשארו ${fmt(b - total)}`}</div>` : ''}
+    </div>
+    <div class="card" style="padding:4px 14px;margin-bottom:12px">${list.length ? list.map(t => {
+      const extra = t.inst > 1 ? ` · תשלום ${installmentNo(t, m)}/${t.inst}` : '';
+      const who = t.who && personOf(t.who) ? ' · ' + esc(whoLabel(t.who)) : '';
+      return `<button class="tx" data-ct="${t.id}"><div class="nm"><div>${esc(t.desc)}</div><small>${new Date(t.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}${extra}${who}${t.pay ? ' · ' + PAY[t.pay].e : ''}</small></div><div class="am ${isInc ? 'plus' : ''}">${fmt(amountIn(t, m))}</div></button>`;
+    }).join('') : `<div class="empty"><span class="em">🌱</span>אין ${isInc ? 'הכנסות' : 'הוצאות'} בחודש הזה</div>`}</div>
+    ${isInc ? '' : `<button class="btn grad full" id="cBudget" style="margin-bottom:8px">🎯 שינוי התקציב</button>`}
+    <div class="sub" style="text-align:center">לחיצה על שורה — עריכה</div>`, sh => {
+    sh.querySelectorAll('[data-cm]').forEach(x => x.onclick = () => openCategory(id, addMonths(m, Number(x.dataset.cm))));
+    sh.querySelectorAll('[data-ct]').forEach(x => x.onclick = () => { const t = S.tx.find(y => y.id === x.dataset.ct); if (t) openEditSheet(t); });
+    sh.querySelector('#cBudget')?.addEventListener('click', () => openBudgetEdit(id));
+  });
+}
 
 // ---------- תקציב ----------
 function renderBudget() {
@@ -342,7 +424,14 @@ function renderBudget() {
 }
 $('#budgetList').addEventListener('click', e => {
   const b = e.target.closest('[data-cat]'); if (!b) return;
-  const id = b.dataset.cat, c = CATS[id], r = recommend(id);
+  openCategory(b.dataset.cat, S.month);
+});
+document.querySelector('#v-budget .duo').addEventListener('click', e => {
+  const st = e.target.closest('.stat'); if (!st) return;
+  if (st.querySelector('#incSum')) openCategory('income', S.month);
+});
+function openBudgetEdit(id) {
+  const c = CATS[id], r = recommend(id);
   openSheet(`<h3>${c.e} תקציב ל${c.n}</h3>
     <label class="field"><span>כמה מותר להוציא בחודש?</span><input id="bIn" type="number" inputmode="numeric" value="${budgetOf(id)}"></label>
     <div class="err" id="bErr"></div>
@@ -356,7 +445,7 @@ $('#budgetList').addEventListener('click', e => {
     sh.querySelector('#bSave').onclick = () => save(parseFloat(sh.querySelector('#bIn').value));
     sh.querySelector('#bReco')?.addEventListener('click', () => save(r));
   });
-});
+}
 $('#recoBtn').onclick = () => {
   const rows = Object.entries(CATS).map(([id, c]) => [id, c, recommend(id)]).filter(x => x[2]);
   if (!rows.length) { toast('צריך קצת נתונים קודם — רשום הוצאות כמה ימים 🙂'); return; }
