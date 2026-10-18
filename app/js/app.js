@@ -1051,16 +1051,29 @@ async function drawSync(el) {
     <span style="flex:1;min-width:120px">${inner}</span>${actions}</div>`;
   el.innerHTML = `<b style="font-size:16px">👨‍👩‍👧 ${esc(hh.name)}</b> <span class="sub" id="syncState">· מסונכרן ✓</span>
     <div class="sub" style="margin:4px 0 12px">${esc(syncUser.email)} · אתה הורה — רואה הכל ומנהל את המשפחה</div>
+    <div class="sub" style="margin-bottom:6px">🔑 קודי הצטרפות — אפשר להקריא או להעתיק:</div>
+    <div class="row2" style="margin-bottom:14px">
+      <div style="text-align:center;background:linear-gradient(160deg,rgba(124,58,237,.35),rgba(168,85,247,.2));border:1px solid rgba(196,181,253,.4);border-radius:18px;padding:12px 8px">
+        <div class="sub" style="color:#E9D5FF">👨‍👩 קוד להורה</div>
+        <div style="font-size:30px;font-weight:800;letter-spacing:5px;direction:ltr;margin:4px 0 8px">${hh.invite_code}</div>
+        <button class="chip" data-copy="${hh.invite_code}">📋 העתקה</button></div>
+      <div style="text-align:center;background:linear-gradient(160deg,rgba(249,115,22,.35),rgba(251,146,60,.2));border:1px solid rgba(253,186,116,.4);border-radius:18px;padding:12px 8px">
+        <div class="sub" style="color:#FFEDD5">🧒 קוד לילד</div>
+        <div style="font-size:30px;font-weight:800;letter-spacing:5px;direction:ltr;margin:4px 0 8px">${hh.child_code || '—'}</div>
+        ${hh.child_code ? `<button class="chip" data-copy="${hh.child_code}">📋 העתקה</button>` : ''}</div>
+    </div>
+    <div class="sub" style="margin-bottom:6px">👨‍👩‍👧 מי במשפחה:</div>
     <div id="famList" class="sub">טוען…</div>
     <div class="err" id="memErr"></div>
     <div style="display:flex;gap:8px;margin-top:4px"><button class="round attach" id="pplFace" style="width:44px;height:44px" aria-label="בחירת אייקון">${FACES[1]}</button>
       <input id="pplName" placeholder="הוספת בן משפחה, למשל: יעל" style="flex:1;min-width:0;height:44px;border-radius:14px;border:1px solid var(--line);background:var(--card2);padding:0 12px;outline:none;font-size:16px">
       <button class="btn grad" id="pplAdd" style="height:44px">הוספה</button></div>
     <div class="sub" style="margin-top:10px;line-height:1.6">📱 מחובר — יש לו טלפון משלו (הורה רואה הכל, ילד רק מוסיף)<br>✏️ רק שם — רושמים בשבילו, למשל "יעל: גלידה 15"</div>
-    <details style="margin-top:8px"><summary class="sub" style="cursor:pointer">קודי הצטרפות</summary>
-      <div class="sub" style="margin-top:6px">👨‍👩 הורה: <b style="direction:ltr;letter-spacing:2px">${hh.invite_code}</b> · 🧒 ילד: <b style="direction:ltr;letter-spacing:2px">${hh.child_code || ''}</b></div></details>
     <button class="btn ghost full" id="sOut" style="margin-top:10px">יציאה מהחשבון</button>`;
 
+  el.querySelectorAll('[data-copy]').forEach(b => b.onclick = async () => {
+    try { await navigator.clipboard.writeText(b.dataset.copy); b.textContent = '✅ הועתק'; } catch { b.textContent = b.dataset.copy; }
+  });
   let face = 1;
   const err = m => { el.querySelector('#memErr').textContent = m; };
   const drawFamily = async () => {
@@ -1087,8 +1100,9 @@ async function drawSync(el) {
     box.querySelectorAll('[data-inv]').forEach(b => b.onclick = () => {
       const p = personOf(b.dataset.inv);
       box.querySelector(`[data-invbox="${p.id}"]`).innerHTML = `<span class="sub">להזמין כ:</span>
-        <a class="chip" href="${inviteHref('parent', p.name)}" target="_blank" rel="noopener" style="text-decoration:none">👨‍👩 הורה</a>
-        <a class="chip" href="${inviteHref('child', p.name)}" target="_blank" rel="noopener" style="text-decoration:none">🧒 ילד</a>`;
+        <a class="chip" href="${inviteHref('parent', p.name)}" target="_blank" rel="noopener" style="text-decoration:none">👨‍👩 הורה <b style="direction:ltr;letter-spacing:2px">${hh.invite_code}</b></a>
+        <a class="chip" href="${inviteHref('child', p.name)}" target="_blank" rel="noopener" style="text-decoration:none">🧒 ילד <b style="direction:ltr;letter-spacing:2px">${hh.child_code || ''}</b></a>
+        <span class="sub" style="width:100%">לחיצה שולחת בוואטסאפ · יושבים ליד? פשוט מקריאים את הקוד</span>`;
     });
     box.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
       if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'למחוק?'; return; }
