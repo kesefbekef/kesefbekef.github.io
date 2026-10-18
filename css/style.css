@@ -25,7 +25,7 @@ header{position:relative;z-index:2;padding:calc(14px + env(safe-area-inset-top,0
 main{position:relative;z-index:2;flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch}
 .view{display:none;animation:in .35s ease;padding-bottom:110px}
 .view.on{display:block}
-#v-chat{padding-bottom:180px}
+#v-chat{padding-bottom:var(--chat-pad,220px)}
 @keyframes in{from{opacity:0;transform:translateY(10px)}}
 
 .hero{margin:6px 16px 14px;padding:18px;border-radius:26px;background:var(--g1);background-size:200% 200%;animation:shift 8s ease infinite;position:relative;overflow:hidden;box-shadow:0 14px 40px rgba(236,72,153,.3)}
@@ -64,10 +64,10 @@ main{position:relative;z-index:2;flex:1;overflow-y:auto;-webkit-overflow-scrolli
 .typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
 @keyframes blink{50%{opacity:1;transform:translateY(-3px)}}
 
-.composer{position:absolute;bottom:calc(76px + var(--safe-b));left:0;right:0;z-index:5;padding:8px 12px 10px;background:linear-gradient(to top,var(--bg) 75%,transparent)}
+.composer{position:absolute;bottom:calc(76px + var(--safe-b));left:0;right:0;z-index:5;padding:10px 12px 10px;background:rgba(10,10,18,.94);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-top:1px solid var(--line)}
 .chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;scrollbar-width:none}
 .chips::-webkit-scrollbar{display:none}
-.chip{flex:none;padding:7px 13px;border-radius:20px;background:var(--card);border:1px solid var(--line);font-size:13px;cursor:pointer}
+.chip{flex:none;padding:7px 13px;border-radius:20px;background:var(--card);border:1px solid var(--line);font-size:13px;cursor:pointer;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chip.on{background:var(--g1);border-color:transparent}
 .crow{display:flex;gap:8px;align-items:center}
 .composer input{flex:1;min-width:0;height:48px;border-radius:24px;border:1px solid var(--line);background:var(--card2);backdrop-filter:blur(14px);font-size:16px;padding:0 18px;outline:none}
