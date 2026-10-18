@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#140C26">
+<title>כסף בכיף — המדריך</title>
+<meta name="description" content="המדריך הכי פשוט: איך מתקינים את כסף בכיף באנדרואיד ובאייפון, איך נרשמים ואיך משתמשים">
+<meta property="og:title" content="כסף בכיף — המדריך">
+<meta property="og:description" content="מתקינים, נרשמים, וכותבים הוצאות כמו הודעה בוואטסאפ">
+<meta property="og:image" content="https://zd0542964361.github.io/kesef-bekef/icons/icon-512.png">
+<link rel="icon" href="../icons/icon-192.png">
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#1E1533;--soft:#4B4266;--paper:#FBF8FF;--g:linear-gradient(135deg,#7C3AED 0%,#EC4899 55%,#F97316 100%)}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:Rubik,system-ui,sans-serif;background:var(--paper);color:var(--ink);line-height:1.5}
+a{color:inherit}
+.wrap{max-width:980px;margin:0 auto;padding:0 18px}
+section{padding:56px 0}
+.dark{background:linear-gradient(160deg,#2A1458 0%,#140C26 60%,#2B0F2A 100%);color:#FBF8FF}
+.grad{background:var(--g);color:#fff}
+.eyebrow{font-weight:700;color:#C026D3;font-size:17px;margin-bottom:6px}
+.dark .eyebrow{color:#F9A8D4}
+h1{font-size:clamp(48px,11vw,96px);font-weight:800;line-height:1.05;background:linear-gradient(90deg,#F97316,#EC4899,#A78BFA);-webkit-background-clip:text;background-clip:text;color:transparent}
+h2{font-size:clamp(30px,6vw,52px);font-weight:800;line-height:1.15;margin-bottom:22px}
+h3{font-size:22px;font-weight:700;margin:8px 0 6px}
+p.lead{font-size:clamp(19px,3.6vw,26px);color:#E4DBF7;margin:14px 0 22px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}
+.card{background:#fff;border:2px solid #E9D5FF;border-radius:26px;padding:24px;box-shadow:0 12px 30px rgba(124,58,237,.08)}
+.card p{color:var(--soft);font-size:17px}
+.emo{font-size:52px;line-height:1}
+.num{width:52px;height:52px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:800;font-size:26px;background:var(--g)}
+.green .num{background:linear-gradient(135deg,#22C55E,#14B8A6)} .green .card{border-color:#BBF7D0}
+.blue .num{background:linear-gradient(135deg,#3B82F6,#7C3AED)} .blue .card{border-color:#C7D2FE}
+.orange .card{border-color:#FED7AA}
+.pill{display:inline-block;padding:8px 18px;border-radius:999px;font-weight:700;font-size:16px}
+.btn{display:inline-block;text-decoration:none;font-weight:700;font-size:20px;padding:16px 28px;border-radius:18px;background:var(--g);color:#fff;box-shadow:0 10px 30px rgba(236,72,153,.35)}
+.btn.ghost{background:rgba(255,255,255,.12);box-shadow:none;border:2px solid rgba(255,255,255,.35)}
+.choose{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:22px}
+.choose a{display:block;text-align:center;text-decoration:none;background:rgba(20,12,38,.3);border:2px solid rgba(255,255,255,.5);border-radius:26px;padding:22px}
+.choose .emo{font-size:60px}
+.phone{width:min(300px,100%);margin:26px auto 0;background:#0E0A1A;border:5px solid #3B2A63;border-radius:42px;padding:22px 16px;display:flex;flex-direction:column;gap:12px;box-shadow:0 30px 80px rgba(124,58,237,.45)}
+.me{align-self:flex-start;background:linear-gradient(135deg,#7C3AED,#EC4899);color:#fff;padding:10px 16px;border-radius:18px 18px 18px 6px;font-size:17px}
+.bot{align-self:flex-end;background:#2A2240;color:#FBF8FF;padding:10px 16px;border-radius:18px 18px 6px 18px;font-size:16px}
+.bot small{display:block;color:#B9AED6;font-size:13px}
+.ex{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+.ex div{display:flex;gap:14px;align-items:center;background:#fff;border:2px solid #E9D5FF;border-radius:20px;padding:14px 18px}
+.ex b{font-size:19px;display:block} .ex span{color:var(--soft);font-size:15px}
+.roles .card{color:#fff;border:none}
+.note{background:#F3E8FF;color:#6D28D9;border-radius:18px;padding:14px 18px;margin-top:18px;font-size:17px}
+.dark .card{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.15);box-shadow:none}
+.dark .card p{color:#D9D2EA}
+.contact{background:rgba(20,12,38,.3);border:2px solid rgba(255,255,255,.45);border-radius:28px;padding:26px;margin-top:26px;text-align:center}
+.contact a{text-decoration:none}
+nav.toc{position:sticky;top:0;z-index:5;background:rgba(251,248,255,.92);backdrop-filter:blur(10px);border-bottom:1px solid #EDE7F8}
+nav.toc .wrap{display:flex;gap:8px;overflow-x:auto;padding-top:10px;padding-bottom:10px;scrollbar-width:none}
+nav.toc a{flex:none;text-decoration:none;font-size:15px;font-weight:600;padding:8px 14px;border-radius:999px;background:#F3E8FF;color:#6D28D9}
+footer{padding:28px 0;text-align:center;color:#8B82A6;font-size:14px}
+</style>
+</head>
+<body>
+
+<section class="dark">
+  <div class="wrap">
+    <div class="eyebrow">המדריך הכי פשוט בעולם</div>
+    <h1>כסף בכיף ✨</h1>
+    <p class="lead">מתקינים, נרשמים, וכותבים הוצאות — כמו הודעה בוואטסאפ</p>
+    <a class="btn" href="../">📲 לפתיחת האפליקציה</a>
+    <div class="phone">
+      <div class="me">אושר עד 500</div>
+      <div class="bot">🛒 אושר עד · 500₪<small>מזון וסופר · נשארו 2,000₪</small></div>
+      <div class="me">🎤 דלק 200 במזומן</div>
+      <div class="bot">🚗 דלק · 200₪<small>רכב ותחבורה · 💵 מזומן</small></div>
+    </div>
+    <p style="margin-top:26px;color:#CFC4EA;font-size:15px">💜 מוישי וינדיש · <a href="tel:0542964361">054-2964361</a> · <a href="mailto:mvindish@gmail.com">mvindish@gmail.com</a></p>
+  </div>
+</section>
+
+<nav class="toc"><div class="wrap">
+  <a href="#install">📲 התקנה</a><a href="#android">🤖 אנדרואיד</a><a href="#iphone">🍏 אייפון</a><a href="#signup">🔑 הרשמה</a><a href="#join">👨‍👩‍👧 הצטרפות</a><a href="#use">💬 שימוש</a><a href="#tips">⭐ טיפים</a>
+</div></nav>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">מה זה בכלל?</div>
+    <h2>אפליקציה שסופרת את הכסף בשבילך</h2>
+    <div class="cards">
+      <div class="card"><div class="emo">✍️</div><h3>כותבים</h3><p>"אושר עד 500" — כמו הודעה בוואטסאפ</p></div>
+      <div class="card"><div class="emo">🪄</div><h3>היא מסדרת לבד</h3><p>יודעת שזה סופר, ושמה במקום הנכון</p></div>
+      <div class="card"><div class="emo">📊</div><h3>רואים הכל</h3><p>כמה הוצאנו, על מה, ואיפה אפשר לחסוך</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="grad" id="install">
+  <div class="wrap" style="text-align:center">
+    <span class="pill" style="background:rgba(255,255,255,.2)">שלב 1</span>
+    <h2 style="margin-top:14px">מתקינים על הטלפון 📲</h2>
+    <p style="font-size:20px">איזה טלפון יש לך? 👇</p>
+    <div class="choose">
+      <a href="#android"><div class="emo">🤖</div><h3>אנדרואיד</h3><span>סמסונג, שיאומי, פיקסל…</span></a>
+      <a href="#iphone"><div class="emo">🍏</div><h3>אייפון</h3><span>כל סוגי האייפון</span></a>
+    </div>
+  </div>
+</section>
+
+<section class="green" id="android" style="background:#F2FBF5">
+  <div class="wrap">
+    <span class="pill" style="background:#15803D;color:#fff">3 צעדים, דקה אחת</span>
+    <h2 style="margin-top:12px">🤖 התקנה באנדרואיד</h2>
+    <div class="cards">
+      <div class="card"><div class="num">1</div><h3>פותחים את הקישור</h3><p>לוחצים על הקישור שקיבלתם. צריך שייפתח ב-<b>Chrome</b> 🌐</p></div>
+      <div class="card"><div class="num">2</div><h3>לוחצים "התקנה"</h3><p>בכרטיס <b>"📲 להתקין כאפליקציה?"</b> ואז <b>"התקן"</b>.<br>לא רואים? ⋮ ← "התקנת אפליקציה"</p></div>
+      <div class="card"><div class="num">3</div><h3>יש אייקון! 🎉</h3><p>במסך הבית מופיע <b>"כסף בכיף"</b>. פותחים ממנו — כמו וואטסאפ</p></div>
+    </div>
+    <div class="note" style="background:#DCFCE7;color:#166534">בדפדפן "סמסונג אינטרנט": תפריט ☰ ← "הוסף דף אל" ← "מסך הבית"</div>
+  </div>
+</section>
+
+<section class="blue" id="iphone" style="background:#F4F6FF">
+  <div class="wrap">
+    <span class="pill" style="background:#2563EB;color:#fff">רק בדפדפן Safari 🧭</span>
+    <h2 style="margin-top:12px">🍏 התקנה באייפון</h2>
+    <div class="cards">
+      <div class="card"><div class="num">1</div><h3>פותחים ב-Safari</h3><p>לוחצים על הקישור. נפתח בתוך וואטסאפ? לוחצים על סמל המצפן 🧭</p></div>
+      <div class="card"><div class="num">2</div><h3>כפתור השיתוף ⬆️</h3><p>הריבוע עם החץ למעלה, בתחתית המסך</p></div>
+      <div class="card"><div class="num">3</div><h3>"הוסף למסך הבית"</h3><p>גוללים קצת למטה, בוחרים, ולוחצים <b>"הוסף"</b> ✅</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="dark" style="text-align:center">
+  <div class="wrap">
+    <div style="display:flex;justify-content:center;gap:22px;align-items:flex-end">
+      <div style="opacity:.5"><div style="width:72px;height:72px;border-radius:20px;background:#25D366;margin:0 auto"></div><p style="font-size:14px;margin-top:6px">וואטסאפ</p></div>
+      <div><div style="width:110px;height:110px;border-radius:28px;background:var(--g);display:grid;place-items:center;font-size:60px;margin:0 auto;box-shadow:0 18px 50px rgba(236,72,153,.6)">💰</div><p style="font-weight:700;margin-top:8px">כסף בכיף</p></div>
+      <div style="opacity:.5"><div style="width:72px;height:72px;border-radius:20px;background:#33CCFF;margin:0 auto"></div><p style="font-size:14px;margin-top:6px">וויז</p></div>
+    </div>
+    <h2 style="margin-top:22px">יש אייקון! 🎉</h2>
+    <p class="lead">מעכשיו פותחים מהאייקון, כמו כל אפליקציה.<br>היא מתעדכנת לבד — לא צריך להתקין שוב</p>
+  </div>
+</section>
+
+<section id="signup">
+  <div class="wrap">
+    <div class="eyebrow">שלב 2 · מי שמתחיל ראשון</div>
+    <h2>נרשמים ופותחים משפחה 🔑</h2>
+    <div class="cards">
+      <div class="card"><div class="emo">📧</div><h3>הרשמה</h3><p>מייל + סיסמה חדשה (לפחות 6 תווים) ← <b>"הרשמה"</b></p></div>
+      <div class="card"><div class="emo">🏡</div><h3>משפחה חדשה</h3><p>כותבים שם, למשל "משפחת כהן" ← <b>"פתיחת משפחה חדשה"</b></p></div>
+      <div class="card"><div class="emo">🙋</div><h3>השם שלך</h3><p>כותבים את השם ← <b>"יאללה, מתחילים! 🚀"</b></p></div>
+    </div>
+    <div class="note">🔒 את הסיסמה לא מגלים לאף אחד — כל אחד בבית נרשם עם מייל וסיסמה משלו</div>
+  </div>
+</section>
+
+<section class="orange" id="join" style="background:#FFF7F0">
+  <div class="wrap">
+    <div class="eyebrow" style="color:#EA580C">שלב 2 · כל השאר במשפחה</div>
+    <h2>מצטרפים למשפחה 👨‍👩‍👧</h2>
+    <div class="cards">
+      <div class="card"><div class="num">1</div><h3>ההורה שולח</h3><p>⚙️ ← ליד השם ← <b>"📱 הזמנה"</b> ← הורה או ילד ← וואטסאפ</p></div>
+      <div class="card"><div class="num">2</div><h3>פותחים ומתקינים</h3><p>לוחצים על הקישור, ומתקינים כמו בשלב 1 📲</p></div>
+      <div class="card"><div class="num">3</div><h3>נרשמים + קוד</h3><p>מייל וסיסמה משלך, הקוד מההודעה ← <b>"🔑 הצטרפות עם קוד"</b></p></div>
+      <div class="card"><div class="num">4</div><h3>"אני ___"</h3><p>לוחצים על השם שלך (או כותבים אותו) 🎉</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="roles">
+  <div class="wrap">
+    <h2>מי רואה מה? 👀</h2>
+    <div class="cards">
+      <div class="card" style="background:linear-gradient(160deg,#7C3AED,#A855F7)"><div class="emo">👨‍👩</div><h3>הורה</h3><p style="color:#F3E8FF">רואה <b>הכל</b>: כל ההוצאות של כולם, תקציב, תובנות ואקסל. מנהל את המשפחה.</p></div>
+      <div class="card" style="background:linear-gradient(160deg,#F97316,#FB923C)"><div class="emo">🧒</div><h3>ילד</h3><p style="color:#FFF1E6">רק <b>מוסיף</b> הוצאות, ורואה רק את מה שהוא עצמו רשם.</p></div>
+      <div class="card" style="background:#fff;color:var(--ink);border:2px dashed #C4B5FD"><div class="emo">✏️</div><h3>רק שם</h3><p>בלי טלפון (ילד קטן). ההורים רושמים בשבילו: <b>"יעל: גלידה 15"</b></p></div>
+    </div>
+  </div>
+</section>
+
+<section class="dark" id="use">
+  <div class="wrap">
+    <div class="eyebrow">שלב 3 · משתמשים כל יום</div>
+    <h2>כותבים הוצאה, כמו הודעה 💬</h2>
+    <p class="lead">שם החנות והסכום — וזהו. האפליקציה מבינה לבד שזה סופר, דלק או מסעדה. אין צורך לבחור כלום — הכל נרשם על השם שלך 🙂</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">אפשר לכתוב — או לדבר 🎤</div>
+    <h2>ככה כותבים, וזה מבין</h2>
+    <div class="ex">
+      <div><span style="font-size:36px">💰</span><p><b>"משכורת 12500"</b><span>נרשם כהכנסה + קונפטי 🎉</span></p></div>
+      <div><span style="font-size:36px">💵</span><p><b>"דלק 200 במזומן"</b><span>זוכר גם איך שילמת</span></p></div>
+      <div><span style="font-size:36px">🛋️</span><p><b>"ספה 6000 ב-12 תשלומים"</b><span>500₪ בכל חודש, לבד</span></p></div>
+      <div><span style="font-size:36px">👧</span><p><b>"יעל: גלידה 15"</b><span>נרשם על השם של יעל</span></p></div>
+      <div><span style="font-size:36px">📅</span><p><b>"אתמול פיצה 85"</b><span>נרשם על התאריך של אתמול</span></p></div>
+      <div><span style="font-size:36px">🧺</span><p><b>"סופר 230 וקפה 18"</b><span>שתי הוצאות בהודעה אחת</span></p></div>
+    </div>
+  </div>
+</section>
+
+<section class="green" style="background:#F2FBF5">
+  <div class="wrap">
+    <h2>טעיתי? לא נורא 😅</h2>
+    <div class="cards">
+      <div class="card"><span class="pill" style="background:#7C3AED;color:#fff">✏️ תיקון</span><p style="margin-top:10px">בוחרים קטגוריה אחרת — והאפליקציה <b>לומדת</b> לפעם הבאה 🧠</p></div>
+      <div class="card"><span class="pill" style="background:#EC4899;color:#fff">↩️ ביטול</span><p style="margin-top:10px">מוחק את מה שנרשם בטעות</p></div>
+      <div class="card"><span class="pill" style="background:#0D9488;color:#fff">📋 תנועות</span><p style="margin-top:10px">לחיצה על כל שורה — לשנות סכום, תאריך, של מי ואיך שולם</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="blue" style="background:#F4F6FF">
+  <div class="wrap">
+    <div class="eyebrow" style="color:#2563EB">בלי להקליד בכלל</div>
+    <h2>מעלים פירוט מהבנק או מהאשראי 📎</h2>
+    <div class="cards">
+      <div class="card"><div class="emo">📄</div><h3>מה אפשר להעלות?</h3><p>אקסל, PDF או צילום מסך — מכל בנק וכל כרטיס. גם כמה קבצים, גם חודשים אחורה</p></div>
+      <div class="card"><div class="emo">👆</div><h3>איך?</h3><p>לוחצים על <b>📎</b> ליד שורת הכתיבה, בוחרים קבצים, ולוחצים <b>"ייבוא"</b></p></div>
+      <div class="card"><div class="emo">🛡️</div><h3>בלי כפילויות</h3><p>מה שכבר רשמת בצ'אט — לא ייספר פעמיים. גם משיכות מזומן מסומנות</p></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">הכפתורים למטה במסך</div>
+    <h2>4 מסכים, זה הכל 👇</h2>
+    <div class="cards">
+      <div class="card" style="text-align:center"><div class="emo">💬</div><h3>צ'אט</h3><p>כותבים הוצאות והכנסות</p></div>
+      <div class="card" style="text-align:center"><div class="emo">🎯</div><h3>תקציב</h3><p>כמה מותר לכל דבר, והמלצה חכמה 🪄</p></div>
+      <div class="card" style="text-align:center"><div class="emo">💡</div><h3>תובנות</h3><p>איפה אפשר לחסוך, חודש מול חודש</p></div>
+      <div class="card" style="text-align:center"><div class="emo">📋</div><h3>תנועות</h3><p>כל מה שנרשם, עם חיפוש</p></div>
+    </div>
+    <div class="note">📊 למעלה: הורדת סיכום צבעוני לאקסל — יומי, שבועי, חודשי, שנתי או בין תאריכים</div>
+  </div>
+</section>
+
+<section class="dark" id="tips">
+  <div class="wrap">
+    <h2>עוד כמה דברים טובים ⭐</h2>
+    <div class="cards">
+      <div class="card"><div class="emo">🔒</div><h3>נעילה</h3><p>טביעת אצבע, Face ID או קוד. ⚙️ ← "הפעלת נעילה"</p></div>
+      <div class="card"><div class="emo">☁️</div><h3>כולם מסונכרנים</h3><p>מה שאחד רושם — מופיע אצל ההורים תוך שניות</p></div>
+      <div class="card"><div class="emo">✨</div><h3>מתעדכנת לבד</h3><p>כל שיפור מגיע אוטומטית. לא צריך להתקין שוב</p></div>
+      <div class="card"><div class="emo">📶</div><h3>גם בלי אינטרנט</h3><p>רושמים כרגיל, וזה נשלח כשחוזרת הקליטה</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="grad" style="text-align:center">
+  <div class="wrap">
+    <h2>זהו, אפשר להתחיל! 🚀</h2>
+    <a class="btn ghost" href="../">📲 לפתיחת כסף בכיף</a>
+    <div class="contact">
+      <p style="font-size:20px;font-weight:700">💌 הערות, רעיונות ובעיות — מאוד אשמח לשמוע!</p>
+      <p style="font-size:26px;font-weight:800;margin-top:8px">מוישי וינדיש</p>
+      <p style="font-size:19px;margin-top:4px"><a href="tel:0542964361">📞 054-2964361</a></p>
+      <p style="font-size:19px"><a href="mailto:mvindish@gmail.com">✉️ mvindish@gmail.com</a></p>
+    </div>
+  </div>
+</section>
+
+<footer>כסף בכיף · המדריך מתעדכן יחד עם האפליקציה</footer>
+</body>
+</html>
