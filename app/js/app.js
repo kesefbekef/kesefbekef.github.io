@@ -143,7 +143,17 @@ function dayLabel(d) {
   return k === today ? 'היום' : k === ymd(y) ? 'אתמול' : d.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'numeric' });
 }
 
+// הרווח בתחתית הצ'אט = גובה שורת הכתיבה + התפריט התחתון (כולל הפס של האייפון)
+function fitChatPadding() {
+  const c = $('#composer'), n = document.querySelector('nav');
+  if (!c || !n) return;
+  document.documentElement.style.setProperty('--chat-pad', (c.offsetHeight + n.offsetHeight + 16) + 'px');
+}
+window.addEventListener('resize', fitChatPadding);
+window.visualViewport?.addEventListener('resize', fitChatPadding);
+
 function renderChat(newIds = []) {
+  fitChatPadding();
   const since = Date.now() - 45 * 864e5;
   const list = S.tx.filter(t => new Date(t.created) >= since).sort((a, b) => a.created.localeCompare(b.created));
   let html = '', lastDay = '', lastMsg = '';
