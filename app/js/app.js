@@ -122,8 +122,12 @@ function botHTML(t) {
   }
   const day = ymd(new Date(t.date)) !== ymd(new Date(t.created)) ? ` · ${new Date(t.date).toLocaleDateString('he-IL')}` : '';
   const pay = t.pay ? `<button data-act="pay" data-id="${t.id}">${PAY[t.pay].e} ${PAY[t.pay].n}</button>` : '';
+  // שאלה קלה "איך שולם?" — רק על רשומות חדשות, אפשר לדלג
+  const askPay = !t.pay && !t.paySkip && t.source !== 'file' && Date.now() - new Date(t.created) < 12 * 3600e3
+    ? `<div class="paynow"><span>💳 איך שולם?</span>${['credit', 'cash', 'transfer', 'bit'].map(k => `<button data-act="setpay" data-pay="${k}" data-id="${t.id}">${PAY[k].e} ${PAY[k].n.split('/')[0]}</button>`).join('')}<button data-act="skippay" data-id="${t.id}" class="skip">דלג</button></div>` : '';
   return `<div class="cat-ic" style="background:${c.g}">${c.e}</div>
     <div><b>${title}</b><div class="sub">${sub}${day}</div>
+    ${askPay}
     <div class="acts">${t.who && personOf(t.who) ? `<button data-act="who" data-id="${t.id}">${whoLabel(t.who)}</button>` : ''}${pay}<button data-act="fix" data-id="${t.id}">✏️ עריכה</button><button data-act="undo" data-id="${t.id}">↩️ ביטול</button></div></div>`;
 }
 
@@ -263,6 +267,8 @@ $('#chat').addEventListener('click', e => {
   const t = S.tx.find(x => x.id === b.dataset.id); if (!t) return;
   if (b.dataset.act === 'undo') removeTx(t);
   else if (b.dataset.act === 'pay') openPaySheet(t);
+  else if (b.dataset.act === 'setpay') { t.pay = b.dataset.pay; db.putTx(t).then(() => { const el = document.getElementById('b-' + t.id); if (el) el.innerHTML = botHTML(t); toast(`${PAY[t.pay].e} נשמר: ${PAY[t.pay].n}`); }); }
+  else if (b.dataset.act === 'skippay') { t.paySkip = true; db.putTx(t).then(() => { const el = document.getElementById('b-' + t.id); if (el) el.innerHTML = botHTML(t); }); }
   else if (b.dataset.act === 'who') openWhoSheet(t);
   else openEditSheet(t);
 });

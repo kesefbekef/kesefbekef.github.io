@@ -183,3 +183,9 @@ input,select,textarea{font-size:16px}
 .tx .am{flex:none}
 .imp-row .nm{min-width:0}
 .imp-cat{width:100%}
+
+/* שאלה "איך שולם?" בבועה */
+.paynow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px;font-size:12px;color:var(--muted)}
+.paynow button{background:var(--card);border:1px solid var(--line);border-radius:999px;padding:5px 10px;font-size:12px;cursor:pointer;color:var(--text)}
+.paynow button:active{background:var(--g1)}
+.paynow .skip{background:none;border:none;color:var(--muted);text-decoration:underline;padding:5px 4px}
