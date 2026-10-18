@@ -796,6 +796,7 @@ function openSettings() { openSheet(`<h3>⚙️ הגדרות</h3>
       <button class="btn grad" id="pplAdd" style="height:44px">הוספה</button></div>
     <div class="err" id="pplErr" style="margin:6px 0 0"></div>
   </div>
+  ${isStandalone() ? '' : '<button class="btn ghost full" id="toInstall" style="margin-bottom:10px">📲 התקנה על המסך (כמו אפליקציה)</button>'}
   <button class="btn grad full" id="toExcel" style="margin-bottom:10px">📊 הורדת סיכום לאקסל</button>
   <div class="row2" style="margin-bottom:10px"><button class="btn ghost" id="exp">⬇️ גיבוי</button><button class="btn ghost" id="imp">⬆️ שחזור מגיבוי</button></div>
   <input type="file" id="impFile" accept="application/json,.json" hidden>
@@ -831,6 +832,7 @@ function openSettings() { openSheet(`<h3>⚙️ הגדרות</h3>
   drawSync(sh.querySelector('#syncCard'));
   drawLockCard(sh.querySelector('#lockCard'));
   sh.querySelector('#toExcel').onclick = () => openExportSheet();
+  sh.querySelector('#toInstall')?.addEventListener('click', openInstallSheet);
   sh.querySelector('#exp').onclick = async () => {
     const blob = new Blob([JSON.stringify(await db.exportAll(), null, 1)], { type: 'application/json' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `kesef-backup-${ymd(new Date())}.json`; a.click();
@@ -842,6 +844,33 @@ function openSettings() { openSheet(`<h3>⚙️ הגדרות</h3>
     catch (err) { toast('הקובץ לא נראה כמו גיבוי של האפליקציה', true); }
   };
 }); }
+
+// ---------- התקנה על המסך (כמו אפליקציה רגילה) ----------
+let installEvt = null;
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; drawInstallBanner(); });
+window.addEventListener('appinstalled', () => { installEvt = null; drawInstallBanner(); toast('🎉 האפליקציה הותקנה על המסך'); confetti(); });
+
+function openInstallSheet() {
+  if (installEvt) { installEvt.prompt(); installEvt.userChoice.finally(() => { installEvt = null; drawInstallBanner(); }); return; }
+  openSheet(`<h3>📲 התקנה על המסך</h3>
+    <div class="sub" style="margin:-6px 0 14px">ככה "כסף בכיף" יופיע עם אייקון במסך הבית, כמו וואטסאפ — ייפתח במסך מלא ויעבוד גם בלי אינטרנט</div>
+    ${isIOS() ? `<div class="card tip" style="margin-bottom:10px"><div class="em">🍏</div><p><b>באייפון (בדפדפן Safari):</b><br>1. לוחצים על כפתור השיתוף <b>⬆️</b> בתחתית המסך<br>2. גוללים ובוחרים <b>"הוסף למסך הבית"</b><br>3. לוחצים <b>"הוסף"</b> — וזהו!</p></div>`
+      : `<div class="card tip" style="margin-bottom:10px"><div class="em">🤖</div><p><b>באנדרואיד (בדפדפן Chrome):</b><br>1. לוחצים על <b>⋮</b> (שלוש נקודות) למעלה<br>2. בוחרים <b>"התקנת אפליקציה"</b> או <b>"הוספה למסך הבית"</b><br>3. מאשרים — וזהו!</p></div>
+         <div class="card tip"><div class="em">💻</div><p><b>במחשב (Chrome / Edge):</b> לוחצים על סמל ההתקנה בשורת הכתובת, או ⋮ ← "התקנה".</p></div>`}`);
+}
+function drawInstallBanner() {
+  const el = $('#installBanner');
+  let hidden = false; try { hidden = localStorage.getItem('kesef-install-hide') === '1'; } catch {}
+  if (isStandalone() || hidden || !location.protocol.startsWith('https')) { el.innerHTML = ''; return; }
+  el.innerHTML = `<div class="card tip" style="margin:0 16px 14px;align-items:center">
+    <div class="em">📲</div><p style="flex:1"><b>להתקין כאפליקציה?</b><br>אייקון במסך הבית, כמו וואטסאפ</p>
+    <button class="btn grad" id="instGo" style="height:40px">התקנה</button><button class="chip" id="instX" aria-label="סגירה">✕</button></div>`;
+  $('#instGo').onclick = openInstallSheet;
+  $('#instX').onclick = () => { try { localStorage.setItem('kesef-install-hide', '1'); } catch {} drawInstallBanner(); };
+}
+drawInstallBanner();
 
 // ---------- נעילה ----------
 let pinBuf = '', fails = 0, lockedUntil = 0, hiddenAt = 0;
