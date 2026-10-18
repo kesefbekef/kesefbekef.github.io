@@ -170,3 +170,7 @@ button.card{text-align:inherit;width:100%;cursor:pointer}
 .gate{z-index:90;justify-content:flex-start;padding-top:calc(60px + env(safe-area-inset-top,0px));overflow-y:auto}
 .gate h2{text-align:center;margin-bottom:6px}
 .gate .sub{text-align:center}
+
+/* חשבון ילד: רק צ'אט ותנועות שלו */
+body.kid nav [data-v="budget"], body.kid nav [data-v="insights"], body.kid #exportBtn, body.kid #bell,
+body.kid .stories, body.kid .hero .bar, body.kid #usedPct, body.kid .parent-only { display: none !important; }

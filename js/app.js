@@ -297,8 +297,9 @@ function openFixSheet(t) {
 // ---------- מסך ראשי: יתרה וסיפורים ----------
 function renderHero() {
   const m = thisMonth(), inc = incomeIn(m), exp = expenseIn(m);
-  $('#heroLabel').textContent = inc ? 'נשאר לך החודש' : 'הוצאת החודש';
-  $('#left').textContent = inc ? fmt(inc - exp) : fmt(exp);
+  const kid = !sync.isParent();
+  $('#heroLabel').textContent = kid ? 'רשמת החודש' : inc ? 'נשאר לך החודש' : 'הוצאת החודש';
+  $('#left').textContent = !kid && inc ? fmt(inc - exp) : fmt(exp);
   const pct = Math.round(exp / totalBudget() * 100);
   $('#usedBar').style.width = Math.min(100, pct) + '%';
   $('#usedPct').textContent = `${pct}% מהתקציב נוצל`;
@@ -528,7 +529,15 @@ function go(v) {
 $$('nav button').forEach(b => b.onclick = () => { if (b.dataset.v === 'tx') S.catFilter = null; go(b.dataset.v); });
 $('#bell').onclick = () => { S.month = thisMonth(); go('insights'); };
 
+// ילד: רק מוסיף ורואה את מה שהוא רשם (ההגבלה האמיתית בשרת)
+function applyRole() {
+  const kid = !sync.isParent();
+  document.body.classList.toggle('kid', kid);
+  if (kid && (S.view === 'budget' || S.view === 'insights')) go('chat');
+}
+
 function renderAll(newIds) {
+  applyRole();
   renderHero(); renderStories(); renderMonthNav(); renderBudget(); renderInsights(); renderTx(); renderQuick();
   if (S.view === 'chat') renderChat(newIds);
 }
@@ -788,7 +797,7 @@ $('#settingsBtn').onclick = () => openSettings();
 function openSettings() { openSheet(`<h3>⚙️ הגדרות</h3>
   <div class="card" id="syncCard" style="margin-bottom:12px"></div>
   <div class="card" id="lockCard" style="margin-bottom:12px"></div>
-  <div class="card" style="margin-bottom:12px">
+  <div class="card parent-only" style="margin-bottom:12px">
     <b>👨‍👩‍👧 בני הבית</b>
     <div class="sub" style="margin:2px 0 10px">כל רשומה תהיה על שם מישהו. ⭐ = מי שמשתמש במכשיר הזה (ברירת המחדל)</div>
     <div id="pplList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px"></div>
@@ -798,7 +807,7 @@ function openSettings() { openSheet(`<h3>⚙️ הגדרות</h3>
     <div class="err" id="pplErr" style="margin:6px 0 0"></div>
   </div>
   ${isStandalone() ? '' : '<button class="btn ghost full" id="toInstall" style="margin-bottom:10px">📲 התקנה על המסך (כמו אפליקציה)</button>'}
-  <button class="btn grad full" id="toExcel" style="margin-bottom:10px">📊 הורדת סיכום לאקסל</button>
+  <button class="btn grad full parent-only" id="toExcel" style="margin-bottom:10px">📊 הורדת סיכום לאקסל</button>
   <div class="row2" style="margin-bottom:10px"><button class="btn ghost" id="exp">⬇️ גיבוי</button><button class="btn ghost" id="imp">⬆️ שחזור מגיבוי</button></div>
   <input type="file" id="impFile" accept="application/json,.json" hidden>
   <div class="sub" style="text-align:center;margin-top:8px">${S.tx.length} רשומות · ${Object.keys(S.learned).length} מילים שלמדתי</div>`, sh => {
@@ -993,14 +1002,49 @@ async function drawSync(el) {
     el.querySelector('#sOut').onclick = async () => { await sync.signOut(); syncUser = null; drawSync(el); };
     return;
   }
-  const link = `${location.origin}${location.pathname}?join=${hh.invite_code}`;
-  const msg = `הצטרפו לתקציב המשפחתי שלנו ב"כסף בכיף" 💰\n1. פותחים: ${link}\n2. נרשמים עם מייל וסיסמה\n3. קוד המשפחה: ${hh.invite_code}`;
+  if (hh.role === 'child') {
+    el.innerHTML = `<b>☁️ ${esc(hh.name)}</b> <span class="sub" id="syncState">· מסונכרן ✓</span>
+      <div class="sub" style="margin:4px 0 10px">${esc(syncUser.email)} · 🧒 חשבון ילד — אפשר להוסיף הוצאות והכנסות ולראות את מה שרשמת</div>
+      <button class="btn ghost full" id="sOut">יציאה</button>`;
+    el.querySelector('#sOut').onclick = async () => { await sync.signOut(); syncUser = null; closeSheet(); showGate(); };
+    return;
+  }
+  const invite = (code, who) => {
+    const link = `${location.origin}${location.pathname}?join=${code}`;
+    const msg = `הצטרפו לתקציב המשפחתי שלנו ב"כסף בכיף" 💰\n1. פותחים: ${link}\n2. נרשמים עם מייל וסיסמה\n3. קוד ${who}: ${code}`;
+    return `<a class="btn grad" style="display:grid;place-items:center;text-decoration:none;height:40px;font-size:14px" href="https://wa.me/?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">📤 שליחה בוואטסאפ</a>`;
+  };
   el.innerHTML = `<b>☁️ ${esc(hh.name)}</b> <span class="sub" id="syncState">· מסונכרן ✓</span>
-    <div class="sub" style="margin:4px 0 10px">${esc(syncUser.email)} · כל שינוי מגיע לכל הטלפונים</div>
-    <div style="text-align:center;background:var(--card2);border-radius:16px;padding:12px;margin-bottom:10px">
-      <div class="sub">קוד הצטרפות לבני הבית</div>
-      <div style="font-size:30px;font-weight:800;letter-spacing:6px;direction:ltr">${hh.invite_code}</div></div>
-    <div class="row2"><a class="btn grad" style="display:grid;place-items:center;text-decoration:none" href="https://wa.me/?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">📤 שליחה בוואטסאפ</a><button class="btn ghost" id="sOut">יציאה</button></div>`;
+    <div class="sub" style="margin:4px 0 10px">${esc(syncUser.email)} · 👨‍👩 הורה — רואה הכל ומנהל את המשפחה</div>
+    <div class="row2" style="margin-bottom:10px">
+      <div style="text-align:center;background:var(--card2);border-radius:16px;padding:10px">
+        <div class="sub">👨‍👩 קוד להורה</div><div style="font-size:22px;font-weight:800;letter-spacing:4px;direction:ltr;margin:4px 0 8px">${hh.invite_code}</div>${invite(hh.invite_code, 'הורה')}</div>
+      <div style="text-align:center;background:var(--card2);border-radius:16px;padding:10px">
+        <div class="sub">🧒 קוד לילד</div><div style="font-size:22px;font-weight:800;letter-spacing:4px;direction:ltr;margin:4px 0 8px">${hh.child_code || ''}</div>${hh.child_code ? invite(hh.child_code, 'ילד') : ''}</div>
+    </div>
+    <div class="sub" style="margin-bottom:6px">מי במשפחה:</div>
+    <div id="memList" class="sub">טוען…</div>
+    <div class="err" id="memErr"></div>
+    <button class="btn ghost full" id="sOut" style="margin-top:8px">יציאה</button>`;
+  sync.listMembers().then(list => {
+    const box = el.querySelector('#memList'); if (!box) return;
+    box.innerHTML = list.map(m => {
+      const p = S.people.find(x => x.uid === m.user_id), me = m.user_id === syncUser.id;
+      return `<div style="display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:6px 10px;margin-bottom:6px;color:var(--text)">
+        <span style="flex:1">${p ? `${p.e} ${esc(p.name)}` : '👤 (עוד לא בחר שם)'}${me ? ' · אני' : ''}</span>
+        <button class="chip ${m.role === 'parent' ? 'on' : ''}" data-role="${m.user_id}" data-to="${m.role === 'parent' ? 'child' : 'parent'}">${m.role === 'parent' ? '👨‍👩 הורה' : '🧒 ילד'}</button>
+        ${me ? '' : `<button class="chip" data-rm="${m.user_id}" aria-label="הסרה">✕</button>`}</div>`;
+    }).join('');
+    box.querySelectorAll('[data-role]').forEach(b => b.onclick = async () => {
+      try { await sync.setRole(b.dataset.role, b.dataset.to); toast(b.dataset.to === 'parent' ? 'עכשיו הורה 👨‍👩' : 'עכשיו ילד 🧒'); drawSync(el); }
+      catch (x) { el.querySelector('#memErr').textContent = x.message; }
+    });
+    box.querySelectorAll('[data-rm]').forEach(b => b.onclick = async () => {
+      if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'בטוח?'; return; }
+      try { await sync.removeMember(b.dataset.rm); toast('הוסר מהמשפחה'); drawSync(el); }
+      catch (x) { el.querySelector('#memErr').textContent = x.message; }
+    });
+  }).catch(() => { const box = el.querySelector('#memList'); if (box) box.textContent = 'אין חיבור לאינטרנט'; });
   el.querySelector('#sOut').onclick = async () => { await sync.signOut(); syncUser = null; closeSheet(); showGate(); };
 }
 

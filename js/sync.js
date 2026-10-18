@@ -81,6 +81,23 @@ export async function joinHousehold(code) {
   return hh;
 }
 
+export const isParent = () => !hh || hh.role !== 'child';
+
+// ניהול משפחה (רק להורים — נאכף גם בשרת)
+export async function listMembers() {
+  const { data, error } = await (await client()).rpc('list_members');
+  if (error) throw new Error(nice(error));
+  return data || [];
+}
+export async function setRole(uid, role) {
+  const { error } = await (await client()).rpc('set_member_role', { target: uid, new_role: role });
+  if (error) throw new Error(/last parent/.test(error.message) ? 'חייב להישאר לפחות הורה אחד' : nice(error));
+}
+export async function removeMember(uid) {
+  const { error } = await (await client()).rpc('remove_member', { target: uid });
+  if (error) throw new Error(/last parent/.test(error.message) ? 'חייב להישאר לפחות הורה אחד' : nice(error));
+}
+
 // ---------- תור שליחה (עובד גם כשאין רשת) ----------
 async function enqueue(op) {
   const box = await db.getKV('outbox', []);
