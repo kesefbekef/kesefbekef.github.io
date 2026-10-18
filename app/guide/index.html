@@ -10,6 +10,8 @@
 <meta property="og:description" content="הכסף של הבית — סוף סוף בשליטה. בונים תקציב, רושמים הוצאות כמו בוואטסאפ, וחוסכים.">
 <meta property="og:image" content="https://kesefbekef.github.io/icons/icon-512.png">
 <link rel="icon" href="../icons/icon-192.png">
+<link rel="manifest" href="../manifest.webmanifest">
+<link rel="apple-touch-icon" href="../icons/icon-180.png">
 <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;700;800&display=swap" rel="stylesheet">
 <style>
 :root{--ink:#1E1533;--soft:#4B4266;--paper:#FBF8FF;--g:linear-gradient(135deg,#7C3AED 0%,#EC4899 55%,#F97316 100%)}
@@ -100,7 +102,8 @@ footer{padding:28px 0;text-align:center;color:#8B82A6;font-size:14px}
     <div class="eyebrow">הכסף של הבית — סוף סוף בשליטה 💜</div>
     <h1>כסף בכיף ✨</h1>
     <p class="lead">בונים תקציב חכם, רושמים הוצאות כמו הודעה בוואטסאפ,<br>ורואים בדיוק לאן הולך כל שקל.</p>
-    <a class="btn" href="../">📲 לפתיחת האפליקציה</a> <a class="btn ghost" href="#features" style="margin-top:10px">🔥 מה היא יודעת?</a>
+    <a class="btn install" href="../">📲 התקנת האפליקציה</a> <a class="btn ghost" href="#features" style="margin-top:10px">🔥 מה היא יודעת?</a>
+    <p style="margin-top:14px;font-size:16px"><a class="open-app" href="../" style="color:#F9A8D4">כבר מותקן? כניסה לאפליקציה ←</a></p>
     <div class="phone">
       <div class="me">אושר עד 500</div>
       <div class="bot">🛒 אושר עד · 500₪<small>מזון וסופר · נשארו 2,000₪</small></div>
@@ -385,7 +388,8 @@ footer{padding:28px 0;text-align:center;color:#8B82A6;font-size:14px}
 <section class="grad" style="text-align:center">
   <div class="wrap">
     <h2>זהו, אפשר להתחיל! 🚀</h2>
-    <a class="btn ghost" href="../">📲 לפתיחת כסף בכיף</a>
+    <a class="btn ghost install" href="../">📲 התקנת כסף בכיף</a>
+    <p style="margin-top:12px;font-size:16px"><a class="open-app" href="../">כבר מותקן? כניסה לאפליקציה ←</a></p>
     <div class="contact">
       <p style="font-size:20px;font-weight:700">💌 הערות, רעיונות ובעיות — מאוד אשמח לשמוע!</p>
       <p style="font-size:26px;font-weight:800;margin-top:8px">מוישי וינדיש</p>
@@ -396,5 +400,33 @@ footer{padding:28px 0;text-align:center;color:#8B82A6;font-size:14px}
 </section>
 
 <footer>כסף בכיף · המדריך מתעדכן יחד עם האפליקציה</footer>
+
+<script>
+// קישור אחד לכל דבר: התקנה ישירה מהמדריך, וקוד המשפחה עובר לאפליקציה
+(function () {
+  var q = location.search || '';
+  document.querySelectorAll('a.open-app, a.install').forEach(function (a) { a.href = '../' + q; });
+  var evt = null;
+  var standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  var ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); evt = e; });
+  window.addEventListener('appinstalled', function () { location.href = '../' + q; });
+  document.querySelectorAll('a.install').forEach(function (a) {
+    a.addEventListener('click', function (e) {
+      if (standalone) return;                       // כבר באפליקציה — פשוט נכנסים
+      if (evt) { e.preventDefault(); evt.prompt(); evt.userChoice.then(function (c) { if (c.outcome === 'accepted') setTimeout(function(){ location.href = '../' + q; }, 1200); }); return; }
+      if (ios) { e.preventDefault(); document.getElementById('iphone').scrollIntoView({ behavior: 'smooth' }); return; }
+      // אחרת: פותחים את האפליקציה — שם יש כרטיס "התקנה"
+    });
+  });
+  if (q.indexOf('join=') >= 0) {
+    var bar = document.createElement('div');
+    bar.style.cssText = 'position:sticky;top:0;z-index:9;background:linear-gradient(135deg,#7C3AED,#EC4899,#F97316);color:#fff;text-align:center;padding:12px 16px;font-weight:700;font-size:17px';
+    bar.innerHTML = '👋 הוזמנת למשפחה! <a href="../' + q + '" class="install" style="color:#fff;text-decoration:underline">התקנה והצטרפות ←</a>';
+    document.body.prepend(bar);
+  }
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('../sw.js').catch(function () {});
+})();
+</script>
 </body>
 </html>
