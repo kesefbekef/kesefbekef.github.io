@@ -83,6 +83,22 @@ export async function joinHousehold(code) {
 
 export const isParent = () => !hh || hh.role !== 'child';
 
+export async function renameHousehold(name) {
+  const { error } = await (await client()).rpc('rename_household', { new_name: name });
+  if (error) throw new Error(nice(error));
+  await loadHousehold();
+}
+export async function leaveHousehold() {
+  const { error } = await (await client()).rpc('leave_household');
+  if (error) throw new Error(/last parent/.test(error.message) ? 'אתה ההורה היחיד — קודם תהפוך מישהו אחר להורה' : nice(error));
+  stop(); hh = null;
+  await db.clearFamilyData();
+}
+export async function changePassword(pw) {
+  const { error } = await (await client()).auth.updateUser({ password: pw });
+  if (error) throw new Error(nice(error));
+}
+
 export async function saveFeedback(row) {
   if (!enabled() || !(await user())) return false;
   const { error } = await (await client()).from('feedback').insert({ ...row, household_id: hh?.id || null });
