@@ -124,7 +124,7 @@ function botHTML(t) {
   const pay = t.pay ? `<button data-act="pay" data-id="${t.id}">${PAY[t.pay].e} ${PAY[t.pay].n}</button>` : '';
   return `<div class="cat-ic" style="background:${c.g}">${c.e}</div>
     <div><b>${title}</b><div class="sub">${sub}${day}</div>
-    <div class="acts">${t.who && personOf(t.who) ? `<button data-act="who" data-id="${t.id}">${whoLabel(t.who)}</button>` : ''}${pay}<button data-act="fix" data-id="${t.id}">✏️ תיקון</button><button data-act="undo" data-id="${t.id}">↩️ ביטול</button></div></div>`;
+    <div class="acts">${t.who && personOf(t.who) ? `<button data-act="who" data-id="${t.id}">${whoLabel(t.who)}</button>` : ''}${pay}<button data-act="fix" data-id="${t.id}">✏️ עריכה</button><button data-act="undo" data-id="${t.id}">↩️ ביטול</button></div></div>`;
 }
 
 function fileSummaryHTML(list, msg) {
@@ -264,7 +264,7 @@ $('#chat').addEventListener('click', e => {
   if (b.dataset.act === 'undo') removeTx(t);
   else if (b.dataset.act === 'pay') openPaySheet(t);
   else if (b.dataset.act === 'who') openWhoSheet(t);
-  else openFixSheet(t);
+  else openEditSheet(t);
 });
 
 async function removeTx(t) {
@@ -296,18 +296,6 @@ function openPaySheet(t) {
   });
 }
 
-function openFixSheet(t) {
-  openSheet(`<h3>לאיזו קטגוריה זה שייך?</h3><div class="sub" style="margin:-6px 0 12px">"${esc(t.desc)}" · ${fmt(t.inst > 1 ? t.total : t.amount)}</div>${catGrid(t.cat)}`, sh => {
-    sh.querySelectorAll('[data-cat]').forEach(btn => btn.onclick = async () => {
-      const cat = btn.dataset.cat;
-      t.cat = cat; await db.putTx(t);
-      const key = t.desc.toLowerCase().trim();
-      if (key.length >= 2 && key !== 'הוצאה') { S.learned[key] = cat; await db.setKV('learned', S.learned); }
-      closeSheet(); renderAll();
-      toast(`🧠 למדתי! "${t.desc}" ← ${catOf(cat).n}`);
-    });
-  });
-}
 
 // ---------- מסך ראשי: יתרה וסיפורים ----------
 function renderHero() {
@@ -482,8 +470,9 @@ $('#txList').addEventListener('click', e => {
 
 function openEditSheet(t) {
   let cat = t.cat, pay = t.pay || null, who = t.who || null, armed = false;
-  openSheet(`<h3>עריכה</h3>
-    <label class="field"><span>תיאור</span><input id="eDesc" value="${esc(t.desc)}"></label>
+  openSheet(`<h3>✏️ עריכה</h3>
+    ${t.raw && t.raw !== t.desc ? `<div class="sub" style="margin:-6px 0 12px">📝 נכתב במקור: "${esc(t.raw)}"</div>` : ''}
+    <label class="field"><span>תיאור (מה זה היה)</span><input id="eDesc" value="${esc(t.desc)}"></label>
     <div class="row2">
       <label class="field"><span>${t.inst > 1 ? 'סכום כולל' : 'סכום'}</span><input id="eAmt" type="number" inputmode="decimal" value="${t.inst > 1 ? t.total : t.amount}"></label>
       <label class="field"><span>תאריך</span><input id="eDate" type="date" value="${ymd(new Date(t.date))}"></label>

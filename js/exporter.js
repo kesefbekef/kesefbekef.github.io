@@ -259,7 +259,7 @@ export async function buildWorkbook({ tx, budgets, people = [], kind, anchor }) 
   // ===== גיליון 2: תנועות (טבלה נקייה, טובה גם לניתוח AI) =====
   const wt = wb.addWorksheet('תנועות', { views: [{ rightToLeft: true, state: 'frozen', ySplit: 1 }] });
   wt.columns = [
-    { header: 'תאריך', key: 'date', width: 12 }, { header: 'תיאור', key: 'desc', width: 30 },
+    { header: 'תאריך', key: 'date', width: 12 }, { header: 'תיאור', key: 'desc', width: 26 }, { header: 'מה נכתב במקור', key: 'raw', width: 34 },
     { header: 'קטגוריה', key: 'cat', width: 20 }, { header: 'סכום', key: 'amount', width: 14 },
     { header: 'סוג', key: 'type', width: 10 }, { header: 'אמצעי תשלום', key: 'pay', width: 16 },
     { header: 'מי', key: 'who', width: 14 }, { header: 'מקור', key: 'src', width: 10 }, { header: 'הערות', key: 'note', width: 30 },
@@ -273,7 +273,8 @@ export async function buildWorkbook({ tx, budgets, people = [], kind, anchor }) 
   occ.forEach((o, i) => {
     const t = o.t, c = catOf(t.cat), income = t.cat === 'income';
     const notes = [t.inst > 1 ? `תשלום ${o.k + 1}/${t.inst} מתוך ${t.total} ₪` : '', t.note || ''].filter(Boolean).join(' · ');
-    const row = wt.addRow({ date: new Date(Date.UTC(o.date.getFullYear(), o.date.getMonth(), o.date.getDate())), desc: t.desc, cat: `${c.e} ${c.n}`,
+    const row = wt.addRow({ date: new Date(Date.UTC(o.date.getFullYear(), o.date.getMonth(), o.date.getDate())), desc: t.desc,
+      raw: t.source === 'file' ? `📄 ${t.raw || ''}` : (t.raw || ''), cat: `${c.e} ${c.n}`,
       amount: o.amount, type: income ? 'הכנסה' : o.amount < 0 ? 'זיכוי' : 'הוצאה',
       pay: t.pay ? `${PAY[t.pay].e} ${PAY[t.pay].n}` : '', who: whoName(t.who), src: SRC[t.source] || '', note: notes });
     row.eachCell({ includeEmpty: true }, cell => {
@@ -284,7 +285,7 @@ export async function buildWorkbook({ tx, budgets, people = [], kind, anchor }) 
     row.getCell('amount').numFmt = NIS;
     row.getCell('cat').fill = fill(tint(c.c, .22));
   });
-  wt.autoFilter = { from: 'A1', to: 'I1' };
+  wt.autoFilter = { from: 'A1', to: 'J1' };
 
   const buf = await wb.xlsx.writeBuffer();
   const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
