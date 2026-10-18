@@ -1,5 +1,5 @@
 // מאפשר לאפליקציה להיפתח גם בלי אינטרנט
-const CACHE = 'kesef-20261018224544';
+const CACHE = 'kesef-20261018224940';
 const FILES = ['./', 'index.html', 'css/style.css', 'js/app.js', 'js/db.js', 'js/parse.js', 'js/categories.js', 'js/importer.js', 'js/exporter.js', 'js/sync.js', 'js/lock.js', 'js/help.js', 'js/config.js', 'vendor/supabase.js', 'vendor/exceljs.min.js', 'vendor/pdf.min.mjs', 'vendor/pdf.worker.min.mjs', 'vendor/xlsx.full.min.js',
   'manifest.webmanifest', 'guide/', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png'];
 
