@@ -797,6 +797,7 @@ $('#settingsBtn').onclick = () => openSettings();
 function openSettings() { openSheet(`<h3>⚙️ הגדרות</h3>
   <div class="card" id="syncCard" style="margin-bottom:12px"></div>
   <div class="card" id="lockCard" style="margin-bottom:12px"></div>
+  <a class="btn ghost full" href="guide/" target="_blank" rel="noopener" style="display:grid;place-items:center;text-decoration:none;margin-bottom:10px">❓ איך משתמשים — המדריך</a>
   ${isStandalone() ? '' : '<button class="btn ghost full" id="toInstall" style="margin-bottom:10px">📲 התקנה על המסך (כמו אפליקציה)</button>'}
   <button class="btn grad full parent-only" id="toExcel" style="margin-bottom:10px">📊 הורדת סיכום לאקסל</button>
   <div class="row2" style="margin-bottom:10px"><button class="btn ghost" id="exp">⬇️ גיבוי</button><button class="btn ghost" id="imp">⬆️ שחזור מגיבוי</button></div>
@@ -975,7 +976,7 @@ async function drawSync(el) {
   const inviteHref = (role, name) => {
     const code = role === 'parent' ? hh.invite_code : hh.child_code;
     const link = `${location.origin}${location.pathname}?join=${code}${name ? '&name=' + encodeURIComponent(name) : ''}`;
-    const msg = `${name ? `היי ${name}! ` : ''}הצטרפו לתקציב המשפחתי שלנו ב"כסף בכיף" 💰\n1. פותחים: ${link}\n2. מתקינים על המסך ונרשמים עם מייל וסיסמה\n3. קוד ${role === 'parent' ? 'הורה' : 'ילד'}: ${code}`;
+    const msg = `${name ? `היי ${name}! ` : ''}הצטרפו לתקציב המשפחתי שלנו ב"כסף בכיף" 💰\n1. פותחים: ${link}\n2. מתקינים על המסך ונרשמים עם מייל וסיסמה\n3. קוד ${role === 'parent' ? 'הורה' : 'ילד'}: ${code}\n\n📖 מדריך קצר: ${location.origin}${location.pathname}guide/`;
     return `https://wa.me/?text=${encodeURIComponent(msg)}`;
   };
   const row = (inner, actions) => `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:8px 10px;margin-bottom:6px">
@@ -1095,7 +1096,8 @@ async function showGate() {
       <input id="gPass" type="password" autocomplete="new-password" placeholder="סיסמה (לפחות 6 תווים)" style="${inputStyle}">
       <div class="err"></div>
       <button class="btn grad full" id="gUp" style="margin-bottom:8px">הרשמה</button>
-      <button class="btn ghost full" id="gIn">כבר נרשמתי — כניסה</button>`;
+      <button class="btn ghost full" id="gIn">כבר נרשמתי — כניסה</button>
+      <a href="guide/" target="_blank" rel="noopener" class="sub" style="display:block;text-align:center;margin-top:14px;color:#F9A8D4">❓ צריך עזרה? למדריך</a>`;
     const go2 = async (fn, btn) => {
       const e = body.querySelector('#gEmail').value.trim(), p = body.querySelector('#gPass').value;
       if (!/^\S+@\S+\.\S+$/.test(e)) return err('צריך מייל תקין');
