@@ -930,9 +930,16 @@ function showLock() {
   const st = lock.settings(); if (!st) return;
   pinBuf = ''; drawDots(); $('#lockErr').textContent = '';
   $('#lockBio').hidden = !st.cred;
+  $('#lockBio').textContent = isIOS() ? '👆 לחיצה כאן — ונפתח עם Face ID' : '👆 פתיחה בטביעת אצבע';
   $('#lock').classList.add('on');
-  if (st.cred) tryBio(true);
+  // אנדרואיד: טביעת אצבע קופצת לבד. אייפון: אפל מחייבת לחיצה אחת — בלי חלון מבלבל
+  if (st.cred && !isIOS()) tryBio(true);
 }
+// לחיצה בכל מקום במסך הנעילה (חוץ מהמקלדת) = Face ID / טביעת אצבע
+$('#lock').addEventListener('click', e => {
+  if (e.target.closest('#lockPad') || e.target.closest('#lockBio')) return;
+  if (lock.settings()?.cred) tryBio(false);
+});
 function unlockNow() { $('#lock').classList.remove('on'); fails = 0; }
 async function tryBio(auto) {
   try { if (await lock.bioUnlock()) unlockNow(); }
@@ -958,7 +965,7 @@ $('#lockBio').onclick = () => tryBio(false);
 document.addEventListener('visibilitychange', () => {
   const st = lock.settings(); if (!st) return;
   if (document.hidden) hiddenAt = Date.now();
-  else if (hiddenAt && Date.now() - hiddenAt >= (st.minutes ?? 1) * 60000) showLock();
+  else if (hiddenAt && Date.now() - hiddenAt >= (st.minutes ?? 5) * 60000) showLock();
 });
 showLock();
 
@@ -980,9 +987,9 @@ function drawLockCard(el) {
         const a = el.querySelector('#lk1').value, b = el.querySelector('#lk2').value;
         if (!/^\d{4}$/.test(a)) { el.querySelector('#lkErr').textContent = 'הקוד צריך להיות 4 ספרות'; return; }
         if (a !== b) { el.querySelector('#lkErr').textContent = 'הקודים לא זהים'; return; }
-        try { await lock.enable(a, !!el.querySelector('#lkBio')?.checked); drawLockCard(el); toast('🔒 הנעילה הופעלה'); }
+        try { await lock.enable(a, !!el.querySelector('#lkBio')?.checked, 5); drawLockCard(el); toast('🔒 הנעילה הופעלה — תינעל אחרי 5 דקות שהאפליקציה סגורה'); }
         catch (e) {
-          if (e.name === 'NotAllowedError') { await lock.enable(a, false); drawLockCard(el); toast('🔒 הנעילה הופעלה עם קוד בלבד'); }
+          if (e.name === 'NotAllowedError') { await lock.enable(a, false, 5); drawLockCard(el); toast('🔒 הנעילה הופעלה עם קוד בלבד'); }
           else el.querySelector('#lkErr').textContent = 'לא הצלחתי להפעיל טביעת אצבע. נסה בלי';
         }
       };
@@ -1006,9 +1013,14 @@ function drawLockCard(el) {
 let syncUser = null, joinCode = new URLSearchParams(location.search).get('join') || '', joinName = new URLSearchParams(location.search).get('name') || '';
 const inputStyle = 'width:100%;height:44px;border-radius:14px;border:1px solid var(--line);background:var(--card2);padding:0 12px;outline:none;margin-bottom:8px;font-size:16px';
 
+// מצב בדיקת עיצוב — רק במחשב הפיתוח (localhost), לעולם לא באתר האמיתי
+const UITEST = location.hostname === 'localhost' && new URLSearchParams(location.search).has('uitest');
+const FAKE_HH = { id: 'x', name: 'משפחת בדיקה ארוכה מאוד', role: 'parent', invite_code: '8929FF', child_code: 'BC0DC2' };
+
 async function drawSync(el) {
-  const hh = sync.household();
-  if (!sync.enabled()) {
+  const hh = UITEST ? FAKE_HH : sync.household();
+  if (UITEST && !syncUser) syncUser = { id: 'u1', email: 'a.very.long.email.address@example.com' };
+  if (!sync.enabled() && !UITEST) {
     el.innerHTML = `<b>☁️ סנכרון בין הטלפונים</b><div class="sub" style="margin-top:4px">עוד לא הוגדר. כרגע הנתונים שמורים רק במכשיר הזה — כדאי לגבות מדי פעם.</div>`;
     return;
   }
@@ -1063,13 +1075,13 @@ async function drawSync(el) {
     <div class="sub" style="margin:4px 0 12px">${esc(syncUser.email)} · אתה הורה — רואה הכל ומנהל את המשפחה</div>
     <div class="sub" style="margin-bottom:6px">🔑 קודי הצטרפות — אפשר להקריא או להעתיק:</div>
     <div class="row2" style="margin-bottom:14px">
-      <div style="text-align:center;background:linear-gradient(160deg,rgba(124,58,237,.35),rgba(168,85,247,.2));border:1px solid rgba(196,181,253,.4);border-radius:18px;padding:12px 8px">
+      <div style="text-align:center;background:linear-gradient(160deg,rgba(124,58,237,.35),rgba(168,85,247,.2));border:1px solid rgba(196,181,253,.4);border-radius:18px;padding:12px 6px;min-width:0;overflow:hidden">
         <div class="sub" style="color:#E9D5FF">👨‍👩 קוד להורה</div>
-        <div style="font-size:30px;font-weight:800;letter-spacing:5px;direction:ltr;margin:4px 0 8px">${hh.invite_code}</div>
+        <div style="font-size:clamp(20px,6vw,28px);font-weight:800;letter-spacing:2px;direction:ltr;margin:4px 0 8px;white-space:nowrap">${hh.invite_code}</div>
         <button class="chip" data-copy="${hh.invite_code}">📋 העתקה</button></div>
-      <div style="text-align:center;background:linear-gradient(160deg,rgba(249,115,22,.35),rgba(251,146,60,.2));border:1px solid rgba(253,186,116,.4);border-radius:18px;padding:12px 8px">
+      <div style="text-align:center;background:linear-gradient(160deg,rgba(249,115,22,.35),rgba(251,146,60,.2));border:1px solid rgba(253,186,116,.4);border-radius:18px;padding:12px 6px;min-width:0;overflow:hidden">
         <div class="sub" style="color:#FFEDD5">🧒 קוד לילד</div>
-        <div style="font-size:30px;font-weight:800;letter-spacing:5px;direction:ltr;margin:4px 0 8px">${hh.child_code || '—'}</div>
+        <div style="font-size:clamp(20px,6vw,28px);font-weight:800;letter-spacing:2px;direction:ltr;margin:4px 0 8px;white-space:nowrap">${hh.child_code || '—'}</div>
         ${hh.child_code ? `<button class="chip" data-copy="${hh.child_code}">📋 העתקה</button>` : ''}</div>
     </div>
     <div class="sub" style="margin-bottom:6px">👨‍👩‍👧 מי במשפחה:</div>
@@ -1089,7 +1101,7 @@ async function drawSync(el) {
   const drawFamily = async () => {
     const box = el.querySelector('#famList'); if (!box) return;
     let members = [], offline = false;
-    try { members = await sync.listMembers(); } catch { offline = true; }
+    try { members = UITEST ? [{ user_id: 'u1', role: 'parent' }, { user_id: 'u2', role: 'child' }, { user_id: 'u3', role: 'parent' }] : await sync.listMembers(); } catch { offline = true; }
     const html = S.people.map(p => {
       const m = members.find(x => x.user_id === p.uid), me = p.uid === syncUser.id;
       if (m) return row(`📱 ${p.e} <b>${esc(p.name)}</b>${me ? ' (אני)' : ''}`,

@@ -118,7 +118,7 @@ button.card{text-align:inherit;width:100%;cursor:pointer}
 .tx .nm small{display:block;color:var(--muted);font-size:12px}
 .tx .am{font-weight:700;direction:ltr}
 .plus{color:#4ADE80}
-.search{width:100%;height:44px;border-radius:16px;border:1px solid var(--line);background:var(--card);padding:0 14px;outline:none;font-size:15px;margin-bottom:10px}
+.search{width:100%;height:44px;border-radius:16px;border:1px solid var(--line);background:var(--card);padding:0 14px;outline:none;font-size:16px;margin-bottom:10px}
 .empty{text-align:center;color:var(--muted);padding:30px 10px;line-height:1.6}
 .empty .em{font-size:44px;display:block;margin-bottom:6px}
 .btn{height:46px;border-radius:16px;border:none;padding:0 18px;font-weight:500;cursor:pointer;font-size:15px}
@@ -148,7 +148,7 @@ button.card{text-align:inherit;width:100%;cursor:pointer}
 .field input{width:100%;height:48px;border-radius:16px;border:1px solid var(--line);background:var(--card);padding:0 14px;outline:none;font-size:16px}
 .field input:focus{border-color:#EC4899}
 .row2{display:flex;gap:10px}
-.row2>*{flex:1}
+.row2>*{flex:1;min-width:0}
 .err{color:#FB7185;font-size:12px;margin-top:-6px;margin-bottom:10px;min-height:14px}
 
 /* מסך נעילה */
@@ -174,3 +174,12 @@ button.card{text-align:inherit;width:100%;cursor:pointer}
 /* חשבון ילד: רק צ'אט ותנועות שלו */
 body.kid nav [data-v="budget"], body.kid nav [data-v="insights"], body.kid #exportBtn, body.kid #bell,
 body.kid .stories, body.kid .hero .bar, body.kid #usedPct, body.kid .parent-only { display: none !important; }
+
+/* אייפון: אין זום אוטומטי בשדות, ושום דבר לא בורח מהמסך */
+input,select,textarea{font-size:16px}
+.sheet{overflow-x:hidden}
+.sheet .card,.cards .card{min-width:0;overflow-wrap:anywhere}
+.duo>*{min-width:0}
+.tx .am{flex:none}
+.imp-row .nm{min-width:0}
+.imp-cat{width:100%}
