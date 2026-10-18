@@ -5,6 +5,7 @@ import * as imp from './importer.js';
 import * as xp from './exporter.js';
 import * as sync from './sync.js';
 import * as lock from './lock.js';
+import * as help from './help.js';
 
 // ---------- עזרים ----------
 const $ = s => document.querySelector(s);
@@ -147,8 +148,8 @@ function renderChat(newIds = []) {
   const list = S.tx.filter(t => new Date(t.created) >= since).sort((a, b) => a.created.localeCompare(b.created));
   let html = '', lastDay = '', lastMsg = '';
   if (!list.length) {
-    html = `<div class="bot"><div class="cat-ic" style="background:var(--g1)">👋</div><div><b>היי! מה הוצאת היום?</b>
-      <div class="sub">כותבים כמו בוואטסאפ ואני מסדר לבד:<br>• "סופר 230"<br>• "טעינה לרכב 90 וקפה 18"<br>• "משכורת 12500"<br>• "ספה 6000 ב-12 תשלומים"<br>• "אתמול פיצה 85"<br>או לוחצים על 🎤 ומדברים<br><br>💡 ב-⚙️ אפשר להוסיף את בני הבית, ואז לכתוב "רחל: סופר 230"</div></div></div>`;
+    html = `<div class="bot"><div class="cat-ic" style="background:var(--g1)">👋</div><div><b>היי! הכסף של הבית — סוף סוף בשליטה 💜</b>
+      <div class="sub">🎯 בונים תקציב במסך "תקציב" (יש גם המלצה חכמה 🪄)<br>✍️ ורושמים הוצאות כמו בוואטסאפ, ואני מסדר לבד:<br>• "סופר 230"<br>• "טעינה לרכב 90 וקפה 18"<br>• "משכורת 12500"<br>• "ספה 6000 ב-12 תשלומים"<br>• "אתמול פיצה 85"<br>או לוחצים על 🎤 ומדברים<br><br>💡 ב-⚙️ אפשר להוסיף את בני הבית, ואז לכתוב "רחל: סופר 230"</div></div></div>`;
   }
   for (const t of list) {
     const d = new Date(t.created);
@@ -188,6 +189,7 @@ async function send(raw, source = 'text') {
     openExportSheet(kind, /אתמול/.test(raw) ? new Date(Date.now() - 864e5) : /שעבר|קודם/.test(raw) ? xp.shiftAnchor(kind, new Date(), -1) : new Date());
     return;
   }
+  if (help.isHelpRequest(raw)) { $('#inp').blur(); openHelp(raw, help.wantsGuide(raw) && !help.answer(raw).length); return; }
   const named = detectWho(raw);
   const items = parseMessage(named.text);
   const me = document.createElement('div');
@@ -201,7 +203,10 @@ async function send(raw, source = 'text') {
   if (!items.length) {
     typing.remove();
     const b = document.createElement('div'); b.className = 'bot new';
-    b.innerHTML = `<div class="cat-ic" style="background:var(--card2)">🤔</div><div><b>לא מצאתי סכום</b><div class="sub">נסה למשל: "סופר 230" או "משכורת 12500"</div></div>`;
+    b.innerHTML = `<div class="cat-ic" style="background:var(--card2)">🤔</div><div><b>לא מצאתי סכום</b><div class="sub">להוצאה כותבים למשל "סופר 230".<br>רצית לראות את ההוראות?</div>
+      <div class="acts"><button data-help="guide">📖 כן, למדריך</button><button data-help="ask">❓ יש לי שאלה</button></div></div>`;
+    b.querySelector('[data-help="guide"]').onclick = () => { b.remove(); me.remove(); openHelp('', true); };
+    b.querySelector('[data-help="ask"]').onclick = () => { b.remove(); me.remove(); openHelp(raw); };
     $('#chat').appendChild(b);
     return;
   }
@@ -549,9 +554,10 @@ function renderQuick() {
   const frequent = Object.entries(count).filter(([d]) => d !== 'הוצאה').sort((a, b) => b[1] - a[1]).slice(0, 6).map(([d]) => d);
   const defaults = ['סופר', 'טעינה לרכב', 'קפה', 'משכורת', 'חשמל', 'צדקה'];
   const words = [...new Set([...frequent, ...defaults])].slice(0, 8);
-  $('#quick').innerHTML = words.map(w => `<button class="chip" data-q="${esc(w)}">${catOf(isIncome(w) ? 'income' : classify(w, S.learned)).e} ${esc(w)}</button>`).join('');
+  $('#quick').innerHTML = words.map(w => `<button class="chip" data-q="${esc(w)}">${catOf(isIncome(w) ? 'income' : classify(w, S.learned)).e} ${esc(w)}</button>`).join('') + '<button class="chip" data-helpchip="1">❓ עזרה</button>';
 }
 $('#quick').addEventListener('click', e => {
+  if (e.target.closest('[data-helpchip]')) { openHelp(); return; }
   const b = e.target.closest('[data-q]'); if (!b) return;
   const inp = $('#inp'); inp.value = b.dataset.q + ' '; inp.focus(); updateMic();
 });
@@ -797,7 +803,7 @@ $('#settingsBtn').onclick = () => openSettings();
 function openSettings() { openSheet(`<h3>⚙️ הגדרות</h3>
   <div class="card" id="syncCard" style="margin-bottom:12px"></div>
   <div class="card" id="lockCard" style="margin-bottom:12px"></div>
-  <a class="btn ghost full" href="guide/" target="_blank" rel="noopener" style="display:grid;place-items:center;text-decoration:none;margin-bottom:10px">❓ איך משתמשים — המדריך</a>
+  <button class="btn ghost full" id="toHelp" style="margin-bottom:10px">❓ עזרה ואיך משתמשים</button>
   ${isStandalone() ? '' : '<button class="btn ghost full" id="toInstall" style="margin-bottom:10px">📲 התקנה על המסך (כמו אפליקציה)</button>'}
   <button class="btn grad full parent-only" id="toExcel" style="margin-bottom:10px">📊 הורדת סיכום לאקסל</button>
   <div class="row2" style="margin-bottom:10px"><button class="btn ghost" id="exp">⬇️ גיבוי</button><button class="btn ghost" id="imp">⬆️ שחזור מגיבוי</button></div>
@@ -806,6 +812,7 @@ function openSettings() { openSheet(`<h3>⚙️ הגדרות</h3>
   drawSync(sh.querySelector('#syncCard'));
   drawLockCard(sh.querySelector('#lockCard'));
   sh.querySelector('#toExcel').onclick = () => openExportSheet();
+  sh.querySelector('#toHelp').onclick = () => openHelp();
   sh.querySelector('#toInstall')?.addEventListener('click', openInstallSheet);
   sh.querySelector('#exp').onclick = async () => {
     const blob = new Blob([JSON.stringify(await db.exportAll(), null, 1)], { type: 'application/json' });
@@ -818,6 +825,53 @@ function openSettings() { openSheet(`<h3>⚙️ הגדרות</h3>
     catch (err) { toast('הקובץ לא נראה כמו גיבוי של האפליקציה', true); }
   };
 }); }
+
+// ---------- עזרה: שאלות ותשובות בחלון נפרד (לא נשמר בצ'אט) ----------
+function openHelp(question = '', showGuide = false) {
+  const kid = !sync.isParent();
+  const topics = help.TOPICS.filter(t => !kid || !['roles', 'export', 'budget', 'insights', 'add'].includes(t.id));
+  openSheet(`<h3>❓ עזרה</h3>
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <input id="hQ" placeholder="שאל אותי, למשל: איך מוסיפים את אשתי?" style="flex:1;min-width:0;height:46px;border-radius:16px;border:1px solid var(--line);background:var(--card2);padding:0 14px;outline:none;font-size:16px" enterkeyhint="send">
+      <button class="btn grad" id="hAsk" style="height:46px">שאל</button></div>
+    <div id="hAns" style="display:flex;flex-direction:column;gap:10px;margin-bottom:12px"></div>
+    <div id="hGuide"></div>
+    <button class="btn ghost full" id="hOpenGuide" style="margin-bottom:12px">📖 המדריך המלא (עם תמונות)</button>
+    <div class="sub" style="margin-bottom:6px">שאלות נפוצות:</div>
+    <div class="chips" style="flex-wrap:wrap;margin-bottom:12px">${topics.map(t => `<button class="chip" data-topic="${t.id}">${t.t}</button>`).join('')}</div>
+    <div class="sub" style="text-align:center">עדיין תקוע? מוישי וינדיש · <a href="tel:0542964361" style="color:#F9A8D4">054-2964361</a> · <a href="mailto:mvindish@gmail.com" style="color:#F9A8D4">mvindish@gmail.com</a></div>`, sh => {
+    const box = sh.querySelector('#hAns');
+    const bubble = (cls, html) => { const d = document.createElement('div'); d.className = cls + ' new'; d.innerHTML = html; d.style.maxWidth = '100%'; box.appendChild(d); return d; };
+    const showGuideFrame = () => {
+      sh.querySelector('#hGuide').innerHTML = `<iframe src="guide/" title="המדריך" style="width:100%;height:65vh;border:0;border-radius:18px;margin-bottom:12px;background:#FBF8FF"></iframe>`;
+      sh.querySelector('#hOpenGuide').style.display = 'none';
+      sh.querySelector('#hGuide').scrollIntoView({ behavior: 'smooth' });
+    };
+    const ask = q => {
+      q = q.trim(); if (!q) return;
+      bubble('me', esc(q));
+      const found = help.answer(q).filter(t => topics.includes(t));
+      if (found.length) found.forEach(t => bubble('bot', `<div><b>${t.t}</b><div style="margin-top:6px;line-height:1.6">${t.a}</div></div>`));
+      else {
+        const b = bubble('bot', `<div><b>🤔 לא בטוח שהבנתי</b><div class="sub" style="margin-top:4px">רצית לראות את ההוראות? או לבחור נושא למטה 👇</div>
+          <div class="acts"><button data-g="1">📖 כן, פתח את המדריך</button></div></div>`);
+        b.querySelector('[data-g]').onclick = showGuideFrame;
+      }
+      sh.querySelector('#hQ').value = '';
+    };
+    sh.querySelector('#hAsk').onclick = () => ask(sh.querySelector('#hQ').value);
+    sh.querySelector('#hQ').addEventListener('keydown', e => { if (e.key === 'Enter') ask(e.target.value); });
+    sh.querySelector('#hOpenGuide').onclick = showGuideFrame;
+    sh.querySelectorAll('[data-topic]').forEach(c => c.onclick = () => {
+      const t = help.TOPICS.find(x => x.id === c.dataset.topic);
+      bubble('me', esc(t.t.replace(/^\S+\s/, '')));
+      bubble('bot', `<div><b>${t.t}</b><div style="margin-top:6px;line-height:1.6">${t.a}</div></div>`);
+      box.lastElementChild.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+    if (showGuide) showGuideFrame();
+    else if (question) ask(question);
+  });
+}
 
 // ---------- התקנה על המסך (כמו אפליקציה רגילה) ----------
 let installEvt = null;
