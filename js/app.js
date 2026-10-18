@@ -1029,8 +1029,8 @@ async function drawSync(el) {
   }
   const inviteHref = (role, name) => {
     const code = role === 'parent' ? hh.invite_code : hh.child_code;
-    const link = `${location.origin}${location.pathname}?join=${code}${name ? '&name=' + encodeURIComponent(name) : ''}`;
-    const msg = `${name ? `היי ${name}! ` : ''}הצטרפו לתקציב המשפחתי שלנו ב"כסף בכיף" 💰\n1. פותחים: ${link}\n2. מתקינים על המסך ונרשמים עם מייל וסיסמה\n3. קוד ${role === 'parent' ? 'הורה' : 'ילד'}: ${code}\n\n📖 מדריך קצר: ${location.origin}${location.pathname}guide/`;
+    const link = `${location.origin}${location.pathname}guide/?join=${code}${name ? '&name=' + encodeURIComponent(name) : ''}`;
+    const msg = `${name ? `היי ${name}! ` : ''}הצטרפו לתקציב המשפחתי שלנו ב"כסף בכיף" 💰\nהכל בקישור אחד — התקנה, הצטרפות והסבר:\n${link}\n\nקוד ${role === 'parent' ? 'הורה' : 'ילד'} (למקרה שצריך): ${code}`;
     return `https://wa.me/?text=${encodeURIComponent(msg)}`;
   };
   const row = (inner, actions) => `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:8px 10px;margin-bottom:6px">
