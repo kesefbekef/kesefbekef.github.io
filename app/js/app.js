@@ -797,48 +797,11 @@ $('#settingsBtn').onclick = () => openSettings();
 function openSettings() { openSheet(`<h3>⚙️ הגדרות</h3>
   <div class="card" id="syncCard" style="margin-bottom:12px"></div>
   <div class="card" id="lockCard" style="margin-bottom:12px"></div>
-  <div class="card parent-only" style="margin-bottom:12px">
-    <b>👨‍👩‍👧 בני הבית</b>
-    <div class="sub" style="margin:2px 0 10px">כל רשומה תהיה על שם מישהו. ⭐ = מי שמשתמש במכשיר הזה (ברירת המחדל)</div>
-    <div id="pplList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px"></div>
-    <div class="crow" style="display:flex;gap:8px"><button class="round attach" id="pplFace" style="width:44px;height:44px" aria-label="בחירת אייקון">🧔</button>
-      <input id="pplName" placeholder="שם, למשל: רחל" style="flex:1;min-width:0;height:44px;border-radius:14px;border:1px solid var(--line);background:var(--card2);padding:0 12px;outline:none">
-      <button class="btn grad" id="pplAdd" style="height:44px">הוספה</button></div>
-    <div class="err" id="pplErr" style="margin:6px 0 0"></div>
-  </div>
   ${isStandalone() ? '' : '<button class="btn ghost full" id="toInstall" style="margin-bottom:10px">📲 התקנה על המסך (כמו אפליקציה)</button>'}
   <button class="btn grad full parent-only" id="toExcel" style="margin-bottom:10px">📊 הורדת סיכום לאקסל</button>
   <div class="row2" style="margin-bottom:10px"><button class="btn ghost" id="exp">⬇️ גיבוי</button><button class="btn ghost" id="imp">⬆️ שחזור מגיבוי</button></div>
   <input type="file" id="impFile" accept="application/json,.json" hidden>
   <div class="sub" style="text-align:center;margin-top:8px">${S.tx.length} רשומות · ${Object.keys(S.learned).length} מילים שלמדתי</div>`, sh => {
-  let face = 0;
-  const drawPeople = () => {
-    sh.querySelector('#pplList').innerHTML = S.people.length ? S.people.map(p => `
-      <div style="display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:6px 10px">
-        <span style="font-size:22px">${p.e}</span><b style="flex:1">${esc(p.name)}</b>
-        <button class="chip ${S.me === p.id ? 'on' : ''}" data-me="${p.id}">${S.me === p.id ? '⭐ זה אני' : 'זה אני?'}</button>
-        <button class="chip" data-del="${p.id}" aria-label="הסרה">✕</button></div>`).join('')
-      : '<div class="sub">עוד לא הוספת אף אחד</div>';
-    sh.querySelectorAll('[data-me]').forEach(b => b.onclick = async () => { S.me = b.dataset.me; await db.setKV('me', S.me); drawPeople(); renderAll(); });
-    sh.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
-      if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'בטוח?'; return; }
-      S.people = S.people.filter(p => p.id !== b.dataset.del); if (S.me === b.dataset.del) { S.me = null; await db.setKV('me', null); }
-      await db.setKV('people', S.people); drawPeople(); renderAll();
-    });
-  };
-  drawPeople();
-  sh.querySelector('#pplFace').onclick = e => { face = (face + 1) % FACES.length; e.target.textContent = FACES[face]; };
-  sh.querySelector('#pplName').oninput = () => sh.querySelector('#pplErr').textContent = '';
-  sh.querySelector('#pplAdd').onclick = async () => {
-    const name = sh.querySelector('#pplName').value.trim();
-    if (!name) { sh.querySelector('#pplErr').textContent = 'צריך לכתוב שם'; return; }
-    if (S.people.some(p => p.name === name)) { sh.querySelector('#pplErr').textContent = 'השם הזה כבר קיים'; return; }
-    const p = { id: db.newId(), name, e: FACES[face] };
-    S.people.push(p); if (!S.me) { S.me = p.id; await db.setKV('me', S.me); }
-    await db.setKV('people', S.people);
-    sh.querySelector('#pplName').value = ''; face = (face + 1) % FACES.length; sh.querySelector('#pplFace').textContent = FACES[face];
-    drawPeople(); renderAll(); toast(`👋 ${p.e} ${name} נוסף/ה`);
-  };
   drawSync(sh.querySelector('#syncCard'));
   drawLockCard(sh.querySelector('#lockCard'));
   sh.querySelector('#toExcel').onclick = () => openExportSheet();
@@ -961,7 +924,7 @@ function drawLockCard(el) {
 }
 
 // ---------- סנכרון בין הטלפונים ----------
-let syncUser = null, joinCode = new URLSearchParams(location.search).get('join') || '';
+let syncUser = null, joinCode = new URLSearchParams(location.search).get('join') || '', joinName = new URLSearchParams(location.search).get('name') || '';
 const inputStyle = 'width:100%;height:44px;border-radius:14px;border:1px solid var(--line);background:var(--card2);padding:0 12px;outline:none;margin-bottom:8px;font-size:16px';
 
 async function drawSync(el) {
@@ -1009,42 +972,72 @@ async function drawSync(el) {
     el.querySelector('#sOut').onclick = async () => { await sync.signOut(); syncUser = null; closeSheet(); showGate(); };
     return;
   }
-  const invite = (code, who) => {
-    const link = `${location.origin}${location.pathname}?join=${code}`;
-    const msg = `הצטרפו לתקציב המשפחתי שלנו ב"כסף בכיף" 💰\n1. פותחים: ${link}\n2. נרשמים עם מייל וסיסמה\n3. קוד ${who}: ${code}`;
-    return `<a class="btn grad" style="display:grid;place-items:center;text-decoration:none;height:40px;font-size:14px" href="https://wa.me/?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">📤 שליחה בוואטסאפ</a>`;
+  const inviteHref = (role, name) => {
+    const code = role === 'parent' ? hh.invite_code : hh.child_code;
+    const link = `${location.origin}${location.pathname}?join=${code}${name ? '&name=' + encodeURIComponent(name) : ''}`;
+    const msg = `${name ? `היי ${name}! ` : ''}הצטרפו לתקציב המשפחתי שלנו ב"כסף בכיף" 💰\n1. פותחים: ${link}\n2. מתקינים על המסך ונרשמים עם מייל וסיסמה\n3. קוד ${role === 'parent' ? 'הורה' : 'ילד'}: ${code}`;
+    return `https://wa.me/?text=${encodeURIComponent(msg)}`;
   };
-  el.innerHTML = `<b>☁️ ${esc(hh.name)}</b> <span class="sub" id="syncState">· מסונכרן ✓</span>
-    <div class="sub" style="margin:4px 0 10px">${esc(syncUser.email)} · 👨‍👩 הורה — רואה הכל ומנהל את המשפחה</div>
-    <div class="row2" style="margin-bottom:10px">
-      <div style="text-align:center;background:var(--card2);border-radius:16px;padding:10px">
-        <div class="sub">👨‍👩 קוד להורה</div><div style="font-size:22px;font-weight:800;letter-spacing:4px;direction:ltr;margin:4px 0 8px">${hh.invite_code}</div>${invite(hh.invite_code, 'הורה')}</div>
-      <div style="text-align:center;background:var(--card2);border-radius:16px;padding:10px">
-        <div class="sub">🧒 קוד לילד</div><div style="font-size:22px;font-weight:800;letter-spacing:4px;direction:ltr;margin:4px 0 8px">${hh.child_code || ''}</div>${hh.child_code ? invite(hh.child_code, 'ילד') : ''}</div>
-    </div>
-    <div class="sub" style="margin-bottom:6px">מי במשפחה:</div>
-    <div id="memList" class="sub">טוען…</div>
+  const row = (inner, actions) => `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:8px 10px;margin-bottom:6px">
+    <span style="flex:1;min-width:120px">${inner}</span>${actions}</div>`;
+  el.innerHTML = `<b style="font-size:16px">👨‍👩‍👧 ${esc(hh.name)}</b> <span class="sub" id="syncState">· מסונכרן ✓</span>
+    <div class="sub" style="margin:4px 0 12px">${esc(syncUser.email)} · אתה הורה — רואה הכל ומנהל את המשפחה</div>
+    <div id="famList" class="sub">טוען…</div>
     <div class="err" id="memErr"></div>
-    <button class="btn ghost full" id="sOut" style="margin-top:8px">יציאה</button>`;
-  sync.listMembers().then(list => {
-    const box = el.querySelector('#memList'); if (!box) return;
-    box.innerHTML = list.map(m => {
-      const p = S.people.find(x => x.uid === m.user_id), me = m.user_id === syncUser.id;
-      return `<div style="display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:6px 10px;margin-bottom:6px;color:var(--text)">
-        <span style="flex:1">${p ? `${p.e} ${esc(p.name)}` : '👤 (עוד לא בחר שם)'}${me ? ' · אני' : ''}</span>
-        <button class="chip ${m.role === 'parent' ? 'on' : ''}" data-role="${m.user_id}" data-to="${m.role === 'parent' ? 'child' : 'parent'}">${m.role === 'parent' ? '👨‍👩 הורה' : '🧒 ילד'}</button>
-        ${me ? '' : `<button class="chip" data-rm="${m.user_id}" aria-label="הסרה">✕</button>`}</div>`;
-    }).join('');
+    <div style="display:flex;gap:8px;margin-top:4px"><button class="round attach" id="pplFace" style="width:44px;height:44px" aria-label="בחירת אייקון">${FACES[1]}</button>
+      <input id="pplName" placeholder="הוספת בן משפחה, למשל: יעל" style="flex:1;min-width:0;height:44px;border-radius:14px;border:1px solid var(--line);background:var(--card2);padding:0 12px;outline:none;font-size:16px">
+      <button class="btn grad" id="pplAdd" style="height:44px">הוספה</button></div>
+    <div class="sub" style="margin-top:10px;line-height:1.6">📱 מחובר — יש לו טלפון משלו (הורה רואה הכל, ילד רק מוסיף)<br>✏️ רק שם — רושמים בשבילו, למשל "יעל: גלידה 15"</div>
+    <details style="margin-top:8px"><summary class="sub" style="cursor:pointer">קודי הצטרפות</summary>
+      <div class="sub" style="margin-top:6px">👨‍👩 הורה: <b style="direction:ltr;letter-spacing:2px">${hh.invite_code}</b> · 🧒 ילד: <b style="direction:ltr;letter-spacing:2px">${hh.child_code || ''}</b></div></details>
+    <button class="btn ghost full" id="sOut" style="margin-top:10px">יציאה מהחשבון</button>`;
+
+  let face = 1;
+  const err = m => { el.querySelector('#memErr').textContent = m; };
+  const drawFamily = async () => {
+    const box = el.querySelector('#famList'); if (!box) return;
+    let members = [], offline = false;
+    try { members = await sync.listMembers(); } catch { offline = true; }
+    const html = S.people.map(p => {
+      const m = members.find(x => x.user_id === p.uid), me = p.uid === syncUser.id;
+      if (m) return row(`📱 ${p.e} <b>${esc(p.name)}</b>${me ? ' (אני)' : ''}`,
+        `<button class="chip ${m.role === 'parent' ? 'on' : ''}" data-role="${m.user_id}" data-to="${m.role === 'parent' ? 'child' : 'parent'}">${m.role === 'parent' ? '👨‍👩 הורה' : '🧒 ילד'}</button>${me ? '' : `<button class="chip" data-rm="${m.user_id}" aria-label="הסרה מהמשפחה">✕</button>`}`);
+      return row(`✏️ ${p.e} <b>${esc(p.name)}</b> <span class="sub">· רק שם</span>`,
+        `<span data-invbox="${p.id}"><button class="chip" data-inv="${p.id}">📱 הזמנה</button></span><button class="chip" data-del="${p.id}" aria-label="מחיקת השם">✕</button>`);
+    }).join('') + members.filter(m => !S.people.some(p => p.uid === m.user_id)).map(m =>
+      row(`📱 👤 <span class="sub">נרשם, עוד לא בחר שם</span>`,
+        `<button class="chip ${m.role === 'parent' ? 'on' : ''}" data-role="${m.user_id}" data-to="${m.role === 'parent' ? 'child' : 'parent'}">${m.role === 'parent' ? '👨‍👩 הורה' : '🧒 ילד'}</button><button class="chip" data-rm="${m.user_id}" aria-label="הסרה מהמשפחה">✕</button>`)).join('');
+    box.innerHTML = (html || '<div class="sub">עוד אין אף אחד</div>') + (offline ? '<div class="sub">⚠️ אין חיבור — מוצג חלקית</div>' : '');
     box.querySelectorAll('[data-role]').forEach(b => b.onclick = async () => {
-      try { await sync.setRole(b.dataset.role, b.dataset.to); toast(b.dataset.to === 'parent' ? 'עכשיו הורה 👨‍👩' : 'עכשיו ילד 🧒'); drawSync(el); }
-      catch (x) { el.querySelector('#memErr').textContent = x.message; }
+      try { await sync.setRole(b.dataset.role, b.dataset.to); toast(b.dataset.to === 'parent' ? 'עכשיו הורה 👨‍👩' : 'עכשיו ילד 🧒'); drawFamily(); } catch (x) { err(x.message); }
     });
     box.querySelectorAll('[data-rm]').forEach(b => b.onclick = async () => {
-      if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'בטוח?'; return; }
-      try { await sync.removeMember(b.dataset.rm); toast('הוסר מהמשפחה'); drawSync(el); }
-      catch (x) { el.querySelector('#memErr').textContent = x.message; }
+      if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'להסיר?'; return; }
+      try { await sync.removeMember(b.dataset.rm); toast('הוסר מהמשפחה'); drawFamily(); } catch (x) { err(x.message); }
     });
-  }).catch(() => { const box = el.querySelector('#memList'); if (box) box.textContent = 'אין חיבור לאינטרנט'; });
+    box.querySelectorAll('[data-inv]').forEach(b => b.onclick = () => {
+      const p = personOf(b.dataset.inv);
+      box.querySelector(`[data-invbox="${p.id}"]`).innerHTML = `<span class="sub">להזמין כ:</span>
+        <a class="chip" href="${inviteHref('parent', p.name)}" target="_blank" rel="noopener" style="text-decoration:none">👨‍👩 הורה</a>
+        <a class="chip" href="${inviteHref('child', p.name)}" target="_blank" rel="noopener" style="text-decoration:none">🧒 ילד</a>`;
+    });
+    box.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
+      if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'למחוק?'; return; }
+      S.people = S.people.filter(p => p.id !== b.dataset.del); await db.setKV('people', S.people); renderAll(); drawFamily();
+    });
+  };
+  drawFamily();
+  el.querySelector('#pplFace').onclick = e => { face = (face + 1) % FACES.length; e.target.textContent = FACES[face]; };
+  el.querySelector('#pplName').oninput = () => err('');
+  el.querySelector('#pplAdd').onclick = async () => {
+    const name = el.querySelector('#pplName').value.trim();
+    if (!name) return err('צריך לכתוב שם');
+    if (S.people.some(p => p.name === name)) return err('השם הזה כבר קיים');
+    const p = { id: db.newId(), name, e: FACES[face] };
+    S.people.push(p); await db.setKV('people', S.people);
+    el.querySelector('#pplName').value = ''; renderAll(); drawFamily();
+    toast(`👋 ${p.e} ${name} נוסף/ה — אפשר לרשום על שמו/ה, או ללחוץ "📱 הזמנה"`);
+  };
   el.querySelector('#sOut').onclick = async () => { await sync.signOut(); syncUser = null; closeSheet(); showGate(); };
 }
 
@@ -1146,11 +1139,11 @@ async function showGate() {
   }
 
   // step === 'name'
-  const free = S.people.filter(p => !p.uid);
+  const free = S.people.filter(p => !p.uid).sort((a, b) => (b.name === joinName) - (a.name === joinName));
   let face = 0;
   body.innerHTML = `<h2>🙋 איך קוראים לך?</h2>
     <p class="sub" style="margin-bottom:16px">כל מה שתרשום יופיע אוטומטית על השם שלך</p>
-    ${free.length ? `<div class="sub" style="margin-bottom:6px">אולי זה אתה?</div><div class="chips" style="flex-wrap:wrap;margin-bottom:14px">${free.map(p => `<button class="chip" data-claim="${p.id}">אני ${p.e} ${esc(p.name)}</button>`).join('')}</div>` : ''}
+    ${free.length ? `<div class="sub" style="margin-bottom:6px">אולי זה אתה?</div><div class="chips" style="flex-wrap:wrap;margin-bottom:14px">${free.map(p => `<button class="chip ${p.name === joinName ? 'on' : ''}" data-claim="${p.id}">אני ${p.e} ${esc(p.name)}</button>`).join('')}</div>` : ''}
     <div style="display:flex;gap:8px"><button class="round attach" id="gFace" style="width:48px;height:48px" aria-label="בחירת אייקון">${FACES[0]}</button>
       <input id="gMe" placeholder="השם שלי" style="${inputStyle};margin:0;flex:1"></div>
     <div class="err" style="margin-top:8px"></div>
