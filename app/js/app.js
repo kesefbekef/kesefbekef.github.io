@@ -927,6 +927,7 @@ function openSettings() { openSheet(`<h3>⚙️ הגדרות</h3>
 
 // ---------- משוב: נשלח אוטומטית במייל למוישי + נשמר בענן ----------
 const FEEDBACK_TO = 'mvindish@gmail.com';
+const FEEDBACK_KEY = 'afe845b5ff6d0c2cd899d08390663e7c'; // הכינוי של FormSubmit — כדי שהמייל לא יופיע בקוד
 const FEEDBACK_RE = /^(משוב|פידבק|הערה|הערות|הצעה|הצעת שיפור|רעיון|יש לי רעיון|יש לי הערה|יש לי הצעה|באג|תקלה|בעיה|דיווח|feedback)(?=[\s:,-]|$)[\s:,-]*/i;
 const KINDS = { idea: '💡 רעיון', bug: '🐞 משהו לא עובד', love: '❤️ מחמאה', other: '💬 אחר' };
 
@@ -954,7 +955,7 @@ function openFeedback(text = '', hint = text) {
       const cloud = sync.saveFeedback({ app: 'kesef-bekef', kind, message, contact, device }).catch(() => false);
       let mailed = false;
       try {
-        const r = await fetch(`https://formsubmit.co/ajax/${FEEDBACK_TO}`, {
+        const r = await fetch(`https://formsubmit.co/ajax/${FEEDBACK_KEY}`, {
           method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
           body: JSON.stringify({ _subject: `💌 משוב חדש — כסף בכיף (${KINDS[kind]})`, _template: 'table', _captcha: 'false',
             'סוג': KINDS[kind], 'משוב': message, 'פרטים לחזרה': contact || '—', 'משפחה': sync.household()?.name || '—', 'מכשיר': device || '—' }),
