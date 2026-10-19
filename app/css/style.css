@@ -7,7 +7,7 @@
   --safe-b:env(safe-area-inset-bottom,0px);
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-html,body{height:100%}
+html,body{height:100%;overscroll-behavior:none}
 body{font-family:Rubik,system-ui,-apple-system,sans-serif;background:#05050A;color:var(--text);display:flex;justify-content:center;overscroll-behavior:none}
 button,input{font:inherit;color:inherit}
 .app{width:100%;max-width:480px;height:100%;background:var(--bg);position:relative;overflow:hidden;display:flex;flex-direction:column}
@@ -194,3 +194,35 @@ input,select,textarea{font-size:16px}
 .tx.flash{animation:flash 2.4s ease}
 @keyframes flash{0%,40%{background:rgba(236,72,153,.35);box-shadow:0 0 0 2px #EC4899 inset;border-radius:14px}100%{background:transparent}}
 #v-budget .stat{cursor:pointer}
+
+/* חלונות: לא מעבירים גלילה לדף (בלי רענון במשיכה) */
+.sheet,#main{overscroll-behavior:contain}
+.sheet{touch-action:pan-y}
+/* ➕ באמצע התפריט */
+nav .plus{width:58px;height:58px;border-radius:50%;padding:0;background:var(--g1);color:#fff;margin-top:-26px;box-shadow:0 8px 26px rgba(236,72,153,.55);border:3px solid #0A0A12;justify-content:center;flex:none}
+nav .plus i{font-style:normal;font-size:34px;font-weight:300;line-height:1}
+nav .plus:active{transform:scale(.92)}
+.catbtn.inc{border-color:rgba(34,197,94,.6);background:rgba(34,197,94,.12)}
+/* 📎 תפריט */
+.pick{display:flex;align-items:center;gap:12px;width:100%;text-align:right;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:12px;margin-bottom:10px;cursor:pointer}
+.pick .pe{width:46px;height:46px;border-radius:14px;display:grid;place-items:center;font-size:22px;flex:none}
+.pick b{display:block;font-size:15px}
+.pick small{display:block;color:var(--muted);font-size:12px;margin-top:2px}
+.pick>span:last-child{min-width:0}
+/* 🎤 הקלטה */
+.mic{touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;position:relative}
+.mic.hold{transform:scale(1.25)}
+.recbar{flex:1;min-width:0;height:48px;border-radius:24px;background:rgba(244,63,94,.14);border:1px solid rgba(244,63,94,.45);display:flex;align-items:center;gap:8px;padding:0 6px 0 14px}
+.recbar b{font-variant-numeric:tabular-nums;font-size:15px;flex:none}
+.rdot{width:10px;height:10px;border-radius:50%;background:#F43F5E;flex:none;animation:blink 1s infinite}
+.rlive{flex:1;min-width:0;font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.recx{width:38px;height:38px;border-radius:50%;border:none;background:var(--card2);font-size:17px;cursor:pointer;flex:none}
+body.recording #inp, body.recording #attach{display:none}
+.crow{position:relative}
+.reclock{position:absolute;left:4px;bottom:62px;width:40px;padding:8px 0;border-radius:20px;background:#15151F;border:1px solid var(--line);text-align:center;font-size:18px;animation:up 1s infinite alternate}
+.reclock small{display:block;font-size:12px}
+@keyframes up{to{transform:translateY(-6px)}}
+.recbar[hidden],.reclock[hidden]{display:none}
+.rdot{animation:recblink 1s infinite}
+@keyframes recblink{50%{opacity:.25}}
+#app{overflow:clip}

@@ -80,13 +80,16 @@
     <div class="crow">
       <button class="round attach" id="attach" aria-label="קובץ או צילום">📎</button>
       <input id="inp" placeholder="מה הוצאת? למשל: סופר 230" autocomplete="off" enterkeyhint="send">
+      <div class="recbar" id="recbar" hidden><button class="recx" id="recX" aria-label="ביטול ההקלטה">🗑️</button><span class="rdot"></span><b id="recT">0:00</b><span class="rlive" id="recLive"></span></div>
       <button class="round mic" id="mic" aria-label="הודעה קולית / שליחה">🎤</button>
+      <div class="reclock" id="recLock" hidden>🔒<small>⬆️</small></div>
     </div>
   </div>
 
   <nav>
     <button class="on" data-v="chat"><span>💬</span>צ'אט</button>
     <button data-v="budget"><span>🎯</span>תקציב</button>
+    <button class="plus" id="plusBtn" aria-label="הוספה"><i>+</i></button>
     <button data-v="insights"><span>💡</span>תובנות</button>
     <button data-v="tx"><span>📋</span>תנועות</button>
   </nav>

@@ -94,13 +94,49 @@ function confetti() {
 }
 
 // ---------- גיליון תחתון ----------
+// כפתור "חזור" של הטלפון סוגר את החלון במקום לצאת מהאפליקציה
+let sheetHist = false, popPending = false;
 function openSheet(html, mount) {
   $('#sheet').innerHTML = '<div class="grip"></div>' + html;
+  $('#sheet').scrollTop = 0;
   $('#overlay').classList.add('on'); $('#sheet').classList.add('on');
+  if (!sheetHist && !popPending) { history.pushState({ sheet: 1 }, ''); sheetHist = true; }
   mount?.($('#sheet'));
 }
-function closeSheet() { $('#overlay').classList.remove('on'); $('#sheet').classList.remove('on'); }
+function closeSheet(fromPop) {
+  $('#overlay').classList.remove('on'); $('#sheet').classList.remove('on');
+  if (sheetHist && fromPop !== true) { sheetHist = false; popPending = true; history.back(); }
+  else if (fromPop === true) sheetHist = false;
+}
 $('#overlay').onclick = closeSheet;
+// המסגרת עצמה לעולם לא נגללת (פוקוס על שדה בחלון יכול להזיז אותה ולשבור את המסך)
+$('#app').addEventListener('scroll', e => { e.target.scrollTop = 0; e.target.scrollLeft = 0; });
+window.addEventListener('popstate', () => {
+  const open = $('#sheet').classList.contains('on');
+  if (popPending) { popPending = false; if (open) { history.pushState({ sheet: 1 }, ''); sheetHist = true; } return; }
+  if (open) closeSheet(true);
+});
+// משיכה כלפי מטה (כשהחלון גלול לראש) — החלון יורד ונסגר, חוזרים למסך הראשי
+(() => {
+  const sh = $('#sheet'); let y0 = null, dy = 0, drag = false;
+  sh.addEventListener('touchstart', e => {
+    y0 = sh.scrollTop <= 0 && e.touches.length === 1 ? e.touches[0].clientY : null;
+    dy = 0; drag = false;
+  }, { passive: true });
+  sh.addEventListener('touchmove', e => {
+    if (y0 == null) return;
+    dy = e.touches[0].clientY - y0;
+    if (!drag && dy > 8 && sh.scrollTop <= 0) { drag = true; sh.style.transition = 'none'; }
+    if (drag) { e.preventDefault(); sh.style.transform = `translateY(${Math.max(0, dy)}px)`; }
+    else if (dy < -4) y0 = null;
+  }, { passive: false });
+  const end = () => {
+    if (drag) { sh.style.transition = ''; if (dy > 90) closeSheet(); sh.style.transform = ''; }
+    y0 = null; drag = false;
+  };
+  sh.addEventListener('touchend', end); sh.addEventListener('touchcancel', end);
+  $('#overlay').addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+})();
 
 function catGrid(selected, withIncome = true) {
   const ids = [...Object.keys(CATS), ...(withIncome ? ['income'] : [])];
@@ -179,7 +215,7 @@ function renderChat(newIds = []) {
     }
     if (t.msg !== lastMsg) {
       lastMsg = t.msg;
-      html += `<div class="me${isNew}">${t.source === 'voice' ? '🎤 ' : ''}${esc(t.raw)}<div class="time">${timeOf(t.created)}</div></div>`;
+      html += `<div class="me${isNew}">${t.source === 'voice' ? '🎤 ' : t.source === 'plus' ? '➕ ' : ''}${esc(t.raw)}<div class="time">${timeOf(t.created)}</div></div>`;
     }
     html += `<div class="bot${isNew}" id="b-${t.id}">${botHTML(t)}</div>`;
   }
@@ -620,13 +656,13 @@ document.addEventListener('click', e => {
 
 function go(v) {
   S.view = v;
-  $$('nav button').forEach(x => x.classList.toggle('on', x.dataset.v === v));
+  $$('nav button[data-v]').forEach(x => x.classList.toggle('on', x.dataset.v === v));
   $$('.view').forEach(x => x.classList.toggle('on', x.id === 'v-' + v));
   $('#composer').style.display = v === 'chat' ? '' : 'none';
   if (v !== 'chat') { renderAll(); $('#main').scrollTo({ top: 0 }); }
   else { S.month = thisMonth(); renderChat(); }
 }
-$$('nav button').forEach(b => b.onclick = () => { if (b.dataset.v === 'tx') S.catFilter = null; go(b.dataset.v); });
+$$('nav button[data-v]').forEach(b => b.onclick = () => { if (b.dataset.v === 'tx') S.catFilter = null; go(b.dataset.v); });
 $('#bell').onclick = () => { S.month = thisMonth(); go('insights'); };
 
 // ילד: רק מוסיף ורואה את מה שהוא רשם (ההגבלה האמיתית בשרת)
@@ -663,28 +699,105 @@ inp.addEventListener('input', updateMic);
 inp.addEventListener('keydown', e => { if (e.key === 'Enter') { send(inp.value); inp.value = ''; updateMic(); } });
 
 // ---------- הודעה קולית ----------
+// לחיצה קצרה = מקליט עד שלוחצים ⏹️ · החזקה = מדברים ומשחררים ונשלח
+// בזמן החזקה: גרירה למעלה = נעילה (הקלטה ארוכה) · גרירה הצידה = ביטול
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-let rec = null;
-$('#mic').onclick = () => {
-  if (inp.value.trim()) { send(inp.value); inp.value = ''; updateMic(); return; }
-  if (rec) { rec.stop(); return; }
-  if (!SR) { toast('🎤 הדפדפן הזה לא תומך בהקלטה. אפשר ללחוץ על המיקרופון במקלדת של הטלפון'); inp.focus(); return; }
-  rec = new SR(); rec.lang = 'he-IL'; rec.interimResults = true; rec.continuous = false;
-  let finalText = '';
-  $('#mic').classList.add('rec'); inp.placeholder = '🎤 מקשיב… דבר עכשיו';
-  rec.onresult = e => {
-    let txt = ''; for (const r of e.results) txt += r[0].transcript;
-    inp.value = txt; if (e.results[e.results.length - 1].isFinal) finalText = txt;
+const mic = $('#mic');
+const V = { on: false, mode: null, text: '', live: '', rec: null, t0: 0, timer: null, stopping: false, cancel: false, fatal: false, stopTap: false, x0: 0, y0: 0, downAt: 0 };
+const MAX_REC = 3 * 60e3;
+
+function voiceUI() {
+  const bar = $('#recbar');
+  document.body.classList.toggle('recording', V.on);
+  bar.hidden = !V.on;
+  mic.classList.toggle('rec', V.on);
+  mic.classList.toggle('hold', V.on && V.mode === 'press');
+  $('#recLock').hidden = !(V.on && V.mode === 'press');
+  if (!V.on) { updateMic(); return; }
+  mic.textContent = V.mode === 'press' ? '🎤' : '⏹️';
+  mic.setAttribute('aria-label', V.mode === 'press' ? 'משחררים כדי לשלוח' : 'סיום ושליחה');
+  showLive();
+}
+function showLive() {
+  const t = (V.text + ' ' + V.live).trim();
+  $('#recLive').textContent = t || (V.mode === 'press' ? '⬆️ למעלה לנעילה · ↔️ הצידה לביטול' : 'מקשיב… דבר עכשיו');
+}
+function tick() {
+  const s = Math.floor((Date.now() - V.t0) / 1000);
+  $('#recT').textContent = `${Math.floor(s / 60)}:${pad(s % 60)}`;
+  if (Date.now() - V.t0 > MAX_REC) finishVoice(true);
+}
+function listen() {
+  const r = new SR(); V.rec = r;
+  r.lang = 'he-IL'; r.interimResults = true; r.continuous = false;
+  r.onresult = e => {
+    let txt = ''; for (const x of e.results) txt += x[0].transcript;
+    if (e.results[e.results.length - 1].isFinal) { V.text = (V.text + ' ' + txt).trim(); V.live = ''; } else V.live = txt;
+    showLive();
   };
-  rec.onerror = e => { if (e.error === 'not-allowed') toast('🎤 צריך לאשר גישה למיקרופון', true); else if (e.error !== 'no-speech' && e.error !== 'aborted') toast('🎤 לא הצלחתי לשמוע, נסה שוב', true); };
-  rec.onend = () => {
-    $('#mic').classList.remove('rec'); inp.placeholder = 'מה הוצאת? למשל: סופר 230'; rec = null;
-    const t = (finalText || inp.value).trim();
-    inp.value = ''; updateMic();
-    if (t) send(t, 'voice');
+  r.onerror = e => {
+    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { V.fatal = true; toast('🎤 צריך לאשר גישה למיקרופון', true); }
+    else if (e.error === 'network') { V.fatal = true; toast('🎤 כדי להקליט צריך חיבור לאינטרנט', true); }
   };
-  rec.start();
-};
+  // הדפדפן עוצר לבד אחרי שקט — ממשיכים להקשיב עד שהמשתמש עוצר
+  r.onend = () => {
+    if (V.rec !== r) return;
+    V.text = (V.text + ' ' + V.live).trim(); V.live = '';
+    if (V.on && !V.stopping && !V.fatal) { try { listen(); return; } catch {} }
+    endVoice();
+  };
+  try { r.start(); } catch { V.fatal = true; V.rec = null; endVoice(); }
+}
+function startVoice() {
+  if (!SR) { toast('🎤 הדפדפן הזה לא תומך בהקלטה. אפשר ללחוץ על המיקרופון במקלדת של הטלפון'); inp.focus(); return false; }
+  Object.assign(V, { on: true, text: '', live: '', t0: Date.now(), stopping: false, cancel: false, fatal: false, stopTap: false });
+  $('#recT').textContent = '0:00';
+  V.timer = setInterval(tick, 250);
+  navigator.vibrate?.(25);
+  listen();
+  return V.on;
+}
+function finishVoice(sendIt) {
+  if (!V.on) return;
+  V.stopping = true; V.cancel = !sendIt;
+  const r = V.rec;
+  if (!r) { endVoice(); return; }
+  try { sendIt ? r.stop() : r.abort(); } catch { endVoice(); return; }
+  setTimeout(() => { if (V.on && V.rec === r) endVoice(); }, 2500); // ליתר ביטחון
+}
+function endVoice() {
+  if (!V.on) return;
+  V.on = false; V.rec = null; clearInterval(V.timer);
+  const t = V.cancel ? '' : (V.text + ' ' + V.live).trim();
+  voiceUI();
+  if (t) send(t, 'voice');
+  else if (!V.cancel && !V.fatal) toast('🎤 לא שמעתי כלום, נסה שוב');
+}
+
+mic.addEventListener('pointerdown', e => {
+  if (inp.value.trim()) return; // יש טקסט — הכפתור שולח (בלחיצה)
+  e.preventDefault();
+  if (V.on) { V.stopTap = true; return; }
+  V.mode = 'press'; V.x0 = e.clientX; V.y0 = e.clientY; V.downAt = Date.now();
+  if (!startVoice()) return;
+  try { mic.setPointerCapture(e.pointerId); } catch {}
+  voiceUI();
+});
+mic.addEventListener('pointermove', e => {
+  if (!V.on || V.mode !== 'press') return;
+  if (V.y0 - e.clientY > 60) { V.mode = 'locked'; navigator.vibrate?.(20); voiceUI(); }
+  else if (Math.abs(e.clientX - V.x0) > 90) { finishVoice(false); toast('🗑️ ההקלטה בוטלה'); }
+});
+mic.addEventListener('pointerup', () => {
+  if (V.stopTap) { V.stopTap = false; finishVoice(true); return; }
+  if (!V.on || V.mode !== 'press') return;
+  if (Date.now() - V.downAt < 400) { V.mode = 'tap'; voiceUI(); } // לחיצה קצרה — ממשיך להקליט עד ⏹️
+  else finishVoice(true);                                         // החזקה — שחררו, שולחים
+});
+mic.addEventListener('pointercancel', () => { if (V.on && V.mode === 'press') { V.mode = 'tap'; voiceUI(); } });
+mic.addEventListener('contextmenu', e => e.preventDefault());
+mic.addEventListener('click', () => { if (!V.on && inp.value.trim()) { send(inp.value); inp.value = ''; updateMic(); } });
+$('#recX').onclick = () => { finishVoice(false); toast('🗑️ ההקלטה בוטלה'); };
 
 // ---------- העלאת קבצי אשראי ובנק ----------
 const fpOf = (date, amount, desc) => `${ymd(date)}|${amount.toFixed(2)}|${desc}`;
@@ -714,12 +827,102 @@ const STATUS = {
   'atm': '💵 משיכת מזומן — את ההוצאות עצמן רושמים כשמשלמים במזומן',
 };
 
-const fileInp = document.createElement('input');
-fileInp.type = 'file'; fileInp.hidden = true; fileInp.multiple = true;
-fileInp.accept = '.xlsx,.xls,.csv,.txt,.pdf,image/*,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv';
-document.body.appendChild(fileInp);
-$('#attach').onclick = () => { fileInp.value = ''; fileInp.click(); };
-fileInp.onchange = () => { if (fileInp.files.length) importFiles([...fileInp.files]); };
+// 📎 — תפריט: קובץ מהבנק / צילום מסך מהגלריה / לצלם עכשיו
+// (קלט נפרד לקבצים — אחרת אנדרואיד מציע רק מצלמה ותמונות)
+const DOC_ACCEPT = '.xlsx,.xls,.csv,.txt,.pdf,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,text/plain';
+function makePicker(accept, camera) {
+  const i = document.createElement('input');
+  i.type = 'file'; i.hidden = true; i.accept = accept; i.multiple = !camera;
+  if (camera) i.setAttribute('capture', 'environment');
+  i.onchange = () => { if (i.files.length) { const f = [...i.files]; closeSheet(); importFiles(f); } };
+  document.body.appendChild(i);
+  return i;
+}
+const PICK = { doc: makePicker(DOC_ACCEPT), img: makePicker('image/*'), cam: makePicker('image/*', true) };
+
+function openAttachSheet() {
+  openSheet(`<h3>📎 העלאת פירוט מהבנק או מהאשראי</h3>
+    <div class="sub" style="margin:-6px 0 14px">מכל בנק וכל כרטיס אשראי · אפשר כמה קבצים יחד, גם חודשים אחורה</div>
+    <button class="pick" data-pick="doc"><span class="pe" style="background:var(--g3)">📊</span><span><b>קובץ אקסל או PDF</b><small>שהורדת מהאתר או מהאפליקציה של הבנק / האשראי</small></span></button>
+    <button class="pick" data-pick="img"><span class="pe" style="background:var(--g2)">🖼️</span><span><b>צילום מסך מהגלריה</b><small>צילום של רשימת התנועות באפליקציית הבנק</small></span></button>
+    <button class="pick" data-pick="cam"><span class="pe" style="background:var(--g1)">📷</span><span><b>לצלם עכשיו</b><small>דף חיוב מודפס או קבלה</small></span></button>
+    <div class="card" style="margin-top:6px"><b>🤔 מה קורה אחרי שבוחרים?</b>
+      <div class="sub" style="margin-top:6px;line-height:1.9">1️⃣ האפליקציה קוראת את כל התנועות לבד<br>2️⃣ מוצגת רשימה לבדיקה — עם קטגוריה לכל שורה<br>3️⃣ מה שכבר נרשם מסומן 🔁 ולא ייכנס פעמיים<br>4️⃣ מתקנים אם צריך ולוחצים <b>"ייבוא"</b> ✅</div></div>
+    <div class="sub" style="margin-top:12px">💡 איפה מוצאים את הקובץ? באתר או באפליקציה של הבנק / חברת האשראי ← "פירוט חיובים" או "תנועות בחשבון" ← "ייצוא לאקסל" / "הורדה". הקובץ נשמר בתיקיית <b>"הורדות"</b>.</div>`, sh => {
+    sh.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => { const i = PICK[b.dataset.pick]; i.value = ''; i.click(); });
+  });
+}
+$('#attach').onclick = openAttachSheet;
+
+// ---------- ➕ הוספה בלי צ'אט: בוחרים קטגוריה וממלאים ----------
+function openAddSheet() {
+  const ids = ['income', ...Object.keys(CATS)];
+  openSheet(`<h3>➕ מה מוסיפים?</h3>
+    <div class="catgrid">${ids.map(id => { const c = catOf(id);
+      return `<button class="catbtn${id === 'income' ? ' inc' : ''}" data-cat="${id}"><div class="cat-ic" style="background:${c.g}">${c.e}</div>${id === 'income' ? 'הכנסה' : c.n}</button>`; }).join('')}</div>
+    <button class="btn ghost full" id="addFile">📎 או: העלאת פירוט מהבנק / אשראי</button>`, sh => {
+    sh.querySelectorAll('[data-cat]').forEach(b => b.onclick = () => openAddForm(b.dataset.cat));
+    sh.querySelector('#addFile').onclick = openAttachSheet;
+  });
+}
+const ADD_HINT = { income: 'משכורת', food: 'אושר עד', car: 'דלק / טעינה', rest: 'פיצה', home: 'חשמל', kids: 'חוג', health: 'קופת חולים', subs: 'נטפליקס', clothes: 'נעליים', fun: 'סרט', give: 'צדקה', other: 'מתנה' };
+function openAddForm(cat) {
+  const c = catOf(cat), inc = cat === 'income';
+  let pay = null, who = S.me || null;
+  openSheet(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <div class="cat-ic" style="background:${c.g};width:44px;height:44px">${c.e}</div>
+      <h3 style="margin:0;flex:1">${inc ? 'הכנסה חדשה' : c.n}</h3>
+      <button class="chip" id="aBack">↩️ החלפה</button></div>
+    <div class="row2">
+      <label class="field"><span>סכום ₪</span><input id="aAmt" type="number" inputmode="decimal" placeholder="0"></label>
+      <label class="field"><span>תאריך</span><input id="aDate" type="date" value="${ymd(new Date())}"></label>
+    </div>
+    <label class="field"><span>${inc ? 'מאיפה?' : 'על מה? / איפה?'} (לא חובה)</span><input id="aDesc" placeholder="למשל: ${ADD_HINT[cat] || ''}"></label>
+    ${inc ? '' : `<label class="field"><span>מספר תשלומים (לא חובה)</span><input id="aInst" type="number" inputmode="numeric" placeholder="1"></label>`}
+    <div class="err" id="aErr"></div>
+    <div class="sub" style="margin-bottom:8px">${inc ? 'איך התקבל?' : 'איך שולם?'} (לא חובה)</div>
+    <div class="chips" id="aPay" style="flex-wrap:wrap;margin-bottom:14px">${Object.entries(PAY).map(([id, p]) => `<button class="chip" data-p="${id}">${p.e} ${p.n}</button>`).join('')}</div>
+    ${S.people.length ? `<div class="sub" style="margin-bottom:8px">של מי?</div><div class="chips" id="aWho" style="flex-wrap:wrap;margin-bottom:14px">${whoChips(who)}</div>` : ''}
+    <button class="btn grad full" id="aSave">✅ שמירה</button>`, sh => {
+    sh.querySelector('#aBack').onclick = openAddSheet;
+    sh.querySelectorAll('#aPay [data-p]').forEach(b => b.onclick = () => {
+      pay = pay === b.dataset.p ? null : b.dataset.p;
+      sh.querySelectorAll('#aPay [data-p]').forEach(x => x.classList.toggle('on', x.dataset.p === pay));
+    });
+    sh.querySelectorAll('#aWho [data-w]').forEach(b => b.onclick = () => {
+      who = b.dataset.w; sh.querySelectorAll('#aWho [data-w]').forEach(x => x.classList.toggle('on', x === b));
+    });
+    const amt = sh.querySelector('#aAmt'), err = sh.querySelector('#aErr');
+    amt.oninput = () => err.textContent = '';
+    setTimeout(() => amt.focus({ preventScroll: true }), 400);
+    let force = false;
+    sh.querySelector('#aSave').onclick = async () => {
+      const total = parseFloat(amt.value), d = sh.querySelector('#aDate').value;
+      if (!(total > 0)) { err.textContent = 'צריך להזין סכום גדול מ-0'; amt.focus(); return; }
+      if (!d) { err.textContent = 'צריך לבחור תאריך'; return; }
+      const desc = sh.querySelector('#aDesc').value.trim() || (inc ? 'הכנסה' : c.n);
+      const n = Math.round(parseFloat(sh.querySelector('#aInst')?.value) || 0), inst = !inc && n > 1 ? n : 0;
+      const now = new Date();
+      const t = { id: db.newId(), msg: db.newId(), raw: `${desc} ${total}${inst ? ` ב-${inst} תשלומים` : ''}`, desc, cat, source: 'plus',
+        created: now.toISOString(), date: new Date(d + 'T12:00:00').toISOString(),
+        amount: inst ? Math.round(total / inst * 100) / 100 : total, total, inst, pay: pay || (inst ? 'credit' : null), paySkip: !pay, who };
+      const dup = !force && findDup(t);
+      if (dup) {
+        force = true;
+        err.innerHTML = `⚠️ נראה שזה כבר נרשם: "${esc(dup.desc)} · ${fmt(dup.inst > 1 ? dup.total : dup.amount)}" ב-${new Date(dup.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}.<br>לוחצים שוב "שמירה" כדי לרשום בכל זאת.`;
+        sh.querySelector('#aSave').textContent = '➕ לרשום בכל זאת';
+        return;
+      }
+      // לומדים: אם כתבו שם חנות — בפעם הבאה בצ'אט היא תדע לאיזו קטגוריה
+      const key = sh.querySelector('#aDesc').value.trim().toLowerCase();
+      if (!inc && key.length >= 2 && classify(key, S.learned) !== cat) { S.learned[key] = cat; await db.setKV('learned', S.learned); }
+      closeSheet();
+      await commitTx([t]);
+      toast(inc ? `💰 נרשמה הכנסה ${fmt(total)}` : `✅ נרשם: ${desc} · ${fmt(total)}`);
+    };
+  });
+}
+$('#plusBtn').onclick = openAddSheet;
 
 // קורא קובץ אחד → { kind, items } או זורק שגיאה עם הודעה ידידותית
 async function readOne(file, label) {
@@ -1044,7 +1247,7 @@ function openInstallSheet() {
   openSheet(`<h3>📲 התקנה על המסך</h3>
     <div class="sub" style="margin:-6px 0 14px">ככה "כסף בכיף" יופיע עם אייקון במסך הבית, כמו וואטסאפ — ייפתח במסך מלא ויעבוד גם בלי אינטרנט</div>
     ${isIOS() ? `<div class="card tip" style="margin-bottom:10px"><div class="em">🍏</div><p><b>באייפון (בדפדפן Safari):</b><br>1. לוחצים על כפתור השיתוף <b>⬆️</b> בתחתית המסך<br>2. גוללים ובוחרים <b>"הוסף למסך הבית"</b><br>3. לוחצים <b>"הוסף"</b> — וזהו!</p></div>`
-      : `<div class="card tip" style="margin-bottom:10px"><div class="em">🤖</div><p><b>באנדרואיד (בדפדפן Chrome):</b><br>1. לוחצים על <b>⋮</b> (שלוש נקודות) למעלה<br>2. בוחרים <b>"התקנת אפליקציה"</b> או <b>"הוספה למסך הבית"</b><br>3. מאשרים — וזהו!</p></div>
+      : `<div class="card tip" style="margin-bottom:10px"><div class="em">🤖</div><p><b>באנדרואיד (בדפדפן Chrome):</b><br>1. לוחצים על <b>⋮</b> (שלוש הנקודות) למעלה<br>2. גוללים קצת למטה ובוחרים <b>"התקנת אפליקציה"</b> (או "הוספה למסך הבית")<br>3. לוחצים <b>"התקנה"</b> — וזהו!</p></div>
          <div class="card tip"><div class="em">💻</div><p><b>במחשב (Chrome / Edge):</b> לוחצים על סמל ההתקנה בשורת הכתובת, או ⋮ ← "התקנה".</p></div>`}`);
 }
 function drawInstallBanner() {
