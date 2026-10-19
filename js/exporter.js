@@ -269,7 +269,7 @@ export async function buildWorkbook({ tx, budgets, people = [], kind, anchor }) 
     c.alignment = { horizontal: 'center', vertical: 'middle' }; c.border = box;
   });
   wt.getRow(1).height = 24;
-  const SRC = { text: 'צ׳אט', voice: 'הקלטה', file: 'קובץ' };
+  const SRC = { text: 'צ׳אט', voice: 'הקלטה', file: 'קובץ', plus: 'הוספה ידנית' };
   occ.forEach((o, i) => {
     const t = o.t, c = catOf(t.cat), income = t.cat === 'income';
     const notes = [t.inst > 1 ? `תשלום ${o.k + 1}/${t.inst} מתוך ${t.total} ₪` : '', t.note || ''].filter(Boolean).join(' · ');
