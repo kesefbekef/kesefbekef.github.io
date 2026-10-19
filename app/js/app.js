@@ -1368,9 +1368,22 @@ function drawMe(el) {
       <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">👨‍👩‍👧 <b>${esc(hh?.name || 'בלי משפחה')}</b> · ${parent ? '👨‍👩 הורה' : '🧒 ילד'}</span>
       ${parent && hh ? '<button class="chip" data-me-edit="family">✏️ שינוי שם</button>' : ''}
     </div>
+    ${parent && hh ? `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;padding:10px 12px;border-radius:14px;background:var(--card2)">
+      <span style="min-width:0">📧 סיכום חודשי למייל<div class="sub" style="font-size:12px">ב-1 לכל חודש: סיכום + קובץ אקסל</div></span>
+      <button class="chip" id="meMail">…</button></div>` : ''}
     <div id="meEdit"></div>
     <div class="row2" style="margin-top:10px"><button class="btn ghost" data-me-edit="password">🔑 שינוי סיסמה</button><button class="btn ghost" data-me-edit="switch">🔄 משפחה אחרת</button></div>
     <button class="btn danger full" id="meOut" style="margin-top:10px">🚪 יציאה מהחשבון</button>`;
+  const mailBtn = el.querySelector('#meMail');
+  if (mailBtn) {
+    const show = on => { mailBtn.textContent = on ? '✅ פעיל' : '⏸️ כבוי'; mailBtn.classList.toggle('on', on); mailBtn.dataset.on = on ? '1' : ''; };
+    (UITEST ? Promise.resolve(true) : sync.getMonthlyEmail()).then(show, () => show(true));
+    mailBtn.onclick = async () => {
+      const on = !mailBtn.dataset.on;
+      try { if (!UITEST) await sync.setMonthlyEmail(on); show(on); toast(on ? '📧 הסיכום החודשי יגיע למייל ב-1 לחודש' : '⏸️ הסיכום החודשי במייל כובה'); }
+      catch (e) { toast(e.message, true); }
+    };
+  }
   const box = el.querySelector('#meEdit');
   const form = (html, onSave) => {
     box.innerHTML = `<div style="margin-top:12px;padding:12px;border-radius:16px;border:1px solid var(--line);background:var(--card)">${html}
