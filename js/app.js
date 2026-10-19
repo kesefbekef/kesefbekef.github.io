@@ -34,7 +34,7 @@ const timeOf = iso => new Date(iso).toLocaleTimeString('he-IL', { hour: '2-digit
 const thisMonth = () => ym(new Date());
 
 const RECOVERY = /type=recovery/.test(location.hash);
-const S = { tx: [], budgets: {}, learned: {}, cats: {}, goals: {}, maaser: {}, pocket: {}, people: [], me: null, month: thisMonth(), view: 'chat', catFilter: null, whoFilter: null, search: '' };
+const S = { tx: [], budgets: {}, learned: {}, cats: {}, goals: {}, maaser: {}, pocket: {}, debts: {}, people: [], me: null, month: thisMonth(), view: 'chat', catFilter: null, whoFilter: null, search: '' };
 
 // ---------- בני הבית ----------
 const FACES = ['🧔', '👩', '👦', '👧', '👴', '👵', '🧑', '👶'];
@@ -253,6 +253,7 @@ async function send(raw, source = 'text') {
     openExportSheet(kind, /אתמול/.test(raw) ? new Date(Date.now() - 864e5) : /שעבר|קודם/.test(raw) ? xp.shiftAnchor(kind, new Date(), -1) : new Date());
     return;
   }
+  if (/^(הלוויתי|לוויתי|לקחתי הלוואה|קיבלתי הלוואה|החזרתי ל)|\sהחזיר(ה)?\s/.test(raw) && await debtCommand(raw)) { $('#inp').blur(); return; }
   if (FEEDBACK_RE.test(raw)) { $('#inp').blur(); openFeedback(raw.replace(FEEDBACK_RE, '').trim(), raw); return; }
   if (help.isHelpRequest(raw)) { $('#inp').blur(); openHelp(raw, help.wantsGuide(raw) && !help.answer(raw).length); return; }
   const named = detectWho(raw);
@@ -596,7 +597,7 @@ function renderInsights() {
   const inst = txInMonth(m).filter(t => t.inst > 1);
   if (inst.length) tips.push(['💳', `<b>${inst.length} תשלומים פעילים</b> בסך ${fmt(inst.reduce((s, t) => s + t.amount, 0))} החודש.`]);
 
-  $('#tips').innerHTML = historyCard(m) + tagsCard() + tips.map(([e, h]) => `<div class="card tip"><div class="em">${e}</div><p>${h}</p></div>`).join('');
+  $('#tips').innerHTML = historyCard(m) + hebCard() + tagsCard() + tips.map(([e, h]) => `<div class="card tip"><div class="em">${e}</div><p>${h}</p></div>`).join('');
 }
 
 // 🏷️ אירועים: כמה עלה כל אירוע (מכל הזמנים, בכל הקטגוריות)
@@ -691,6 +692,7 @@ function openEditSheet(t) {
     <div class="chips" id="ePay" style="flex-wrap:wrap;margin-bottom:14px">${Object.entries(PAY).map(([id, p]) => `<button class="chip ${id === pay ? 'on' : ''}" data-p="${id}">${p.e} ${p.n}</button>`).join('')}</div>
     ${S.people.length ? `<div class="sub" style="margin-bottom:8px">של מי?</div><div class="chips" id="eWho" style="flex-wrap:wrap;margin-bottom:14px">${whoChips(who)}</div>` : ''}
     ${tagField('eTag', t.tags || [])}
+    ${t.cat !== 'income' && sync.isParent() ? '<button class="chip" id="eSplit" style="margin-bottom:10px">➗ לחלק את ההוצאה עם מישהו</button>' : ''}
     <div class="receipt" id="eRec">${t.receipt ? '<button class="chip" id="rShow">🧾 לראות את הקבלה</button> <button class="chip" id="rDel">🗑️ הסרה</button>' : '<button class="chip" id="rAdd">🧾 צילום קבלה</button>'}
       <input type="file" id="rFile" accept="image/*" capture="environment" hidden><input type="file" id="rGal" accept="image/*" hidden>${t.receipt ? '' : ' <button class="chip" id="rAddG">🖼️ מהגלריה</button>'}</div>
     ${t.cat === 'income' ? `<div class="chips" style="margin-bottom:14px"><button class="chip ${t.noMaaser ? 'on' : ''}" id="eNoM">🤲 בלי מעשר מההכנסה הזו</button></div>` : ''}
@@ -724,6 +726,7 @@ function openEditSheet(t) {
       } catch (e) { toast(e.message, true); }
     });
     sh.querySelector('#rDel')?.addEventListener('click', async () => { await sync.deleteReceipt(t.receipt); delete t.receipt; await db.putTx(t); toast('🗑️ הקבלה הוסרה'); openEditSheet(t); });
+    sh.querySelector('#eSplit')?.addEventListener('click', () => openDebtNew({ kind: 'split', dir: 'lent', total: t.inst > 1 ? t.total : t.amount, note: t.desc }));
     let noM = !!t.noMaaser;
     sh.querySelector('#eNoM')?.addEventListener('click', e => { noM = !noM; e.currentTarget.classList.toggle('on', noM); });
     sh.querySelector('#eAmt').oninput = () => sh.querySelector('#eErr').textContent = '';
@@ -749,7 +752,7 @@ function openEditSheet(t) {
 // ---------- ניווט וחודשים ----------
 function renderMonthNav() {
   $$('[data-monthnav]').forEach(el => {
-    el.innerHTML = `<button data-mn="-1" aria-label="חודש קודם">›</button><span>${monthLabel(S.month)}</span><button data-mn="1" aria-label="חודש הבא">‹</button>`;
+    el.innerHTML = `<button data-mn="-1" aria-label="חודש קודם">›</button><span>${monthLabel(S.month)}${hebOn() ? `<small class="hebm">${hebRange(S.month)}</small>` : ''}</span><button data-mn="1" aria-label="חודש הבא">‹</button>`;
   });
 }
 document.addEventListener('click', e => {
@@ -1385,6 +1388,18 @@ function openKid(pid, readOnly = false) {
     };
   });
 }
+// 🔗 משימה ← הוצאה, מ"זמן בכיף": ?add=350&desc=חשמל — פותח ➕ עם הכל מוכן, המשתמש רק מאשר
+function addLink() {
+  const q = new URLSearchParams(location.search); if (!q.has('add')) return;
+  const a = num(q.get('add')), desc = cleanName(q.get('desc') || '');
+  history.replaceState(null, '', location.pathname);
+  const cat = desc ? (isIncome(desc) ? 'income' : classify(desc, S.learned)) : 'other';
+  openAddForm(cat);
+  const sh = $('#sheet');
+  if (a > 0) sh.querySelector('#aAmt').value = a;
+  if (desc) sh.querySelector('#aDesc').value = desc;
+  if (!(a > 0)) setTimeout(() => sh.querySelector('#aAmt')?.focus(), 450);
+}
 // ⭐ קישור מ"זמן בכיף": ?stars=20&kid=יעל — ההורה מאשר והכוכבים נכנסים לקופה
 function starsLink() {
   const q = new URLSearchParams(location.search), st = Math.round(num(q.get('stars'))), kid = (q.get('kid') || '').trim();
@@ -1402,6 +1417,203 @@ function starsLink() {
 $('#goalsBtn').onclick = openGoals;
 $('#maaserBtn').onclick = openMaaser;
 $('#pocketBtn').onclick = () => openPocket();
+$('#debtsBtn').onclick = () => openDebts();
+
+// ========== שלב 3: ➗ מי חייב למי · 🕎 חודשים עבריים וחגים ==========
+
+// ---------- ➗ מי חייב למי + גמ"חים ----------
+// S.debts = { id: { name, dir: 'lent'|'borrowed', kind: 'loan'|'gemach'|'split', total, note, d, plan: { n, start } | null, pay: [{ d, a }] } }
+const DKIND = { loan: ['🤝', 'הלוואה'], gemach: ['🏦', 'גמ"ח'], split: ['➗', 'חלוקת הוצאה'] };
+const debtPaid = x => (x.pay || []).reduce((s, p) => s + p.a, 0);
+const debtLeft = x => Math.max(0, num(x.total - debtPaid(x)));
+const cleanName = s => String(s || '').replace(/[<>&"'`]/g, '').trim().slice(0, 30);
+// כמה היה אמור להיות מוחזר עד היום לפי לוח התשלומים
+function debtDue(x) {
+  if (!x.plan?.n || !x.plan.start || debtLeft(x) <= 0) return null;
+  const st = new Date(x.plan.start + 'T12:00:00'), now = new Date(), per = x.total / x.plan.n;
+  const k = Math.min(x.plan.n, Math.max(0, (now.getFullYear() - st.getFullYear()) * 12 + now.getMonth() - st.getMonth() + (now.getDate() >= st.getDate() ? 1 : 0)));
+  const next = new Date(st); next.setMonth(st.getMonth() + k);
+  return { per, behind: Math.max(0, num(k * per - debtPaid(x))), next: k < x.plan.n ? next : null };
+}
+function openDebts() {
+  const list = Object.entries(S.debts || {}).filter(([, x]) => debtLeft(x) > 0 || Date.now() - new Date(x.d) < 30 * 864e5);
+  const owedToUs = list.filter(([, x]) => x.dir === 'lent').reduce((s, [, x]) => s + debtLeft(x), 0);
+  const weOwe = list.filter(([, x]) => x.dir === 'borrowed').reduce((s, [, x]) => s + debtLeft(x), 0);
+  openSheet(`<h3>➗ מי חייב למי</h3><div class="sub" style="margin:-6px 0 12px">הלוואות, גמ"חים וחלוקת הוצאות — רק שמות, בלי שהצד השני צריך את האפליקציה.</div>
+    <div class="duo" style="padding:0 0 12px"><div class="stat" style="background:var(--g3)"><small>חייבים לנו</small><div>${fmt(owedToUs)}</div></div>
+      <div class="stat" style="background:linear-gradient(135deg,#F43F5E,#F97316)"><small>אנחנו חייבים</small><div>${fmt(weOwe)}</div></div></div>
+    ${list.length ? `<div class="card stg" style="padding:4px 12px">${list.sort((a, b) => debtLeft(b[1]) - debtLeft(a[1])).map(([id, x]) => { const [e, kn] = DKIND[x.kind] || DKIND.loan, left = debtLeft(x), due = debtDue(x);
+      return `<button class="tx" data-debt="${id}"><div class="cat-ic" style="background:${x.dir === 'lent' ? 'var(--g3)' : 'linear-gradient(135deg,#F43F5E,#F97316)'}">${e}</div>
+        <div class="nm"><div>${esc(x.name)} ${x.dir === 'lent' ? 'חייב/ת לנו' : '— אנחנו חייבים'}</div><small>${kn}${x.note ? ' · ' + esc(x.note) : ''}${due?.behind > 0 ? ' · <span class="over">⏰ באיחור ' + fmt(due.behind) + '</span>' : due?.next ? ' · הבא: ' + due.next.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' }) : ''}${left <= 0 ? ' · ✅ הוחזר' : ''}</small></div>
+        <div class="am ${x.dir === 'lent' ? 'plus' : 'over'}">${fmt(left)}</div></button>`; }).join('')}</div>`
+      : `<div class="empty"><span class="em">🤝</span>אין חובות פתוחים. אפשר גם לכתוב בצ'אט: "הלוויתי לדוד 500"</div>`}
+    <button class="btn grad full" id="dNew" style="margin-top:12px">➕ הלוואה / גמ"ח / חלוקה חדשה</button>`, sh => {
+    sh.querySelector('#dNew').onclick = () => openDebtNew();
+    sh.querySelectorAll('[data-debt]').forEach(b => b.onclick = () => openDebt(b.dataset.debt));
+  });
+}
+function openDebtNew(pre = {}) {
+  let dir = pre.dir || 'lent', kind = pre.kind || 'loan';
+  openSheet(`<h3>➕ חדש</h3>
+    <div class="chips" id="dDir" style="margin-bottom:10px;flex-wrap:wrap"><button class="chip" data-dir="lent">💸 אנחנו נתנו / הלווינו</button><button class="chip" data-dir="borrowed">🙏 קיבלנו / לווינו</button></div>
+    <div class="chips" id="dKind" style="margin-bottom:12px;flex-wrap:wrap">${Object.entries(DKIND).map(([k, [e, n]]) => `<button class="chip" data-kind="${k}">${e} ${n}</button>`).join('')}</div>
+    <label class="field"><span>שם (רק שם — לא צריך שיהיה לו את האפליקציה)</span><input id="dName" maxlength="30" value="${esc(pre.name || '')}" placeholder="למשל: דוד, גמ&quot;ח יד ביד"></label>
+    <div class="row2"><label class="field"><span id="dAmtL">סכום ₪</span><input id="dAmt" type="number" inputmode="decimal" value="${pre.total || ''}"></label>
+      <label class="field" id="dPplF"><span>כמה אנשים (כולל אותנו)</span><input id="dPpl" type="number" inputmode="numeric" value="2"></label></div>
+    <label class="field"><span>על מה? (לא חובה)</span><input id="dNote" maxlength="40" value="${esc(pre.note || '')}"></label>
+    <div class="sub" style="margin-bottom:6px">📅 החזר בתשלומים? (לא חובה) — נזכיר כשמגיע תשלום</div>
+    <div class="row2"><label class="field"><span>כמה תשלומים</span><input id="dN" type="number" inputmode="numeric" placeholder="10"></label><label class="field"><span>תשלום ראשון</span><input id="dStart" type="date" value="${ymd(new Date())}"></label></div>
+    <div class="err" id="dErr"></div><button class="btn grad full" id="dSave">💾 שמור</button>`, sh => {
+    const paint = () => {
+      sh.querySelectorAll('[data-dir]').forEach(b => b.classList.toggle('on', b.dataset.dir === dir));
+      sh.querySelectorAll('[data-kind]').forEach(b => b.classList.toggle('on', b.dataset.kind === kind));
+      sh.querySelector('#dPplF').style.display = kind === 'split' ? '' : 'none';
+      sh.querySelector('#dAmtL').textContent = kind === 'split' ? 'סכום ההוצאה כולה ₪' : 'סכום ₪';
+    };
+    sh.querySelectorAll('[data-dir]').forEach(b => b.onclick = () => { dir = b.dataset.dir; paint(); });
+    sh.querySelectorAll('[data-kind]').forEach(b => b.onclick = () => { kind = b.dataset.kind; paint(); });
+    paint();
+    sh.querySelector('#dSave').onclick = async () => {
+      const name = cleanName(sh.querySelector('#dName').value), amt = num(sh.querySelector('#dAmt').value), n = Math.round(num(sh.querySelector('#dN').value));
+      if (!name) { sh.querySelector('#dErr').textContent = 'צריך שם'; return; }
+      if (!(amt > 0)) { sh.querySelector('#dErr').textContent = 'צריך סכום גדול מ-0'; return; }
+      const ppl = Math.max(2, Math.round(num(sh.querySelector('#dPpl').value)) || 2), total = kind === 'split' ? num(amt / ppl) : amt;
+      const id = 'd_' + Math.random().toString(36).slice(2, 8);
+      await saveKV('debts', { ...S.debts, [id]: { name, dir, kind, total, note: cleanName(sh.querySelector('#dNote').value), d: new Date().toISOString(), plan: n > 1 ? { n, start: sh.querySelector('#dStart').value || ymd(new Date()) } : null, pay: [] } });
+      toast(dir === 'lent' ? `🤝 נרשם: ${name} חייב/ת לנו ${fmt(total)}` : `🙏 נרשם: אנחנו חייבים ל${name} ${fmt(total)}`); openDebt(id);
+    };
+  });
+}
+function openDebt(id) {
+  const x = S.debts?.[id]; if (!x) return openDebts();
+  const left = debtLeft(x), paid = debtPaid(x), due = debtDue(x), [e, kn] = DKIND[x.kind] || DKIND.loan; let armed = false;
+  openSheet(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px"><div class="cat-ic" style="background:${x.dir === 'lent' ? 'var(--g3)' : 'linear-gradient(135deg,#F43F5E,#F97316)'};width:48px;height:48px;font-size:24px">${e}</div>
+      <div style="flex:1;min-width:0"><h3 style="margin:0">${esc(x.name)}</h3><div class="sub">${kn} · ${x.dir === 'lent' ? 'חייב/ת לנו' : 'אנחנו חייבים'}${x.note ? ' · ' + esc(x.note) : ''}</div></div><button class="chip" id="dBack">↩️ חזרה</button></div>
+    <div class="card" style="text-align:center;margin-bottom:12px"><small class="sub">${left > 0 ? 'נשאר להחזיר' : '✅ הכל הוחזר'}</small><div class="big-num">${fmt(left)}</div>
+      <div class="pbar" style="margin:8px 0"><i style="width:${x.total ? Math.min(100, paid / x.total * 100) : 0}%;background:linear-gradient(90deg,#22C55E,#14B8A6)"></i></div>
+      <div class="sub">הוחזרו ${fmt(paid)} מתוך ${fmt(x.total)}${x.plan ? ` · ${x.plan.n} תשלומים של ${fmt(x.total / x.plan.n)}` : ''}${due?.behind > 0 ? ` · <span class="over">⏰ באיחור ${fmt(due.behind)}</span>` : due?.next ? ` · הבא ב-${due.next.toLocaleDateString('he-IL')}` : ''}</div></div>
+    ${left > 0 ? `<div class="row2"><label class="field"><span>החזר ₪</span><input id="pA" type="number" inputmode="decimal" value="${due?.behind > 0 ? Math.round(due.behind) : x.plan ? Math.round(x.total / x.plan.n) : ''}"></label><button class="btn grad" id="pAdd" style="align-self:flex-end;margin-bottom:12px">✅ נרשם החזר</button></div>` : ''}
+    ${(x.pay || []).length ? `<div class="card" style="padding:4px 12px">${[...x.pay].reverse().map(p => `<div class="mv"><span>${new Date(p.d).toLocaleDateString('he-IL')}</span><b class="plus">${fmt(p.a)}</b></div>`).join('')}</div>` : ''}
+    <button class="btn ghost full" id="dDel" style="margin-top:12px;color:#FB7185">🗑️ מחיקה</button>`, sh => {
+    sh.querySelector('#dBack').onclick = openDebts;
+    sh.querySelector('#pAdd')?.addEventListener('click', async () => {
+      const a = num(sh.querySelector('#pA').value); if (!(a > 0)) return sh.querySelector('#pA').focus();
+      await saveKV('debts', { ...S.debts, [id]: { ...x, pay: [...(x.pay || []), { d: new Date().toISOString(), a: Math.min(a, left) }] } });
+      if (a >= left) { confetti(); toast(`🎉 ${x.name} — הכל הוחזר!`); } else toast(`✅ נרשם החזר של ${fmt(a)}`);
+      openDebt(id);
+    });
+    sh.querySelector('#dDel').onclick = async ev => {
+      if (!armed) { armed = true; ev.target.textContent = 'לחיצה שנייה לאישור המחיקה'; return; }
+      const { [id]: _, ...rest } = S.debts; await saveKV('debts', rest); toast('🗑️ נמחק'); openDebts();
+    };
+  });
+}
+// בצ'אט: "הלוויתי לדוד 500" · "לוויתי מדוד 500" · "דוד החזיר 200" · "החזרתי לדוד 200"
+const DEBT_RE = [
+  [/^הלוויתי\s+(?:את\s+)?ל?(\D+?)\s+(\d+(?:\.\d+)?)\s*(?:ש"?ח|₪|שקל(?:ים)?)?\s*(.*)$/, 'lent'],
+  [/^(?:לוויתי|לקחתי הלוואה|קיבלתי הלוואה)\s+מ(\D+?)\s+(\d+(?:\.\d+)?)\s*(?:ש"?ח|₪|שקל(?:ים)?)?\s*(.*)$/, 'borrowed'],
+  [/^(\D+?)\s+החזיר(?:ה)?\s+(?:לי\s+|לנו\s+)?(\d+(?:\.\d+)?)/, 'repaidUs'],
+  [/^החזרתי\s+ל(\D+?)\s+(\d+(?:\.\d+)?)/, 'weRepaid'],
+];
+async function debtCommand(raw) {
+  for (const [re, type] of DEBT_RE) {
+    const m = raw.trim().match(re); if (!m) continue;
+    if (!sync.isParent()) return false;
+    const name = cleanName(m[1]), a = num(m[2]);
+    if (!name || !(a > 0)) return false;
+    let msg;
+    if (type === 'lent' || type === 'borrowed') {
+      const id = 'd_' + Math.random().toString(36).slice(2, 8);
+      await saveKV('debts', { ...S.debts, [id]: { name, dir: type, kind: /גמ"?ח/.test(raw) ? 'gemach' : 'loan', total: a, note: cleanName(m[3]), d: new Date().toISOString(), plan: null, pay: [] } });
+      msg = type === 'lent' ? `🤝 נרשם: <b>${esc(name)}</b> חייב/ת לכם ${fmt(a)}` : `🙏 נרשם: אתם חייבים ל<b>${esc(name)}</b> ${fmt(a)}`;
+    } else {
+      const dir = type === 'repaidUs' ? 'lent' : 'borrowed';
+      const hit = Object.entries(S.debts || {}).filter(([, x]) => x.dir === dir && debtLeft(x) > 0 && (x.name === name || x.name.includes(name) || name.includes(x.name)));
+      if (!hit.length) return false;
+      const [id, x] = hit[0], pay = Math.min(a, debtLeft(x));
+      await saveKV('debts', { ...S.debts, [id]: { ...x, pay: [...(x.pay || []), { d: new Date().toISOString(), a: pay }] } });
+      const left = debtLeft(S.debts[id]);
+      msg = `✅ נרשם החזר של ${fmt(pay)} — ${left > 0 ? `נשארו ${fmt(left)}` : '🎉 הכל הוחזר!'}`;
+      if (!left) confetti();
+    }
+    const me = document.createElement('div'); me.className = 'me new'; me.innerHTML = esc(raw); $('#chat').appendChild(me);
+    const b = document.createElement('div'); b.className = 'bot new';
+    b.innerHTML = `<div class="cat-ic" style="background:var(--g3)">🤝</div><div><b>${msg}</b><div class="acts"><button data-opendebts>➗ מי חייב למי</button></div></div>`;
+    b.querySelector('[data-opendebts]').onclick = openDebts;
+    $('#chat').appendChild(b); $('#main').scrollTo({ top: $('#main').scrollHeight, behavior: 'smooth' });
+    return true;
+  }
+  return false;
+}
+// 📅 תזכורת פעם ביום: תשלומים שהגיע זמנם
+function debtReminder() {
+  if (!sync.isParent() || lsGet('debtRemind') === ymd(new Date())) return;
+  const due = Object.values(S.debts || {}).map(x => ({ x, d: debtDue(x) })).filter(o => o.d?.behind > 0);
+  if (!due.length) return;
+  lsSet('debtRemind', ymd(new Date()));
+  const t = due.map(({ x, d }) => x.dir === 'lent' ? `${x.name} אמור/ה להחזיר ${fmt(d.behind)}` : `להחזיר ל${x.name} ${fmt(d.behind)}`).slice(0, 2).join(' · ');
+  setTimeout(() => toastAction(`📅 ${t}`, '➗ לפתוח', openDebts), 1500);
+}
+
+// ---------- 🕎 חודשים עבריים וחגים ----------
+const HEB_EN = new Intl.DateTimeFormat('en-u-ca-hebrew', { year: 'numeric', month: 'long', day: 'numeric' });
+const HEB_HE = new Intl.DateTimeFormat('he-u-ca-hebrew', { month: 'long' });
+function heb(d) { const o = {}; for (const p of HEB_EN.formatToParts(d)) o[p.type] = p.value; return { y: +o.year, m: o.month, day: +o.day }; }
+const hebMonthName = d => HEB_HE.format(d);
+// 5787 → תשפ״ז
+function hebYear(y) {
+  let n = y % 1000, s = '';
+  const L = [[400, 'ת'], [300, 'ש'], [200, 'ר'], [100, 'ק'], [90, 'צ'], [80, 'פ'], [70, 'ע'], [60, 'ס'], [50, 'נ'], [40, 'מ'], [30, 'ל'], [20, 'כ'], [10, 'י'], [9, 'ט'], [8, 'ח'], [7, 'ז'], [6, 'ו'], [5, 'ה'], [4, 'ד'], [3, 'ג'], [2, 'ב'], [1, 'א']];
+  for (const [v, ch] of L) while (n >= v) { if (n === 15) { s += 'טו'; n = 0; break; } if (n === 16) { s += 'טז'; n = 0; break; } s += ch; n -= v; }
+  return s.length > 1 ? s.slice(0, -1) + '״' + s.slice(-1) : s + '׳';
+}
+// החג של תאריך מסוים (כולל ימי ההכנה) → { id, y }
+const CHAGIM = { tishrei: ['🍎', 'חגי תשרי'], chanuka: ['🕎', 'חנוכה'], purim: ['🎭', 'פורים'], pesach: ['🍷', 'פסח'], shavuot: ['🌾', 'שבועות'] };
+function chagOf(d) {
+  const { y, m, day } = heb(d);
+  if (m === 'Elul' && day >= 20) return { id: 'tishrei', y: y + 1 };
+  if (m === 'Tishri' && day <= 23) return { id: 'tishrei', y };
+  if ((m === 'Kislev' && day >= 20) || (m === 'Tevet' && day <= 3)) return { id: 'chanuka', y };
+  if ((m === 'Adar' || m === 'Adar II') && day <= 15) return { id: 'purim', y };
+  if (((m === 'Adar' || m === 'Adar II') && day >= 20) || (m === 'Nisan' && day <= 22)) return { id: 'pesach', y };
+  if (m === 'Sivan' && day <= 7) return { id: 'shavuot', y };
+  return null;
+}
+function hebCard() {
+  const now = new Date(), from = new Date(now.getFullYear() - 2, now.getMonth(), 1);
+  const occ = xp.collect(S.tx, from, new Date(now.getFullYear(), now.getMonth() + 1, 1)).filter(o => o.t.cat !== 'income');
+  if (!occ.length) return '';
+  const cy = heb(now).y, ch = {}, hm = {};
+  for (const o of occ) {
+    const c = chagOf(o.date); if (c) { const k = `${c.id}|${c.y}`; ch[k] ??= { v: 0, cats: {} }; ch[k].v += o.amount; ch[k].cats[o.t.cat] = (ch[k].cats[o.t.cat] || 0) + o.amount; }
+    const h = heb(o.date), k2 = `${h.y}|${h.m}`; hm[k2] ??= { v: 0, name: hebMonthName(o.date), y: h.y, m: h.m }; hm[k2].v += o.amount;
+  }
+  // חגים: השנה מול שנה שעברה (רק חגים שהיו בהם הוצאות)
+  const chRows = Object.keys(CHAGIM).map(id => {
+    const ys = Object.keys(ch).filter(k => k.startsWith(id + '|')).map(k => +k.split('|')[1]).sort((a, b) => b - a);
+    if (!ys.length) return '';
+    const y = ys[0], cur = ch[`${id}|${y}`], prev = ch[`${id}|${y - 1}`], [e, n] = CHAGIM[id];
+    const diff = prev ? Math.round((cur.v - prev.v) / prev.v * 100) : null;
+    return `<div class="mv"><span>${e} ${n} ${hebYear(y)}<small class="sub" style="display:block">${Object.entries(cur.cats).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([c]) => catOf(c).e).join(' ')}${prev ? ` · ב${hebYear(y - 1)}: ${fmt(prev.v)}` : ''}</small></span>
+      <b>${fmt(cur.v)}${diff !== null ? ` <small class="${diff > 0 ? 'over' : 'plus'}">${diff > 0 ? '▲' : '▼'}${Math.abs(diff)}%</small>` : ''}</b></div>`;
+  }).join('');
+  // חודשים עבריים: 6 האחרונים מול אותו חודש בשנה שעברה
+  const mRows = Object.values(hm).sort((a, b) => b.y - a.y || 0).filter(r => r.y >= cy - 1);
+  const seen = new Set(), last6 = [];
+  for (let i = 0; i < 200 && last6.length < 6; i++) { const d = new Date(now); d.setDate(d.getDate() - i * 29); const h = heb(d), k = `${h.y}|${h.m}`; if (!seen.has(k)) { seen.add(k); if (hm[k]) last6.push(hm[k]); } }
+  const mHtml = last6.map(r => { const p = hm[`${r.y - 1}|${r.m}`]; return `<div class="mv"><span>${r.name} ${hebYear(r.y)}${p ? `<small class="sub" style="display:block">בשנה שעברה: ${fmt(p.v)}</small>` : ''}</span><b>${fmt(r.v)}</b></div>`; }).join('');
+  if (!chRows && !mHtml) return '';
+  void mRows;
+  return `<div class="card"><b style="font-size:16px">🕎 לפי הלוח העברי</b><div class="sub" style="margin:2px 0 8px">כמה עלה כל חג (כולל ימי ההכנה) — מול שנה שעברה</div>
+    ${chRows || '<div class="sub">עוד אין הוצאות בחגים</div>'}
+    ${mHtml ? `<div style="font-weight:700;margin:12px 0 2px">📅 חודשים עבריים</div>${mHtml}` : ''}</div>`;
+}
+// בכותרת החודש: גם החודש העברי (אפשר לכבות ב-⚙️ תצוגה)
+const hebOn = () => lsGet('hebMonths') !== 'off';
+function hebRange(m) {
+  const [y, mo] = m.split('-').map(Number), a = hebMonthName(new Date(y, mo - 1, 1)), b = hebMonthName(new Date(y, mo, 0));
+  return a === b ? a : `${a}–${b}`;
+}
 
 // ---------- 🏷️ קטגוריות אישיות (מסונכרן לכל המשפחה) ----------
 async function saveCats() { await db.setKV('cats', S.cats); applyCustomCats(S.cats); renderAll(); }
@@ -1492,11 +1704,14 @@ function drawViewCard(el) {
     <div class="sub" style="margin:8px 0 6px">🔠 גודל כתב</div>
     <div class="chips" style="flex-wrap:wrap">${FONT_SIZES.map(([v, n], i) => `<button class="chip ${v === fs ? 'on' : ''}" data-fs="${v}" style="font-size:${14 + i * 2}px">א ${n}</button>`).join('')}</div>
     <div class="sub" style="margin:12px 0 6px">🎬 אנימציות</div>
-    <div class="chips"><button class="chip ${anim ? 'on' : ''}" data-an="on">✨ פועל</button><button class="chip ${anim ? '' : 'on'}" data-an="off">⏸️ כבוי</button></div>`;
+    <div class="chips"><button class="chip ${anim ? 'on' : ''}" data-an="on">✨ פועל</button><button class="chip ${anim ? '' : 'on'}" data-an="off">⏸️ כבוי</button></div>
+    <div class="sub" style="margin:12px 0 6px">📅 חודש עברי ליד החודש הלועזי</div>
+    <div class="chips"><button class="chip ${hebOn() ? 'on' : ''}" data-hm="on">✅ להראות</button><button class="chip ${hebOn() ? '' : 'on'}" data-hm="off">🚫 בלי</button></div>`;
   el.querySelectorAll('[data-fs]').forEach(b => b.onclick = () => {
     lsSet('fontScale', b.dataset.fs); document.documentElement.style.zoom = b.dataset.fs === '1' ? '' : b.dataset.fs;
     drawViewCard(el); toast('🔠 גודל הכתב עודכן');
   });
+  el.querySelectorAll('[data-hm]').forEach(b => b.onclick = () => { lsSet('hebMonths', b.dataset.hm); renderMonthNav(); drawViewCard(el); });
   el.querySelectorAll('[data-an]').forEach(b => b.onclick = () => {
     lsSet('anim', b.dataset.an); document.documentElement.classList.toggle('noanim', b.dataset.an === 'off');
     drawViewCard(el); toast(b.dataset.an === 'on' ? '✨ האנימציות פועלות' : '⏸️ האנימציות כבויות');
@@ -2051,7 +2266,7 @@ async function drawSync(el) {
 async function reloadFromDb() {
   S.tx = await db.allTx();
   S.cats = await db.getKV('cats', {}); applyCustomCats(S.cats);
-  S.goals = await db.getKV('goals', {}); S.maaser = await db.getKV('maaser', {}); S.pocket = await db.getKV('pocket', {});
+  S.goals = await db.getKV('goals', {}); S.maaser = await db.getKV('maaser', {}); S.pocket = await db.getKV('pocket', {}); S.debts = await db.getKV('debts', {});
   S.budgets = await db.getKV('budgets', {});
   S.learned = await db.getKV('learned', {});
   S.people = cleanPeople(await db.getKV('people', []));
@@ -2079,7 +2294,8 @@ load().then(async () => {
   showGate();
   if (RECOVERY && syncUser) newPasswordSheet();
   if (new URLSearchParams(location.search).get('v') === 'budget') go('budget'); // לחיצה על התראת תקציב
-  starsLink();
+  starsLink(); addLink();
+  debtReminder();
 });
 
 // 🔑 אחרי לחיצה על הקישור במייל "שכחתי סיסמה"
