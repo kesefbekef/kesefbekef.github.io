@@ -597,7 +597,38 @@ function renderInsights() {
   const inst = txInMonth(m).filter(t => t.inst > 1);
   if (inst.length) tips.push(['💳', `<b>${inst.length} תשלומים פעילים</b> בסך ${fmt(inst.reduce((s, t) => s + t.amount, 0))} החודש.`]);
 
-  $('#tips').innerHTML = historyCard(m) + hebCard() + tagsCard() + tips.map(([e, h]) => `<div class="card tip"><div class="em">${e}</div><p>${h}</p></div>`).join('');
+  $('#tips').innerHTML = historyCard(m) + (m === thisMonth() ? fixedCard() : '') + hebCard() + tagsCard() + tips.map(([e, h]) => `<div class="card tip"><div class="em">${e}</div><p>${h}</p></div>`).join('');
+}
+
+// 📅 תשלומים קבועים ותשלומים שנגמרים — עם תזכורת בלחיצה ב"זמן בכיף"
+const ZMAN_URL = 'https://zd0542964361.github.io/zman-bekef/';
+const zmanLink = (task, date) => `${ZMAN_URL}?task=${encodeURIComponent(task)}&date=${ymd(date)}&from=kesef`;
+function fixedCard() {
+  const now = new Date(), m = thisMonth(), prevM = addMonths(m, -1), rows = [];
+  // קבועות: אותו תיאור בערך באותו סכום — גם בחודש הזה וגם בקודם (או בשני הקודמים)
+  const byDesc = new Map();
+  for (const t of S.tx) if (t.cat !== 'income' && !(t.inst > 1)) { const k = t.desc.trim(); (byDesc.get(k) || byDesc.set(k, []).get(k)).push(t); }
+  for (const [desc, list] of byDesc) {
+    const months = new Set(list.map(t => ym(new Date(t.date))));
+    if (!(months.has(m) || months.has(prevM)) || months.size < 2) continue;
+    const last = list.reduce((a, b) => a.date > b.date ? a : b), lastD = new Date(last.date);
+    const amts = list.slice(-3).map(t => t.amount); if (Math.max(...amts) - Math.min(...amts) > last.amount * .15) continue;
+    const next = new Date(lastD.getFullYear(), lastD.getMonth() + 1, lastD.getDate(), 12);
+    if (next < now) next.setMonth(next.getMonth() + 1);
+    const remind = new Date(next); remind.setDate(remind.getDate() - 1);
+    rows.push({ e: catOf(last.cat).e, title: esc(desc), sub: `בערך ${fmt(last.amount)} · הבא ב-${next.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}`, when: next, href: zmanLink(`לשלם ${desc} (בערך ${Math.round(last.amount)}₪)`, remind) });
+  }
+  // תשלומים שנגמרים בחודשיים הקרובים
+  for (const t of S.tx) if (t.inst > 1) {
+    const st = new Date(t.date), end = new Date(st.getFullYear(), st.getMonth() + t.inst - 1, st.getDate(), 12);
+    if (end < now || end > new Date(now.getFullYear(), now.getMonth() + 2, now.getDate())) continue;
+    rows.push({ e: '💳', title: esc(t.desc), sub: `התשלום האחרון (${t.inst}/${t.inst}) ב-${end.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })} · ${fmt(t.amount)} בחודש מתפנים`, when: end, href: zmanLink(`נגמרים התשלומים של ${t.desc} — ${Math.round(t.amount)}₪ בחודש מתפנים`, end) });
+  }
+  if (!rows.length) return '';
+  rows.sort((a, b) => a.when - b.when);
+  return `<div class="card"><b style="font-size:16px">📅 תשלומים קבועים</b><div class="sub" style="margin:2px 0 8px">מה עומד לרדת בקרוב — ולחיצה אחת מוסיפה תזכורת ב"זמן בכיף" ⏰</div>
+    ${rows.slice(0, 8).map(r => `<div class="tx" style="cursor:default"><div class="cat-ic" style="background:var(--card2)">${r.e}</div><div class="nm"><div>${r.title}</div><small>${r.sub}</small></div>
+      <a class="chip" href="${r.href}" target="_blank" rel="noopener" style="text-decoration:none;flex:none">📅 תזכורת</a></div>`).join('')}</div>`;
 }
 
 // 🏷️ אירועים: כמה עלה כל אירוע (מכל הזמנים, בכל הקטגוריות)
