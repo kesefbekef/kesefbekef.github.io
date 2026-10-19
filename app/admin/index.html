@@ -13,7 +13,7 @@
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:Rubik,system-ui,sans-serif;background:var(--bg);color:var(--ink);line-height:1.45;min-height:100vh;overflow-x:hidden}
 .wrap{max-width:900px;margin:0 auto;padding:16px 16px 60px}
-h1{font-size:30px;font-weight:800;background:var(--g);-webkit-background-clip:text;background-clip:text;color:transparent}
+h1{font-size:26px;font-weight:800;background:var(--g);-webkit-background-clip:text;background-clip:text;color:transparent}
 .top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px}
 .btn{font:inherit;font-weight:700;border:none;border-radius:14px;padding:10px 14px;background:var(--card2);color:var(--ink);cursor:pointer}
 .btn.g{background:var(--g);color:#fff}
@@ -116,7 +116,7 @@ function draw() {
   const installed = users.filter(u => (u.devices || []).some(d => d.standalone)).length;
   const active = users.filter(u => { const t = lastSeen(u); return t && new Date(t) > week; }).length;
   const errWeek = errs.filter(e => new Date(e.at) > week).length;
-  $('#root').innerHTML = `<div class="top"><h1>📊 לוח בקרה</h1><button class="btn" id="out">יציאה</button></div>
+  $('#root').innerHTML = `<div class="top"><a class="btn" href="../" style="text-decoration:none">→ לאפליקציה</a><h1>📊 לוח בקרה</h1></div>
     <div class="stats">
       <div class="stat"><b>${users.length}</b><span>👥 משתמשים</span></div>
       <div class="stat"><b>${active}</b><span>🔥 פעילים השבוע</span></div>
@@ -128,7 +128,6 @@ function draw() {
     <div class="tabs">${[['people', '👥 אנשים'], ['fam', '🏠 משפחות וקבוצות'], ['errs', `🐞 תקלות (${errs.length})`], ['devs', `📱 מכשירים (${devs.length})`]].map(([k, l]) => `<button data-t="${k}" class="${tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
     <div class="list" id="list"></div>
     <div class="foot sub">עודכן ${ago(DATA.now)} · מתעדכן לבד כל דקה <button class="btn" id="rf" style="margin-inline-start:8px">🔄</button></div>`;
-  $('#out').onclick = async () => { await sb.auth.signOut(); login(); };
   $('#rf').onclick = load;
   document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => { tab = b.dataset.t; draw(); });
   ({ people: drawPeople, fam: drawFam, errs: drawErrs, devs: drawDevs })[tab](users, errs, devs);
