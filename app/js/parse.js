@@ -111,3 +111,11 @@ export function parseMessage(raw) {
 export function stripVav(desc) {
   return /^ו[^ו]/.test(desc) ? desc.slice(1) : desc;
 }
+
+// 🏷️ תגיות אירוע: "מתנה 300 #בר_מצווה" → tags ['בר_מצווה'], והטקסט בלי התגית
+export function takeTags(text) {
+  const tags = [];
+  const rest = text.replace(/#([\p{L}\p{N}_]{1,30})/gu, (_, t) => { tags.push(t); return ' '; }).replace(/\s+/g, ' ').trim();
+  return { tags: [...new Set(tags)], text: rest };
+}
+export const cleanTag = s => String(s || '').replace(/^#+/, '').trim().replace(/\s+/g, '_').replace(/[^\p{L}\p{N}_]/gu, '').slice(0, 30);

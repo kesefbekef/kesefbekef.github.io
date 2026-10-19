@@ -15,6 +15,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
+<script>/* גודל כתב ואנימציות — לפני שהמסך מצטייר, כדי ששום דבר לא יקפוץ */
+try { var f = localStorage.getItem('fontScale'); if (f && f !== '1') document.documentElement.style.zoom = f;
+  var a = localStorage.getItem('anim'); if (a === 'off' || (!a && matchMedia('(prefers-reduced-motion: reduce)').matches)) document.documentElement.classList.add('noanim'); } catch (e) {}</script>
 </head>
 <body>
 <div class="app" id="app">
@@ -51,7 +54,7 @@
       </div>
       <div class="cards">
         <button class="card tip" id="recoBtn"><div class="em">🪄</div><p><b>המלצה לתקציב לפי ההוצאות שלך</b><br>לחץ כדי לראות כמה כדאי להגדיר לכל קטגוריה</p></button>
-        <div id="budgetList" style="display:flex;flex-direction:column;gap:12px"></div>
+        <div id="budgetList" class="stg" style="display:flex;flex-direction:column;gap:12px"></div>
       </div>
     </section>
 
@@ -59,7 +62,7 @@
       <div class="h2"><span>תובנות 💡</span><div class="monthnav" data-monthnav></div></div>
       <div class="donut" id="donut"><div><span>הוצאות</span><b id="donutSum"></b></div></div>
       <div class="legend" id="legend"></div>
-      <div class="cards" id="tips"></div>
+      <div class="cards stg" id="tips"></div>
     </section>
 
     <section class="view" id="v-tx">
@@ -69,7 +72,7 @@
           <input class="search" id="search" placeholder="חיפוש: סופר, טעינה, משכורת…">
           <div class="chips" id="txFilter"></div>
         </div>
-        <div class="card" id="txList"></div>
+        <div class="card stg" id="txList"></div>
       </div>
     </section>
   </main>

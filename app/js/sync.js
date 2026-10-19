@@ -191,6 +191,9 @@ export async function flush() {
       const kvRows = batch.filter(o => o.t === 'kv').map(o => ({ household_id: hh.id, key: o.key, value: o.value }));
       const rejected = [];
       if (txRows.length) await send(c, 'tx', txRows, rejected);
+      // 🔔 הוצאה חדשה/שונתה — מבקשים מהשרת לבדוק אם הקטגוריה הגיעה ל-90%/100% (השרת שולח להורים)
+      const alertCats = [...new Set(batch.filter(o => o.t === 'tx' && o.data?.cat && o.data.cat !== 'income').map(o => o.data.cat))];
+      if (alertCats.length) budgetAlert(alertCats);
       for (const row of kvRows) {
         // ממזגים עם מה שכבר בענן (אולי טלפון אחר שמר בינתיים)
         const { data: cur, error } = await c.from('kv').select('value').eq('household_id', hh.id).eq('key', row.key).maybeSingle();
@@ -347,4 +350,34 @@ export async function getMonthlyEmail() {
 export async function setMonthlyEmail(on) {
   const { error } = await (await client()).rpc('set_monthly_email', { on_: !!on });
   if (error) throw new Error(nice(error));
+}
+
+// ---------- 🔔 התראות לטלפון (Web Push) — מפתח ציבורי משותף עם "זמן בכיף" ----------
+export const VAPID_PUBLIC = 'BK8gkzX2KR60Q1uYUvrda0VHsqfpig72_Z1Uy2jhytvKl5uu3HbIYx93G_k53UQznMpv9bLfcPqepKRYUtGWsvI';
+const b64u = s => { const p = '='.repeat((4 - s.length % 4) % 4); const raw = atob((s + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(raw, c => c.charCodeAt(0)); };
+export const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+export async function pushState() {
+  if (!pushSupported()) return 'unsupported';
+  if (Notification.permission === 'denied') return 'denied';
+  const reg = await navigator.serviceWorker.getRegistration();
+  return (await reg?.pushManager.getSubscription()) ? 'on' : 'off';
+}
+export async function enablePush() {
+  const u = await user();
+  if (!u || !hh) throw new Error('צריך להיות מחוברים למשפחה');
+  if (!pushSupported()) throw new Error('הטלפון הזה לא תומך בהתראות. באייפון צריך קודם להתקין את האפליקציה למסך הבית');
+  if (await Notification.requestPermission() !== 'granted') throw new Error('לא ניתן אישור להתראות. אפשר לאשר בהגדרות הטלפון');
+  const reg = await navigator.serviceWorker.ready;
+  const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64u(VAPID_PUBLIC) });
+  const j = sub.toJSON();
+  const { error } = await (await client()).from('kesef_push_subs').upsert({ endpoint: j.endpoint, user_id: u.id, household_id: hh.id, sub: j, updated_at: new Date().toISOString() });
+  if (error) throw new Error(nice(error));
+}
+export async function disablePush() {
+  const reg = await navigator.serviceWorker.getRegistration();
+  const sub = await reg?.pushManager.getSubscription();
+  if (sub) { try { await (await client()).from('kesef_push_subs').delete().eq('endpoint', sub.endpoint); } catch { /* */ } await sub.unsubscribe(); }
+}
+async function budgetAlert(cats) {
+  try { await (await client()).functions.invoke('kesef-alert', { body: { cats } }); } catch (e) { console.warn('alert', e); }
 }

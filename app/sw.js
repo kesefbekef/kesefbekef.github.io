@@ -1,5 +1,5 @@
 // מאפשר לאפליקציה להיפתח גם בלי אינטרנט — ומהר
-const CACHE = 'kesef-20261019160457';
+const CACHE = 'kesef-20261019222956';
 // קבצים שנשמרים מיד בהתקנה (הספריות הכבדות — אקסל/PDF — נשמרות רק בפעם הראשונה שמשתמשים בהן)
 const FILES = ['./', 'index.html', 'css/style.css', 'js/app.js', 'js/db.js', 'js/parse.js', 'js/categories.js', 'js/importer.js', 'js/exporter.js', 'js/sync.js', 'js/lock.js', 'js/help.js', 'js/config.js', 'js/track.js', 'vendor/supabase.js',
   'manifest.webmanifest', 'guide/', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png', 'icons/icon-maskable-512.png'];
@@ -37,5 +37,21 @@ self.addEventListener('fetch', e => {
     });
     if (hit) { e.waitUntil(net.catch(() => {})); return hit; }
     return net.catch(async () => (e.request.mode === 'navigate' && await c.match('./')) || Response.error());
+  }));
+});
+
+// 🔔 התראה מהשרת (קטגוריה הגיעה ל-90% / 100% מהתקציב)
+self.addEventListener('push', e => {
+  let d = {}; try { d = e.data.json(); } catch { d = { title: 'כסף בכיף', body: e.data?.text() || '' }; }
+  e.waitUntil(self.registration.showNotification(d.title || 'כסף בכיף ✨', {
+    body: d.body || '', tag: d.tag, icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', dir: 'rtl', lang: 'he', data: { url: d.url || './' },
+  }));
+});
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const url = new URL(e.notification.data?.url || './', self.registration.scope).href;
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+    const w = list.find(c => isOurs(new URL(c.url)));
+    return w ? w.focus().then(c => c.navigate?.(url) || c) : self.clients.openWindow(url);
   }));
 });

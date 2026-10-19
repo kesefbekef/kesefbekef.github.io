@@ -92,6 +92,46 @@ nav.toc a{flex:none;text-decoration:none;font-size:15px;font-weight:600;padding:
 .ig .sub2{text-align:center;color:#BFB3DA;font-size:18px;margin-bottom:18px;padding:0 18px}
 .divider{text-align:center;padding:40px 18px 0}
 .divider span{display:inline-block;font-weight:800;font-size:22px;padding:12px 26px;border-radius:999px;background:var(--g);color:#fff;box-shadow:0 10px 30px rgba(236,72,153,.35)}
+/* ---- 🆕 חדש: כרטיסים עם דוגמה חיה ---- */
+.nw{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px}
+.nw .card{display:flex;flex-direction:column;gap:10px;overflow:hidden}
+.demo{background:#0E0A1A;border-radius:20px;padding:16px;min-height:150px;color:#FBF8FF;position:relative;overflow:hidden;font-size:15px}
+.demo .row{display:flex;align-items:center;gap:10px}
+.demo .ic{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;font-size:20px;flex:none}
+.demo .bar{height:9px;border-radius:9px;background:rgba(255,255,255,.12);margin-top:10px;overflow:hidden}
+.demo .bar i{display:block;height:100%;border-radius:9px;transform-origin:right}
+/* ✉️ מעטפה שמתרוקנת */
+.d-env .bar i{background:linear-gradient(90deg,#22C55E,#14B8A6);animation:envfill 6s ease-in-out infinite}
+@keyframes envfill{0%{transform:scaleX(.3)}45%,55%{transform:scaleX(.92);background:#FACC15}85%,100%{transform:scaleX(1);background:#F43F5E}}
+.d-env .left{margin-inline-start:auto;text-align:left;line-height:1.1}
+.d-env .left small{display:block;font-size:11px;color:#B9AED6}
+.d-env .left b{font-size:24px;position:relative;display:block;height:28px;width:92px}
+.d-env .left b span,.d-env .left .lbl span{position:absolute;left:0;opacity:0;animation:envnum 6s infinite}
+.d-env .left .lbl{position:relative;height:14px;width:92px}
+.d-env .left .lbl span:nth-child(2){animation-delay:2s}.d-env .left .lbl span:nth-child(3){animation-delay:4s;color:#FB7185}
+.d-env .left b span:nth-child(1){color:#4ADE80;animation-delay:0s}.d-env .left b span:nth-child(2){color:#FACC15;animation-delay:2s}.d-env .left b span:nth-child(3){color:#FB7185;animation-delay:4s}
+@keyframes envnum{0%,30%{opacity:1}33%,100%{opacity:0}}
+/* 🔔 התראה נוחתת */
+.d-push .note2{background:rgba(255,255,255,.95);color:#1E1533;border-radius:16px;padding:10px 12px;display:flex;gap:10px;align-items:center;box-shadow:0 10px 30px rgba(0,0,0,.4);animation:drop 4.5s cubic-bezier(.2,.8,.2,1) infinite}
+.d-push .note2 small{display:block;color:#4B4266;font-size:12.5px}
+@keyframes drop{0%,8%{transform:translateY(-140%);opacity:0}18%,80%{transform:none;opacity:1}92%,100%{transform:translateY(-140%);opacity:0}}
+.d-push .clock{text-align:center;font-size:34px;font-weight:300;margin-top:14px;opacity:.9}
+/* 🏷️ תגית קופצת */
+.d-tag .me2{background:linear-gradient(135deg,#7C3AED,#EC4899);padding:8px 14px;border-radius:16px 16px 16px 6px;align-self:flex-start;display:inline-block}
+.d-tag .chip2{display:inline-block;margin-top:10px;padding:4px 12px;border-radius:999px;background:linear-gradient(135deg,#7C3AED,#EC4899);font-weight:700;animation:tagpop 4s infinite}
+@keyframes tagpop{0%,20%{transform:scale(0);opacity:0}30%{transform:scale(1.2);opacity:1}38%,100%{transform:scale(1);opacity:1}}
+.d-tag .sum{margin-top:12px;display:flex;justify-content:space-between;background:rgba(255,255,255,.08);border-radius:12px;padding:8px 12px;animation:tagsum 4s infinite}
+@keyframes tagsum{0%,40%{opacity:0;transform:translateY(8px)}55%,100%{opacity:1;transform:none}}
+/* 🔠 גודל כתב */
+.d-font{display:flex;align-items:center;justify-content:center;gap:18px}
+.d-font span{font-weight:800;animation:grow 4.5s infinite;display:inline-block}
+.d-font span:nth-child(1){font-size:22px}.d-font span:nth-child(2){font-size:30px;animation-delay:1.5s}.d-font span:nth-child(3){font-size:40px;animation-delay:3s}
+@keyframes grow{0%,30%{color:#F9A8D4;transform:scale(1.15)}36%,100%{color:#6B5F8A;transform:none}}
+/* 🎬 כרטיסים נכנסים */
+.d-anim .cardx{background:rgba(255,255,255,.08);border-radius:12px;padding:8px 12px;margin-bottom:8px;display:flex;justify-content:space-between;animation:rise2 3.6s infinite both}
+.d-anim .cardx:nth-child(2){animation-delay:.15s}.d-anim .cardx:nth-child(3){animation-delay:.3s}
+@keyframes rise2{0%{opacity:0;transform:translateY(14px)}12%,85%{opacity:1;transform:none}100%{opacity:0}}
+@media (prefers-reduced-motion: reduce){.demo *{animation:none !important;opacity:1 !important}}
 footer{padding:28px 0;text-align:center;color:#8B82A6;font-size:14px}
 </style>
 </head>
@@ -114,6 +154,32 @@ footer{padding:28px 0;text-align:center;color:#8B82A6;font-size:14px}
   </div>
 </section>
 
+
+<section class="dark" id="new">
+  <div class="wrap">
+    <div class="eyebrow">🆕 חדש באפליקציה</div>
+    <h2>5 דברים חדשים — ככה זה נראה 👇</h2>
+    <div class="nw">
+      <div class="card"><div class="demo d-env">
+          <div class="row"><div class="ic" style="background:linear-gradient(135deg,#22C55E,#84CC16)">🛒</div><div><b>מזון וסופר</b><small style="display:block;color:#B9AED6;font-size:12px">מתוך 2,500₪</small></div>
+          <div class="left"><small class="lbl"><span>נשארו</span><span>נשארו</span><span>חריגה</span></small><b><span>1,750₪</span><span>200₪</span><span dir="ltr">-120₪</span></b></div></div>
+          <div class="bar"><i></i></div></div>
+        <h3>✉️ מעטפות</h3><p>במסך <b>🎯 תקציב</b> רואים בגדול כמה <b>נשאר</b> בכל קטגוריה — ירוק, צהוב כשמתקרבים, ו<b>אדום</b> כשהמעטפה נגמרה.</p></div>
+      <div class="card"><div class="demo d-push">
+          <div class="note2"><span style="font-size:26px">🔔</span><div><b>🛒 מזון וסופר: נוצלו 90%</b><small>נשארו 250₪ עד סוף החודש</small></div></div>
+          <div class="clock">18:42</div></div>
+        <h3>🔔 התראה לפני שחורגים</h3><p>מישהו במשפחה רשם הוצאה והקטגוריה הגיעה ל-<b>90%</b> או עברה <b>100%</b>? ההורים מקבלים התראה בטלפון. מפעילים: ⚙️ ← <b>"🔔 התראה כשמתקרבים לסוף התקציב"</b>. בשבת — לא מפריעה, נשלח במוצ"ש.</p></div>
+      <div class="card"><div class="demo d-tag">
+          <div class="me2">מתנה 300 #בר_מצווה</div><br><span class="chip2">#בר_מצווה</span>
+          <div class="sum"><span>🏷️ #בר_מצווה · 7 רשומות</span><b>4,860₪</b></div></div>
+          <h3>🏷️ תגיות אירוע</h3><p>מוסיפים <b>#</b> ושם האירוע להודעה: <b>"אולם 3000 #חתונה"</b>. בתובנות רואים <b>כמה עלה כל אירוע</b> — מכל הקטגוריות ביחד. גם באקסל. אפשר גם בשדה "🏷️ אירוע" בטופס ➕ ובעריכה.</p></div>
+      <div class="card"><div class="demo d-font"><span>א</span><span>א</span><span>א</span></div>
+        <h3>🔠 גודל כתב</h3><p>⚙️ ← <b>"🎨 תצוגה"</b> ← רגיל / גדול / ענק. כל האפליקציה גדלה. נשמר בכל טלפון בנפרד — סבתא יכולה ענק, ואתם רגיל 😉</p></div>
+      <div class="card"><div class="demo d-anim"><div class="cardx"><span>🛒 מזון</span><b>1,750₪</b></div><div class="cardx"><span>🚗 רכב</span><b>420₪</b></div><div class="cardx"><span>🍕 מסעדות</span><b>90₪</b></div></div>
+        <h3>🎬 אפליקציה חיה</h3><p>המספרים רצים, הכרטיסים נכנסים אחד-אחד והפסים מתמלאים. מעדיפים בלי? ⚙️ ← <b>"🎨 תצוגה"</b> ← אנימציות: כבוי.</p></div>
+    </div>
+  </div>
+</section>
 
 <section class="ig" id="features">
   <h2>כל מה שהכסף שלכם היה צריך 🔥</h2>
@@ -197,7 +263,7 @@ footer{padding:28px 0;text-align:center;color:#8B82A6;font-size:14px}
 </section>
 
 <nav class="toc"><div class="wrap">
-  <a href="#features">🔥 מה יש</a><a href="#install">📲 התקנה</a><a href="#budget">🎯 תקציב</a><a href="#android">🤖 אנדרואיד</a><a href="#iphone">🍏 אייפון</a><a href="#signup">🔑 הרשמה</a><a href="#join">👨‍👩‍👧 הצטרפות</a><a href="#use">💬 שימוש</a><a href="#tips">⭐ טיפים</a>
+  <a href="#new">🆕 חדש</a><a href="#features">🔥 מה יש</a><a href="#install">📲 התקנה</a><a href="#budget">🎯 תקציב</a><a href="#android">🤖 אנדרואיד</a><a href="#iphone">🍏 אייפון</a><a href="#signup">🔑 הרשמה</a><a href="#join">👨‍👩‍👧 הצטרפות</a><a href="#use">💬 שימוש</a><a href="#tips">⭐ טיפים</a>
 </div></nav>
 
 <section>
