@@ -34,7 +34,7 @@ const timeOf = iso => new Date(iso).toLocaleTimeString('he-IL', { hour: '2-digit
 const thisMonth = () => ym(new Date());
 
 const RECOVERY = /type=recovery/.test(location.hash);
-const S = { tx: [], budgets: {}, learned: {}, cats: {}, people: [], me: null, month: thisMonth(), view: 'chat', catFilter: null, whoFilter: null, search: '' };
+const S = { tx: [], budgets: {}, learned: {}, cats: {}, goals: {}, maaser: {}, pocket: {}, people: [], me: null, month: thisMonth(), view: 'chat', catFilter: null, whoFilter: null, search: '' };
 
 // ---------- בני הבית ----------
 const FACES = ['🧔', '👩', '👦', '👧', '👴', '👵', '🧑', '👶'];
@@ -661,7 +661,7 @@ function renderTx() {
   $('#txList').innerHTML = list.length ? list.map(t => {
     const c = catOf(t.cat), inc = t.cat === 'income';
     const extra = t.inst > 1 ? ` · תשלום ${installmentNo(t, m)}/${t.inst}` : '';
-    return `<button class="tx" data-id="${t.id}"><div class="cat-ic" style="background:${c.g}">${c.e}</div><div class="nm"><div>${esc(t.desc)}</div><small>${c.n} · ${new Date(t.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}${extra}${t.pay ? ' · ' + PAY[t.pay].e + ' ' + PAY[t.pay].n : ''}${t.who && personOf(t.who) ? ' · ' + (whoLabel(t.who)) : ''}${t.tags?.length ? ' · ' + t.tags.map(g => '#' + esc(g)).join(' ') : ''}</small></div><div class="am ${inc ? 'plus' : ''}">${inc ? '+' : ''}${fmt(t.amount)}</div></button>`;
+    return `<button class="tx" data-id="${t.id}"><div class="cat-ic" style="background:${c.g}">${c.e}</div><div class="nm"><div>${esc(t.desc)}</div><small>${c.n} · ${new Date(t.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}${extra}${t.pay ? ' · ' + PAY[t.pay].e + ' ' + PAY[t.pay].n : ''}${t.who && personOf(t.who) ? ' · ' + (whoLabel(t.who)) : ''}${t.tags?.length ? ' · ' + t.tags.map(g => '#' + esc(g)).join(' ') : ''}${t.receipt ? ' · 🧾' : ''}</small></div><div class="am ${inc ? 'plus' : ''}">${inc ? '+' : ''}${fmt(t.amount)}</div></button>`;
   }).join('') : `<div class="empty"><span class="em">🔍</span>אין תנועות ${S.catFilter || q ? 'שמתאימות לחיפוש' : 'בחודש הזה'}</div>`;
 }
 $('#txFilter').addEventListener('click', e => {
@@ -691,6 +691,9 @@ function openEditSheet(t) {
     <div class="chips" id="ePay" style="flex-wrap:wrap;margin-bottom:14px">${Object.entries(PAY).map(([id, p]) => `<button class="chip ${id === pay ? 'on' : ''}" data-p="${id}">${p.e} ${p.n}</button>`).join('')}</div>
     ${S.people.length ? `<div class="sub" style="margin-bottom:8px">של מי?</div><div class="chips" id="eWho" style="flex-wrap:wrap;margin-bottom:14px">${whoChips(who)}</div>` : ''}
     ${tagField('eTag', t.tags || [])}
+    <div class="receipt" id="eRec">${t.receipt ? '<button class="chip" id="rShow">🧾 לראות את הקבלה</button> <button class="chip" id="rDel">🗑️ הסרה</button>' : '<button class="chip" id="rAdd">🧾 צילום קבלה</button>'}
+      <input type="file" id="rFile" accept="image/*" capture="environment" hidden><input type="file" id="rGal" accept="image/*" hidden>${t.receipt ? '' : ' <button class="chip" id="rAddG">🖼️ מהגלריה</button>'}</div>
+    ${t.cat === 'income' ? `<div class="chips" style="margin-bottom:14px"><button class="chip ${t.noMaaser ? 'on' : ''}" id="eNoM">🤲 בלי מעשר מההכנסה הזו</button></div>` : ''}
     <div class="row2"><button class="btn danger" id="eDel">🗑️ מחיקה</button><button class="btn grad" id="eSave">שמירה</button></div>`, sh => {
     sh.querySelectorAll('[data-cat]').forEach(btn => btn.onclick = () => {
       cat = btn.dataset.cat; sh.querySelectorAll('[data-cat]').forEach(x => x.classList.toggle('sel', x === btn));
@@ -701,6 +704,28 @@ function openEditSheet(t) {
     sh.querySelectorAll('[data-p]').forEach(btn => btn.onclick = () => {
       pay = btn.dataset.p; sh.querySelectorAll('[data-p]').forEach(x => x.classList.toggle('on', x === btn));
     });
+    // 🧾 קבלה: מכווצים בטלפון לבערך 200KB, ושומרים בענן בתיקייה של המשפחה
+    const recPick = async f => {
+      if (!f) return;
+      const box = sh.querySelector('#eRec'); box.innerHTML = '<span class="sub">⏳ מכווץ ושומר את הקבלה…</span>';
+      try {
+        const blob = await shrinkImage(f), path = await sync.uploadReceipt(t.id, blob);
+        t.receipt = path; await db.putTx(t); toast('🧾 הקבלה נשמרה'); openEditSheet(t);
+      } catch (e) { box.innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+    };
+    sh.querySelector('#rAdd')?.addEventListener('click', () => sh.querySelector('#rFile').click());
+    sh.querySelector('#rAddG')?.addEventListener('click', () => sh.querySelector('#rGal').click());
+    sh.querySelector('#rFile').onchange = e => recPick(e.target.files[0]);
+    sh.querySelector('#rGal').onchange = e => recPick(e.target.files[0]);
+    sh.querySelector('#rShow')?.addEventListener('click', async () => {
+      try { const url = await sync.receiptURL(t.receipt); const ov = document.createElement('div'); ov.className = 'qr-zoom';
+        ov.innerHTML = `<div class="qr-card" style="padding:10px"><img src="${url}" alt="קבלה" style="width:100%;max-height:70vh;object-fit:contain;border-radius:14px"><button class="btn grad full" style="margin-top:10px">סגירה</button></div>`;
+        ov.onclick = ev => { if (ev.target === ov || ev.target.closest('button')) ov.remove(); }; document.body.appendChild(ov);
+      } catch (e) { toast(e.message, true); }
+    });
+    sh.querySelector('#rDel')?.addEventListener('click', async () => { await sync.deleteReceipt(t.receipt); delete t.receipt; await db.putTx(t); toast('🗑️ הקבלה הוסרה'); openEditSheet(t); });
+    let noM = !!t.noMaaser;
+    sh.querySelector('#eNoM')?.addEventListener('click', e => { noM = !noM; e.currentTarget.classList.toggle('on', noM); });
     sh.querySelector('#eAmt').oninput = () => sh.querySelector('#eErr').textContent = '';
     sh.querySelector('#eSave').onclick = async () => {
       const v = parseFloat(sh.querySelector('#eAmt').value), d = sh.querySelector('#eDate').value;
@@ -710,6 +735,7 @@ function openEditSheet(t) {
       if (cat !== t.cat) { const key = desc.toLowerCase(); if (key.length >= 2) { S.learned[key] = cat; await db.setKV('learned', S.learned); } }
       Object.assign(t, { desc, cat, pay, who, date: new Date(d + 'T12:00:00').toISOString() });
       const tg = readTags(sh, 'eTag'); if (tg.length) t.tags = tg; else delete t.tags;
+      if (cat === 'income' && noM) t.noMaaser = true; else delete t.noMaaser;
       if (t.inst > 1) { t.total = v; t.amount = Math.round(v / t.inst * 100) / 100; } else { t.amount = v; t.total = v; }
       await db.putTx(t); closeSheet(); renderAll(); toast('✅ נשמר');
     };
@@ -1175,6 +1201,208 @@ function openExportSheet(kind = 'month', anchor = new Date(), initRange = null) 
 }
 $('#exportBtn').onclick = () => openExportSheet(S.view === 'chat' ? 'month' : 'month', S.view === 'chat' ? new Date() : new Date(S.month + '-01T12:00:00'));
 
+// מכווץ תמונה (צילום קבלה) לבערך 200KB — רוחב עד 1280, JPEG
+async function shrinkImage(file) {
+  const img = await createImageBitmap(file).catch(() => null);
+  if (!img) throw new Error('לא הצלחתי לפתוח את התמונה');
+  const k = Math.min(1, 1280 / Math.max(img.width, img.height));
+  const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+  let q = .8, blob;
+  for (let i = 0; i < 6; i++) { blob = await new Promise(r => c.toBlob(r, 'image/jpeg', q)); if (blob.size <= 220 * 1024) break; q -= .12; }
+  return blob;
+}
+
+// ========== שלב 2: 🐷 קופות חיסכון · 🤲 מעשר · 🧒 דמי כיס ==========
+const num = v => Math.round((parseFloat(v) || 0) * 100) / 100;
+const saveKV = async (k, v) => { S[k] = v; await db.setKV(k, v); };
+const ringBg = (p, col) => `conic-gradient(${col} ${Math.min(100, p)}%, rgba(255,255,255,.12) 0)`;
+const monthsUntil = m => { if (!m) return 0; const [y, mo] = m.split('-').map(Number), n = new Date(); return (y - n.getFullYear()) * 12 + (mo - 1 - n.getMonth()) + 1; };
+
+// ---------- 🐷 קופות חיסכון ----------
+// S.goals = { id: { n, e, target, date: 'YYYY-MM', dep: [{ d, a, w }] } }
+const goalSaved = g => (g.dep || []).reduce((s, x) => s + x.a, 0);
+function openGoals() {
+  const list = Object.entries(S.goals || {});
+  openSheet(`<h3>🐷 קופות חיסכון</h3><div class="sub" style="margin:-6px 0 12px">חוסכים למשהו? פותחים קופה עם יעד ותאריך — והאפליקציה אומרת כמה לשים בצד כל חודש.</div>
+    ${list.length ? `<div class="stg" style="display:flex;flex-direction:column;gap:10px">${list.map(([id, g]) => {
+      const saved = goalSaved(g), p = g.target ? saved / g.target * 100 : 0, left = Math.max(0, g.target - saved), mo = monthsUntil(g.date);
+      const hint = left <= 0 ? '🎉 הגעתם ליעד!' : mo > 0 ? `כדאי לשים בצד <b>${fmt(left / mo)}</b> בחודש (עוד ${mo} חודשים)` : g.date ? '⏰ התאריך עבר — עוד ' + fmt(left) : `חסרים ${fmt(left)}`;
+      return `<button class="card goal-card" data-goal="${id}"><div class="ring2" style="background:${ringBg(p, p >= 100 ? '#22C55E' : '#EC4899')}"><b>${esc(g.e || '🐷')}</b></div>
+        <div class="nm"><div style="font-weight:700">${esc(g.n)}</div><small class="sub">${fmt(saved)} מתוך ${fmt(g.target)}${g.date ? ' · עד ' + monthLabel(g.date) : ''}</small><div class="sub" style="margin-top:2px">${hint}</div></div>
+        <div style="font-weight:800;font-size:18px">${Math.round(p)}%</div></button>`; }).join('')}</div>`
+      : `<div class="empty"><span class="em">🐷</span>עוד אין קופות. למשל: חתונה של הבן, פסח, רכב חדש</div>`}
+    <button class="btn grad full" id="gNew" style="margin-top:12px">➕ קופה חדשה</button>`, sh => {
+    sh.querySelector('#gNew').onclick = () => openGoalEdit(null);
+    sh.querySelectorAll('[data-goal]').forEach(b => b.onclick = () => openGoal(b.dataset.goal));
+  });
+}
+function openGoalEdit(id) {
+  const g = id ? S.goals[id] : null; let e = g?.e || '🐷', armed = false;
+  const EM = ['🐷', '💍', '🏠', '🚗', '✈️', '🕎', '🎓', '👶', '🎁', '💻', '🛋️', '⭐'];
+  openSheet(`<h3>${g ? '✏️ עריכת קופה' : '➕ קופה חדשה'}</h3>
+    <label class="field"><span>למה חוסכים?</span><input id="gN" maxlength="30" value="${g ? esc(g.n) : ''}" placeholder="למשל: חתונה של משה"></label>
+    <div class="emo-grid" id="gE" style="margin-bottom:12px;grid-template-columns:repeat(6,1fr)">${EM.map(x => `<button class="${x === e ? 'on' : ''}" data-e="${x}">${x}</button>`).join('')}</div>
+    <div class="row2"><label class="field"><span>יעד ₪</span><input id="gT" type="number" inputmode="decimal" value="${g?.target || ''}" placeholder="20000"></label>
+    <label class="field"><span>עד מתי? (לא חובה)</span><input id="gD" type="month" value="${g?.date || ''}"></label></div>
+    <div class="err" id="gErr"></div><button class="btn grad full" id="gSave">💾 שמור</button>
+    ${g ? '<button class="btn ghost full" id="gDel" style="margin-top:10px;color:#FB7185">🗑️ מחיקת הקופה</button>' : ''}`, sh => {
+    sh.querySelectorAll('#gE [data-e]').forEach(b => b.onclick = () => { e = b.dataset.e; sh.querySelectorAll('#gE button').forEach(x => x.classList.toggle('on', x === b)); });
+    sh.querySelector('#gSave').onclick = async () => {
+      const n = sh.querySelector('#gN').value.replace(/[<>&"'`]/g, '').trim(), t = num(sh.querySelector('#gT').value);
+      if (!n) { sh.querySelector('#gErr').textContent = 'צריך לתת שם לקופה'; return; }
+      if (!(t > 0)) { sh.querySelector('#gErr').textContent = 'צריך יעד גדול מ-0'; return; }
+      const key = id || 'g_' + Math.random().toString(36).slice(2, 8);
+      await saveKV('goals', { ...S.goals, [key]: { ...(g || { dep: [] }), n, e, target: t, date: sh.querySelector('#gD').value || '' } });
+      toast(g ? '✅ נשמר' : `🐷 נפתחה קופה: ${n}`); openGoal(key);
+    };
+    sh.querySelector('#gDel')?.addEventListener('click', async ev => {
+      if (!armed) { armed = true; ev.target.textContent = 'לחיצה שנייה לאישור המחיקה'; return; }
+      const { [id]: _, ...rest } = S.goals; await saveKV('goals', rest); toast('🗑️ הקופה נמחקה'); openGoals();
+    });
+  });
+}
+function openGoal(id) {
+  const g = S.goals[id]; if (!g) return openGoals();
+  const saved = goalSaved(g), p = g.target ? saved / g.target * 100 : 0, left = Math.max(0, g.target - saved), mo = monthsUntil(g.date);
+  openSheet(`<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+      <div class="ring2" style="background:${ringBg(p, p >= 100 ? '#22C55E' : '#EC4899')}"><b>${esc(g.e || '🐷')}</b></div>
+      <div style="flex:1;min-width:0"><h3 style="margin:0">${esc(g.n)}</h3><div class="sub">${g.date ? 'עד ' + monthLabel(g.date) : 'בלי תאריך'}</div></div>
+      <button class="chip" id="gBack">↩️ חזרה</button></div>
+    <div class="card" style="text-align:center;margin-bottom:12px"><small class="sub">נחסך עד עכשיו</small><div class="big-num" id="gSaved">${fmt(saved)}</div>
+      <div class="pbar" style="margin:8px 0"><i style="width:${Math.min(100, p)}%;background:linear-gradient(90deg,#EC4899,#F97316)"></i></div>
+      <div class="sub">${left <= 0 ? '🎉 הגעתם ליעד!' : `חסרים ${fmt(left)}${mo > 0 ? ` · כדאי <b>${fmt(left / mo)}</b> בחודש` : ''}`}</div></div>
+    <div class="row2"><label class="field"><span>סכום ₪</span><input id="gA" type="number" inputmode="decimal" placeholder="500"></label>
+      <div style="display:flex;gap:6px;align-items:flex-end;margin-bottom:12px"><button class="btn grad" id="gIn" style="flex:1">➕ הפקדה</button><button class="btn ghost" id="gOut" style="flex:1">➖ משיכה</button></div></div>
+    ${(g.dep || []).length ? `<div class="card" style="padding:4px 12px">${[...g.dep].reverse().slice(0, 30).map(x => `<div class="mv"><span>${new Date(x.d).toLocaleDateString('he-IL')}${x.w && personOf(x.w) ? ' · ' + whoLabel(x.w) : ''}</span><b class="${x.a > 0 ? 'plus' : 'over'}" dir="ltr">${x.a > 0 ? '+' : ''}${fmt(x.a)}</b></div>`).join('')}</div>` : ''}
+    <button class="btn ghost full" id="gEdit" style="margin-top:12px">✏️ עריכת הקופה</button>`, sh => {
+    sh.querySelector('#gBack').onclick = openGoals;
+    sh.querySelector('#gEdit').onclick = () => openGoalEdit(id);
+    const move = async sign => {
+      const a = num(sh.querySelector('#gA').value); if (!(a > 0)) { sh.querySelector('#gA').focus(); return; }
+      const before = goalSaved(g), dep = [...(g.dep || []), { d: new Date().toISOString(), a: sign * a, w: S.me || null }];
+      await saveKV('goals', { ...S.goals, [id]: { ...g, dep } });
+      if (sign > 0 && before < g.target && before + a >= g.target) { confetti(); toast(`🎉 הגעתם ליעד של ${g.n}!`); } else toast(sign > 0 ? `🐷 הופקדו ${fmt(a)}` : `➖ נמשכו ${fmt(a)}`);
+      openGoal(id);
+    };
+    sh.querySelector('#gIn').onclick = () => move(1);
+    sh.querySelector('#gOut').onclick = () => move(-1);
+  });
+}
+
+// ---------- 🤲 מעשר ----------
+// S.maaser = { pct: 10, since: 'YYYY-MM' } · הכנסה עם noMaaser לא נספרת · הוצאות "צדקה ותרומות" מקטינות את החוב
+function maaserCalc() {
+  const pct = S.maaser?.pct || 10, since = S.maaser?.since || '';
+  const inRange = t => !since || ym(new Date(t.date)) >= since;
+  let inc = 0, given = 0; const months = {};
+  for (const t of S.tx) {
+    if (!inRange(t)) continue;
+    const m = ym(new Date(t.date)), v = t.inst > 1 ? t.total : t.amount;
+    months[m] ??= { inc: 0, given: 0 };
+    if (t.cat === 'income' && !t.noMaaser) { inc += v; months[m].inc += v; }
+    if (t.cat === 'give') { given += v; months[m].given += v; }
+  }
+  const owed = inc * pct / 100;
+  return { pct, since, inc, owed, given, left: owed - given, months };
+}
+function openMaaser() {
+  const r = maaserCalc();
+  const rows = Object.entries(r.months).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 6);
+  openSheet(`<h3>🤲 מעשר</h3><div class="sub" style="margin:-6px 0 12px">${r.pct}% מכל הכנסה שנרשמה${r.since ? ' מ' + monthLabel(r.since) : ''}. כל הוצאה בקטגוריה <b>💝 צדקה ותרומות</b> נספרת כמעשר שניתן.</div>
+    <div class="card" style="text-align:center;margin-bottom:12px">
+      <small class="sub">${r.left > 0 ? 'נשאר לתת' : r.left < 0 ? 'נתתם יותר — יתרה לזכותכם' : 'הכל ניתן 👏'}</small>
+      <div class="big-num" id="mLeft" style="color:${r.left > 0 ? '#FACC15' : '#4ADE80'}">${fmt(Math.abs(r.left))}</div>
+      <div class="pbar" style="margin:8px 0"><i style="width:${r.owed ? Math.min(100, r.given / r.owed * 100) : 0}%;background:linear-gradient(90deg,#E879F9,#A855F7)"></i></div>
+      <div class="sub">חייבים ${fmt(r.owed)} · ניתן ${fmt(r.given)} · מתוך הכנסות ${fmt(r.inc)}</div></div>
+    ${rows.length ? `<div class="card" style="padding:4px 12px;margin-bottom:12px">${rows.map(([m, v]) => `<div class="mv"><span>${monthLabel(m)}</span><span>חייבים ${fmt(v.inc * r.pct / 100)} · ניתן ${fmt(v.given)}</span></div>`).join('')}</div>` : ''}
+    <div class="sub" style="margin-bottom:6px">אחוז</div>
+    <div class="chips" style="margin-bottom:12px">${[10, 20].map(p => `<button class="chip ${p === r.pct ? 'on' : ''}" data-mp="${p}">${p === 10 ? 'מעשר 10%' : 'חומש 20%'}</button>`).join('')}</div>
+    <label class="field"><span>לחשב החל מ (לא חובה)</span><input id="mSince" type="month" value="${r.since}"></label>
+    <div class="sub">💡 הכנסה שלא צריך לתת ממנה מעשר (למשל החזר הוצאות)? פותחים אותה ב-✏️ עריכה ← <b>"בלי מעשר"</b>.</div>`, sh => {
+    sh.querySelectorAll('[data-mp]').forEach(b => b.onclick = async () => { await saveKV('maaser', { ...S.maaser, pct: +b.dataset.mp }); openMaaser(); });
+    sh.querySelector('#mSince').onchange = async e => { await saveKV('maaser', { ...S.maaser, since: e.target.value || '' }); openMaaser(); };
+  });
+}
+
+// ---------- 🧒 קופת דמי כיס ----------
+// S.pocket = { rate: { stars: 10, nis: 5 }, [personId]: { goal: { n, target } | null, mv: [{ id, d, a, note, src }] } }
+const pocketOf = pid => S.pocket?.[pid] || { goal: null, mv: [] };
+const pocketBal = pid => (pocketOf(pid).mv || []).reduce((s, x) => s + x.a, 0);
+const kidsList = () => S.people;
+function openPocket(only = null) {
+  const kids = only ? S.people.filter(p => p.id === only) : kidsList();
+  const rate = S.pocket?.rate || { stars: 10, nis: 5 };
+  openSheet(`<h3>🧒 ${only ? 'הקופה שלי' : 'קופות דמי כיס'}</h3>
+    ${!only ? `<div class="sub" style="margin:-6px 0 12px">לכל ילד קופה משלו: כמה יש לו, הפקדות, הוצאות ויעד. ⭐ כוכבים ממטלות הופכים לשקלים: <b>${rate.stars}⭐ = ${fmt(rate.nis)}</b></div>` : ''}
+    ${kids.length ? `<div class="stg" style="display:flex;flex-direction:column;gap:10px">${kids.map(p => { const b = pocketBal(p.id), g = pocketOf(p.id).goal, pr = g?.target ? b / g.target * 100 : 0;
+      return `<button class="card goal-card" data-kid="${p.id}"><div class="ring2" style="background:${ringBg(g ? pr : 0, '#F97316')}"><b>${esc(p.e)}</b></div>
+        <div class="nm"><div style="font-weight:700">${esc(p.name)}</div><small class="sub">${g ? `🎯 ${esc(g.n)}: ${fmt(b)} מתוך ${fmt(g.target)}` : 'בלי יעד'}</small></div><div style="font-weight:800;font-size:20px">${fmt(b)}</div></button>`; }).join('')}</div>`
+      : `<div class="empty"><span class="em">🧒</span>קודם מוסיפים את הילדים: ⚙️ ← המשפחה</div>`}
+    ${!only ? `<div class="sub" style="margin:14px 0 6px">⭐ כמה שווים הכוכבים?</div>
+      <div class="row2"><label class="field"><span>כוכבים</span><input id="rS" type="number" inputmode="numeric" value="${rate.stars}"></label><label class="field"><span>שווים ₪</span><input id="rN" type="number" inputmode="decimal" value="${rate.nis}"></label></div>
+      <button class="btn ghost full" id="rSave">💾 שמירת שער הכוכבים</button>` : ''}`, sh => {
+    sh.querySelectorAll('[data-kid]').forEach(b => b.onclick = () => openKid(b.dataset.kid, !!only));
+    sh.querySelector('#rSave')?.addEventListener('click', async () => {
+      const st = Math.round(num(sh.querySelector('#rS').value)), n = num(sh.querySelector('#rN').value);
+      if (!(st > 0) || !(n > 0)) return;
+      await saveKV('pocket', { ...S.pocket, rate: { stars: st, nis: n } }); toast(`⭐ ${st} כוכבים = ${fmt(n)}`); openPocket();
+    });
+  });
+}
+async function pocketMove(pid, a, note, src) {
+  const box = pocketOf(pid), before = pocketBal(pid);
+  await saveKV('pocket', { ...S.pocket, [pid]: { ...box, mv: [...(box.mv || []), { id: db.newId(), d: new Date().toISOString(), a, note: String(note || '').replace(/[<>&"'`]/g, '').slice(0, 40), src }] } });
+  const g = box.goal; if (g?.target && before < g.target && before + a >= g.target) { confetti(); toast(`🎉 ${personOf(pid)?.name || ''} הגיע/ה ליעד: ${g.n}!`); }
+}
+function openKid(pid, readOnly = false) {
+  const p = personOf(pid); if (!p) return openPocket();
+  const box = pocketOf(pid), b = pocketBal(pid), g = box.goal, rate = S.pocket?.rate || { stars: 10, nis: 5 };
+  const SRC = { dep: '💰', spend: '🛍️', stars: '⭐' };
+  openSheet(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px"><div class="cat-ic" style="background:linear-gradient(135deg,#F97316,#FACC15);width:48px;height:48px;font-size:24px">${esc(p.e)}</div>
+      <h3 style="margin:0;flex:1">הקופה של ${esc(p.name)}</h3>${readOnly ? '' : '<button class="chip" id="kBack">↩️ חזרה</button>'}</div>
+    <div class="card" style="text-align:center;margin-bottom:12px"><small class="sub">יש בקופה</small><div class="big-num" id="kBal">${fmt(b)}</div>
+      ${g ? `<div class="pbar" style="margin:8px 0"><i style="width:${Math.min(100, b / g.target * 100)}%;background:linear-gradient(90deg,#F97316,#FACC15)"></i></div><div class="sub">🎯 ${esc(g.n)} · ${b >= g.target ? '🎉 יש מספיק!' : 'חסרים ' + fmt(g.target - b)}</div>` : ''}</div>
+    ${readOnly ? '' : `<div class="row2"><label class="field"><span>סכום ₪</span><input id="kA" type="number" inputmode="decimal" placeholder="20"></label><label class="field"><span>על מה? (לא חובה)</span><input id="kNote" maxlength="40" placeholder="דמי כיס שבועיים"></label></div>
+      <div class="row2" style="margin-bottom:10px"><button class="btn grad" id="kIn">➕ הפקדה</button><button class="btn ghost" id="kOut">🛍️ הוצאה</button></div>
+      <div class="row2" style="margin-bottom:12px"><label class="field" style="margin:0"><span>⭐ כוכבים (${rate.stars}⭐ = ${fmt(rate.nis)})</span><input id="kS" type="number" inputmode="numeric" placeholder="20"></label><button class="btn ghost" id="kStars" style="align-self:flex-end">⭐ המרה לשקלים</button></div>`}
+    ${(box.mv || []).length ? `<div class="card" style="padding:4px 12px">${[...box.mv].reverse().slice(0, 30).map(x => `<div class="mv"><span>${SRC[x.src] || ''} ${esc(x.note || '')} <small class="sub">${new Date(x.d).toLocaleDateString('he-IL')}</small></span><b class="${x.a > 0 ? 'plus' : 'over'}" dir="ltr">${x.a > 0 ? '+' : ''}${fmt(x.a)}</b></div>`).join('')}</div>` : '<div class="empty"><span class="em">🪙</span>הקופה עוד ריקה</div>'}
+    ${readOnly ? '' : `<div class="sub" style="margin:14px 0 6px">🎯 יעד לחסוך (לא חובה)</div>
+      <div class="row2"><label class="field"><span>למה?</span><input id="kGN" maxlength="30" value="${g ? esc(g.n) : ''}" placeholder="אופניים"></label><label class="field"><span>כמה ₪</span><input id="kGT" type="number" inputmode="decimal" value="${g?.target || ''}"></label></div>
+      <button class="btn ghost full" id="kGoal">💾 שמירת היעד</button>`}`, sh => {
+    sh.querySelector('#kBack')?.addEventListener('click', () => openPocket());
+    if (readOnly) return;
+    const amt = () => num(sh.querySelector('#kA').value), note = () => sh.querySelector('#kNote').value;
+    sh.querySelector('#kIn').onclick = async () => { const a = amt(); if (!(a > 0)) return sh.querySelector('#kA').focus(); await pocketMove(pid, a, note() || 'הפקדה', 'dep'); toast(`💰 נוספו ${fmt(a)} לקופה של ${p.name}`); openKid(pid); };
+    sh.querySelector('#kOut').onclick = async () => { const a = amt(); if (!(a > 0)) return sh.querySelector('#kA').focus(); await pocketMove(pid, -a, note() || 'הוצאה', 'spend'); toast(`🛍️ ירדו ${fmt(a)}`); openKid(pid); };
+    sh.querySelector('#kStars').onclick = async () => {
+      const st = Math.round(num(sh.querySelector('#kS').value)); if (!(st > 0)) return sh.querySelector('#kS').focus();
+      const a = num(st / rate.stars * rate.nis); await pocketMove(pid, a, `${st}⭐ כוכבים`, 'stars'); confetti(); toast(`⭐ ${st} כוכבים = ${fmt(a)} לקופה!`); openKid(pid);
+    };
+    sh.querySelector('#kGoal').onclick = async () => {
+      const n = sh.querySelector('#kGN').value.replace(/[<>&"'`]/g, '').trim(), t = num(sh.querySelector('#kGT').value);
+      await saveKV('pocket', { ...S.pocket, [pid]: { ...pocketOf(pid), goal: n && t > 0 ? { n, target: t } : null } }); toast('🎯 היעד נשמר'); openKid(pid);
+    };
+  });
+}
+// ⭐ קישור מ"זמן בכיף": ?stars=20&kid=יעל — ההורה מאשר והכוכבים נכנסים לקופה
+function starsLink() {
+  const q = new URLSearchParams(location.search), st = Math.round(num(q.get('stars'))), kid = (q.get('kid') || '').trim();
+  if (!(st > 0) || !kid || !sync.isParent()) return;
+  history.replaceState(null, '', location.pathname);
+  const p = S.people.find(x => x.name === kid) || S.people.find(x => x.name.includes(kid) || kid.includes(x.name));
+  const rate = S.pocket?.rate || { stars: 10, nis: 5 }, a = num(st / rate.stars * rate.nis);
+  openSheet(`<h3>⭐ המרת כוכבים</h3><div class="card" style="text-align:center;margin-bottom:12px"><div style="font-size:40px">⭐ ${st}</div><div class="big-num">${fmt(a)}</div><div class="sub">${rate.stars}⭐ = ${fmt(rate.nis)}</div></div>
+    ${p ? `<button class="btn grad full" id="sOk">✅ להכניס לקופה של ${esc(p.e)} ${esc(p.name)}</button>` : `<div class="sub" style="margin-bottom:8px">לא מצאתי במשפחה את "${esc(kid)}". של מי הקופה?</div><div class="chips" style="flex-wrap:wrap">${S.people.map(x => `<button class="chip" data-sk="${x.id}">${esc(x.e)} ${esc(x.name)}</button>`).join('')}</div>`}`, sh => {
+    const go2 = async pid => { await pocketMove(pid, a, `${st}⭐ כוכבים`, 'stars'); confetti(); toast(`⭐ ${fmt(a)} נכנסו לקופה!`); openKid(pid); };
+    sh.querySelector('#sOk')?.addEventListener('click', () => go2(p.id));
+    sh.querySelectorAll('[data-sk]').forEach(b => b.onclick = () => go2(b.dataset.sk));
+  });
+}
+$('#goalsBtn').onclick = openGoals;
+$('#maaserBtn').onclick = openMaaser;
+$('#pocketBtn').onclick = () => openPocket();
+
 // ---------- 🏷️ קטגוריות אישיות (מסונכרן לכל המשפחה) ----------
 async function saveCats() { await db.setKV('cats', S.cats); applyCustomCats(S.cats); renderAll(); }
 function openCatsSheet() {
@@ -1288,6 +1516,7 @@ function openSettings() { openSheet(`<h3>⚙️ הגדרות</h3>
   <button class="btn ghost full" id="toShare" style="margin-bottom:10px">📤 שתף את האפליקציה עם חבר</button>
   <button class="btn ghost full" id="toFeedback" style="margin-bottom:10px">💌 שליחת משוב / הצעה / תקלה</button>
   ${isStandalone() ? '' : '<button class="btn ghost full" id="toInstall" style="margin-bottom:10px">📲 התקנה על המסך (כמו אפליקציה)</button>'}
+  <button class="btn grad full kid-only" id="toMyBox" style="margin-bottom:10px">🐷 הקופה שלי</button>
   <button class="btn ghost full parent-only" id="toCats" style="margin-bottom:10px">🏷️ קטגוריות — להוסיף / לשנות שם</button>
   <button class="btn grad full parent-only" id="toExcel" style="margin-bottom:10px">📊 הורדת סיכום לאקסל</button>
   <div class="row2" style="margin-bottom:10px"><button class="btn ghost" id="exp">⬇️ גיבוי</button><button class="btn ghost" id="imp">⬆️ שחזור מגיבוי</button></div>
@@ -1301,6 +1530,7 @@ function openSettings() { openSheet(`<h3>⚙️ הגדרות</h3>
   sync.isAdmin().then(ok => { const a = sh.querySelector('#toAdmin'); if (ok && a) a.hidden = false; });
   sh.querySelector('#toExcel').onclick = () => openExportSheet();
   sh.querySelector('#toCats').onclick = () => openCatsSheet();
+  sh.querySelector('#toMyBox').onclick = () => S.me ? openKid(S.me, true) : toast('קודם בוחרים "אני ___" במשפחה', true);
   sh.querySelector('#toHelp').onclick = () => openHelp();
   sh.querySelector('#toShare').onclick = () => openHelp('איך משתפים את האפליקציה עם חבר');
   sh.querySelector('#toFeedback').onclick = () => openFeedback();
@@ -1821,6 +2051,7 @@ async function drawSync(el) {
 async function reloadFromDb() {
   S.tx = await db.allTx();
   S.cats = await db.getKV('cats', {}); applyCustomCats(S.cats);
+  S.goals = await db.getKV('goals', {}); S.maaser = await db.getKV('maaser', {}); S.pocket = await db.getKV('pocket', {});
   S.budgets = await db.getKV('budgets', {});
   S.learned = await db.getKV('learned', {});
   S.people = cleanPeople(await db.getKV('people', []));
@@ -1831,6 +2062,7 @@ async function reloadFromDb() {
 async function load() {
   S.tx = await db.allTx();
   S.cats = await db.getKV('cats', {}); applyCustomCats(S.cats);
+  S.goals = await db.getKV('goals', {}); S.maaser = await db.getKV('maaser', {}); S.pocket = await db.getKV('pocket', {});
   S.budgets = await db.getKV('budgets', {});
   S.learned = await db.getKV('learned', {});
   S.people = cleanPeople(await db.getKV('people', []));
@@ -1847,6 +2079,7 @@ load().then(async () => {
   showGate();
   if (RECOVERY && syncUser) newPasswordSheet();
   if (new URLSearchParams(location.search).get('v') === 'budget') go('budget'); // לחיצה על התראת תקציב
+  starsLink();
 });
 
 // 🔑 אחרי לחיצה על הקישור במייל "שכחתי סיסמה"
