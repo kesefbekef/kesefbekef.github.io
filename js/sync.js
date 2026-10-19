@@ -218,7 +218,7 @@ async function send(c, table, rows, rejected) {
 
 async function pushEverything() {
   const ops = (await db.allTx()).map(t => ({ t: 'tx', id: t.id, data: t, at: Date.now() }));
-  for (const k of ['budgets', 'learned', 'people']) {
+  for (const k of ['budgets', 'learned', 'people', 'cats']) {
     const v = await db.getKV(k, null);
     if (v && (Array.isArray(v) ? v.length : Object.keys(v).length)) ops.push({ t: 'kv', key: k, value: v, at: Date.now() });
   }
@@ -231,7 +231,7 @@ async function applyTx(row) {
   else await db.putTx(row.data, true);
 }
 async function applyKv(row) {
-  if (!['budgets', 'learned', 'people'].includes(row.key)) return;
+  if (!['budgets', 'learned', 'people', 'cats'].includes(row.key)) return;
   const pending = (await db.getKV('outbox', [])).find(o => o.t === 'kv' && o.key === row.key);
   if (pending) {
     // יש כאן שינוי שעוד לא נשלח — ממזגים, ולא דורסים אותו

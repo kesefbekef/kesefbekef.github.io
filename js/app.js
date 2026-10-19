@@ -1,4 +1,4 @@
-import { CATS, classify, isIncome, catOf } from './categories.js';
+import { CATS, classify, isIncome, catOf, applyCustomCats, isBaseCat, CAT_COLORS, CAT_EMOJIS } from './categories.js';
 import { parseMessage, stripVav, detectPay, PAY } from './parse.js';
 import * as db from './db.js';
 import * as imp from './importer.js';
@@ -23,7 +23,7 @@ const timeOf = iso => new Date(iso).toLocaleTimeString('he-IL', { hour: '2-digit
 const thisMonth = () => ym(new Date());
 
 const RECOVERY = /type=recovery/.test(location.hash);
-const S = { tx: [], budgets: {}, learned: {}, people: [], me: null, month: thisMonth(), view: 'chat', catFilter: null, whoFilter: null, search: '' };
+const S = { tx: [], budgets: {}, learned: {}, cats: {}, people: [], me: null, month: thisMonth(), view: 'chat', catFilter: null, whoFilter: null, search: '' };
 
 // ---------- בני הבית ----------
 const FACES = ['🧔', '👩', '👦', '👧', '👴', '👵', '🧑', '👶'];
@@ -53,7 +53,7 @@ const expenses = () => S.tx.filter(t => t.cat !== 'income');
 const spentIn = (cat, m) => S.tx.filter(t => t.cat === cat).reduce((s, t) => s + amountIn(t, m), 0);
 const incomeIn = m => spentIn('income', m);
 const expenseIn = m => expenses().reduce((s, t) => s + amountIn(t, m), 0);
-const budgetOf = cat => S.budgets[cat] ?? CATS[cat].budget;
+const budgetOf = cat => S.budgets[cat] ?? CATS[cat]?.budget ?? 0; // 0 = בלי תקציב
 const totalBudget = () => Object.keys(CATS).reduce((s, c) => s + budgetOf(c), 0);
 const txInMonth = m => S.tx.filter(t => amountIn(t, m) > 0);
 function daysLeft() { const d = new Date(); return new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate() - d.getDate(); }
@@ -156,8 +156,8 @@ function botHTML(t) {
     title = `${esc(t.desc)} · ${fmt(t.inst > 1 ? t.total : t.amount)}`;
     sub = `${c.n} · `;
     if (t.inst > 1) sub += `${t.inst} תשלומים של ${fmt(t.amount)} · `;
-    const m = ym(new Date(t.date)), left = budgetOf(t.cat) - spentIn(t.cat, m);
-    sub += left >= 0 ? `נשארו ${fmt(left)}` : `⚠️ חריגה של ${fmt(-left)}`;
+    const m = ym(new Date(t.date)), b = budgetOf(t.cat), left = b - spentIn(t.cat, m);
+    sub += !b ? `${fmt(spentIn(t.cat, m))} החודש` : left >= 0 ? `נשארו ${fmt(left)}` : `⚠️ חריגה של ${fmt(-left)}`;
   }
   const day = ymd(new Date(t.date)) !== ymd(new Date(t.created)) ? ` · ${new Date(t.date).toLocaleDateString('he-IL')}` : '';
   const pay = t.pay ? `<button data-act="pay" data-id="${t.id}">${PAY[t.pay].e} ${PAY[t.pay].n}</button>` : '';
@@ -328,8 +328,9 @@ async function commitTx(pending) {
   if (added.some(t => t.cat === 'income')) { confetti(); toast('💸 הכנסה חדשה! ' + fmt(added.filter(t => t.cat === 'income').reduce((s, t) => s + t.amount, 0))); }
   for (const cat of Object.keys(before)) {
     const b = budgetOf(cat), m = ym(new Date(added.find(t => t.cat === cat).date)), after = spentIn(cat, m);
-    if (before[cat] <= b && after > b) toast(`🚨 עברת את תקציב ${CATS[cat].n}`, true);
-    else if (before[cat] < b * .8 && after >= b * .8) toast(`⚠️ הגעת ל-80% מתקציב ${CATS[cat].n}`, true);
+    if (!b) continue;
+    if (before[cat] <= b && after > b) toast(`🚨 עברת את תקציב ${catOf(cat).n}`, true);
+    else if (before[cat] < b * .8 && after >= b * .8) toast(`⚠️ הגעת ל-80% מתקציב ${catOf(cat).n}`, true);
   }
   for (const cat of new Set(added.map(t => t.cat))) $(`#st-${cat}`)?.classList.add('pop');
 }
@@ -388,7 +389,7 @@ const payGrid = sel => `<div class="catgrid">${Object.entries(PAY).map(([id, p])
 const whoChips = sel => S.people.map(p => `<button class="chip ${p.id === sel ? 'on' : ''}" data-w="${p.id}">${esc(p.e)} ${esc(p.name)}</button>`).join('');
 
 function openWhoSheet(t) {
-  openSheet(`<h3>של מי ההוצאה?</h3><div class="sub" style="margin:-6px 0 12px">"${esc(t.desc)}" · ${fmt(t.inst > 1 ? t.total : t.amount)}</div>
+  openSheet(`<h3>של מי ${t.cat === 'income' ? 'ההכנסה' : 'ההוצאה'}?</h3><div class="sub" style="margin:-6px 0 12px">"${esc(t.desc)}" · ${fmt(t.inst > 1 ? t.total : t.amount)}</div>
     <div class="chips" style="flex-wrap:wrap;margin-bottom:12px">${whoChips(t.who)}</div>
     <div class="sub">טיפ: אפשר לכתוב ישר בהודעה — "${esc(S.people[0]?.name || 'רחל')}: סופר 230"</div>`, sh => {
     sh.querySelectorAll('[data-w]').forEach(b => b.onclick = async () => {
@@ -419,13 +420,12 @@ function renderHero() {
   $('#daysLeft').textContent = `עוד ${daysLeft()} ימים לסוף ${MONTHS[new Date().getMonth()]}`;
   const s = streak();
   $('#streak').textContent = s ? `🔥 ${s} ${s === 1 ? 'יום' : 'ימים'} ברצף` : '✨ בוא נתחיל';
-  $('#bellDot').hidden = !Object.keys(CATS).some(c => spentIn(c, m) > budgetOf(c));
 }
 
 function renderStories() {
   const m = thisMonth();
   $('#stories').innerHTML = Object.entries(CATS).map(([id, c]) => {
-    const p = Math.min(100, spentIn(id, m) / budgetOf(id) * 100), over = spentIn(id, m) > budgetOf(id);
+    const b = budgetOf(id), sp = spentIn(id, m), p = b ? Math.min(100, sp / b * 100) : sp ? 100 : 0, over = b && sp > b;
     return `<button class="story" id="st-${id}" data-cat="${id}"><div class="ring" style="background:conic-gradient(${over ? '#F43F5E' : c.c} ${p}%, rgba(255,255,255,.12) 0)"><span>${c.e}</span></div>${c.n.split(' ')[0]}</button>`;
   }).join('');
 }
@@ -469,8 +469,8 @@ function renderBudget() {
   $('#incSum').textContent = fmt(incomeIn(m));
   $('#expSum').textContent = fmt(expenseIn(m));
   $('#budgetList').innerHTML = Object.entries(CATS).map(([id, c]) => {
-    const s = spentIn(id, m), b = budgetOf(id), p = Math.min(100, s / b * 100), o = s > b;
-    return `<button class="card" data-cat="${id}"><div class="cat-row"><div class="cat-ic" style="background:${c.g}">${c.e}</div><div class="nm">${c.n}</div><div class="am ${o ? 'over' : ''}">${fmt(s)} / ${fmt(b)}</div></div><div class="pbar"><i style="width:${p}%;background:${o ? 'linear-gradient(90deg,#F43F5E,#FB7185)' : c.g}"></i></div></button>`;
+    const s = spentIn(id, m), b = budgetOf(id), p = b ? Math.min(100, s / b * 100) : 0, o = b && s > b;
+    return `<button class="card" data-cat="${id}"><div class="cat-row"><div class="cat-ic" style="background:${c.g}">${c.e}</div><div class="nm">${esc(c.n)}</div><div class="am ${o ? 'over' : ''}">${fmt(s)} / ${b ? fmt(b) : 'בלי תקציב'}</div></div><div class="pbar"><i style="width:${p}%;background:${o ? 'linear-gradient(90deg,#F43F5E,#FB7185)' : c.g}"></i></div></button>`;
   }).join('');
 }
 $('#budgetList').addEventListener('click', e => {
@@ -522,7 +522,8 @@ function renderInsights() {
   const tips = [];
   if (!exp && !inc) tips.push(['🌱', '<b>עוד אין נתונים לחודש הזה.</b> רשום כמה הוצאות בצ\'אט והתובנות יופיעו כאן.']);
   for (const p of parts) {
-    const b = budgetOf(p.id), pct = Math.round(p.v / b * 100);
+    const b = budgetOf(p.id); if (!b) continue;
+    const pct = Math.round(p.v / b * 100);
     if (p.v > b) tips.push(['🚨', `<b>${p.c.n} עבר את התקציב ב-${pct - 100}%</b> (${fmt(p.v)} מתוך ${fmt(b)}).`]);
     else if (pct >= 80 && m === thisMonth()) tips.push(['⚠️', `<b>${p.c.n}: נוצלו ${pct}%</b> ונשארו ${daysLeft()} ימים לסוף החודש. כדאי להאט.`]);
   }
@@ -550,6 +551,12 @@ function renderInsights() {
     for (const t of txInMonth(m)) if (t.cat !== 'income') { const k = t.who || 'none'; byWho[k] = (byWho[k] || 0) + amountIn(t, m); }
     const rows = Object.entries(byWho).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
     if (rows.length) tips.push(['👨‍👩‍👧', `<b>מי הוציא כמה:</b><br>${rows.map(([k, v]) => `${k === 'none' ? '❔ לא צוין' : (whoLabel(k))}: ${fmt(v)}`).join('<br>')}`]);
+  }
+  if (S.people.length > 1 && inc) {
+    const incWho = {};
+    for (const t of txInMonth(m)) if (t.cat === 'income') { const k = t.who || 'none'; incWho[k] = (incWho[k] || 0) + amountIn(t, m); }
+    const rows = Object.entries(incWho).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+    if (rows.length) tips.push(['💰', `<b>מי הכניס כמה:</b><br>${rows.map(([k, v]) => `${k === 'none' ? '❔ לא צוין' : (whoLabel(k))}: <span class="plus">${fmt(v)}</span> (${Math.round(v / inc * 100)}%)`).join('<br>')}`]);
   }
   const byPay = {};
   for (const t of txInMonth(m)) if (t.cat !== 'income') { const k = t.pay || 'none'; byPay[k] = (byPay[k] || 0) + amountIn(t, m); }
@@ -677,7 +684,6 @@ function go(v) {
   else { S.month = thisMonth(); renderChat(); }
 }
 $$('nav button[data-v]').forEach(b => b.onclick = () => { if (b.dataset.v === 'tx') S.catFilter = null; go(b.dataset.v); });
-$('#bell').onclick = () => { S.month = thisMonth(); go('insights'); };
 
 // ילד: רק מוסיף ורואה את מה שהוא רשם (ההגבלה האמיתית בשרת)
 function applyRole() {
@@ -891,12 +897,13 @@ function openAddForm(cat) {
       <label class="field"><span>סכום ₪</span><input id="aAmt" type="number" inputmode="decimal" placeholder="0"></label>
       <label class="field"><span>תאריך</span><input id="aDate" type="date" value="${ymd(new Date())}"></label>
     </div>
+    ${inc && S.people.length ? `<div class="who-box"><div class="who-q">👤 של מי ההכנסה?</div><div class="chips" id="aWho" style="flex-wrap:wrap">${whoChips(who)}</div></div>` : ''}
     <label class="field"><span>${inc ? 'מאיפה?' : 'על מה? / איפה?'} (לא חובה)</span><input id="aDesc" placeholder="למשל: ${ADD_HINT[cat] || ''}"></label>
     ${inc ? '' : `<label class="field"><span>מספר תשלומים (לא חובה)</span><input id="aInst" type="number" inputmode="numeric" placeholder="1"></label>`}
     <div class="err" id="aErr"></div>
     <div class="sub" style="margin-bottom:8px">${inc ? 'איך התקבל?' : 'איך שולם?'} (לא חובה)</div>
     <div class="chips" id="aPay" style="flex-wrap:wrap;margin-bottom:14px">${Object.entries(PAY).map(([id, p]) => `<button class="chip" data-p="${id}">${p.e} ${p.n}</button>`).join('')}</div>
-    ${S.people.length ? `<div class="sub" style="margin-bottom:8px">של מי?</div><div class="chips" id="aWho" style="flex-wrap:wrap;margin-bottom:14px">${whoChips(who)}</div>` : ''}
+    ${!inc && S.people.length ? `<div class="sub" style="margin-bottom:8px">של מי?</div><div class="chips" id="aWho" style="flex-wrap:wrap;margin-bottom:14px">${whoChips(who)}</div>` : ''}
     <button class="btn grad full" id="aSave">✅ שמירה</button>`, sh => {
     sh.querySelector('#aBack').onclick = openAddSheet;
     sh.querySelectorAll('#aPay [data-p]').forEach(b => b.onclick = () => {
@@ -1110,6 +1117,65 @@ function openExportSheet(kind = 'month', anchor = new Date(), initRange = null) 
 }
 $('#exportBtn').onclick = () => openExportSheet(S.view === 'chat' ? 'month' : 'month', S.view === 'chat' ? new Date() : new Date(S.month + '-01T12:00:00'));
 
+// ---------- 🏷️ קטגוריות אישיות (מסונכרן לכל המשפחה) ----------
+async function saveCats() { await db.setKV('cats', S.cats); applyCustomCats(S.cats); renderAll(); }
+function openCatsSheet() {
+  openSheet(`<h3>🏷️ קטגוריות</h3><div class="sub" style="margin:-6px 0 12px">אפשר להוסיף קטגוריה משלכם או לשנות שם, אייקון וצבע. השינוי מגיע לכל המשפחה 👨‍👩‍👧</div>
+    <div class="card" style="padding:4px 12px">${Object.entries(CATS).map(([id, c]) => `<button class="tx cat-li" data-ec="${id}">
+      <div class="cat-ic" style="background:${c.g}">${c.e}</div><div class="nm"><div>${c.n}</div>${c.custom ? '<small>✨ שלנו</small>' : ''}</div>
+      <i class="cdot" style="background:${c.c}"></i><span class="cedit">✏️</span></button>`).join('')}</div>
+    <button class="btn grad full" id="catNew" style="margin-top:12px">➕ קטגוריה חדשה</button>`, sh => {
+    sh.querySelectorAll('[data-ec]').forEach(b => b.onclick = () => openCatEdit(b.dataset.ec));
+    sh.querySelector('#catNew').onclick = () => openCatEdit(null);
+  });
+}
+function openCatEdit(id) {
+  const c = id ? CATS[id] : null, isNew = !c;
+  let e = c?.e || CAT_EMOJIS[0], col = c?.c || CAT_COLORS[(Object.keys(S.cats).length) % CAT_COLORS.length], armed = false;
+  const emojis = [...new Set([...(c && !CAT_EMOJIS.includes(c.e) ? [c.e] : []), ...CAT_EMOJIS])].slice(0, 24);
+  openSheet(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <div class="cat-ic" id="cPrev" style="background:${col};width:48px;height:48px;font-size:24px">${e}</div>
+      <h3 style="margin:0;flex:1">${isNew ? '➕ קטגוריה חדשה' : '✏️ עריכת קטגוריה'}</h3>
+      <button class="chip" id="cBack">↩️ חזרה</button></div>
+    <label class="field"><span>שם</span><input id="cName" maxlength="24" value="${c ? c.n : ''}" placeholder="למשל: הכלב, חוגים, שבתות"></label>
+    <div class="sub" style="margin-bottom:8px">אייקון</div>
+    <div class="emo-grid" id="cEmo">${emojis.map(x => `<button class="${x === e ? 'on' : ''}" data-e="${x}">${x}</button>`).join('')}</div>
+    <div class="sub" style="margin:12px 0 8px">צבע</div>
+    <div class="col-row" id="cCol">${CAT_COLORS.map(x => `<button class="${x === col ? 'on' : ''}" data-c="${x}" style="background:${x}" aria-label="צבע"></button>`).join('')}</div>
+    ${isNew ? `<label class="field" style="margin-top:12px"><span>תקציב חודשי ₪ (לא חובה)</span><input id="cBud" type="number" inputmode="numeric" placeholder="בלי תקציב"></label>` : ''}
+    <div class="err" id="cErr"></div>
+    <button class="btn grad full" id="cSave" style="margin-top:12px">💾 שמור</button>
+    ${c?.custom ? '<button class="btn ghost full" id="cDel" style="margin-top:10px;color:#FB7185">🗑️ מחיקת הקטגוריה</button>' : ''}
+    ${c && !c.custom ? '<div class="sub" style="margin-top:10px;text-align:center">קטגוריה מוכנה — אפשר לשנות לה שם, אייקון וצבע, אבל לא למחוק</div>' : ''}`, sh => {
+    const prev = sh.querySelector('#cPrev');
+    sh.querySelector('#cBack').onclick = openCatsSheet;
+    sh.querySelectorAll('#cEmo [data-e]').forEach(b => b.onclick = () => { e = b.dataset.e; prev.textContent = e; sh.querySelectorAll('#cEmo button').forEach(x => x.classList.toggle('on', x === b)); });
+    sh.querySelectorAll('#cCol [data-c]').forEach(b => b.onclick = () => { col = b.dataset.c; prev.style.background = col; sh.querySelectorAll('#cCol button').forEach(x => x.classList.toggle('on', x === b)); });
+    sh.querySelector('#cSave').onclick = async () => {
+      const n = sh.querySelector('#cName').value.replace(/[<>&"'`\\]/g, '').trim();
+      if (!n) { sh.querySelector('#cErr').textContent = 'צריך לתת שם לקטגוריה'; return; }
+      if (Object.entries(CATS).some(([k, x]) => k !== id && x.n === n)) { sh.querySelector('#cErr').textContent = 'כבר יש קטגוריה בשם הזה'; return; }
+      const key = id || 'c_' + Math.random().toString(36).slice(2, 8);
+      S.cats = { ...S.cats, [key]: { n, e, c: col, ...(isBaseCat(key) ? {} : { custom: true }) } };
+      const bud = Math.round(parseFloat(sh.querySelector('#cBud')?.value) || 0);
+      if (isNew && bud > 0) { S.budgets[key] = bud; await db.setKV('budgets', S.budgets); }
+      await saveCats();
+      toast(isNew ? `🎉 נוספה הקטגוריה ${e} ${n}` : `✅ נשמר: ${e} ${n}`);
+      openCatsSheet();
+    };
+    sh.querySelector('#cDel')?.addEventListener('click', async ev => {
+      const used = S.tx.filter(t => t.cat === id);
+      if (!armed) { armed = true; ev.target.textContent = used.length ? `לחיצה שנייה למחיקה — ${used.length} רשומות יעברו ל"שונות"` : 'לחיצה שנייה לאישור המחיקה'; return; }
+      for (const t of used) { t.cat = 'other'; await db.putTx(t); }
+      const { [id]: _, ...rest } = S.cats; S.cats = rest;
+      if (id in S.budgets) { delete S.budgets[id]; await db.setKV('budgets', S.budgets); }
+      if (Object.values(S.learned).includes(id)) { for (const k of Object.keys(S.learned)) if (S.learned[k] === id) delete S.learned[k]; await db.setKV('learned', S.learned); }
+      await saveCats(); S.tx = await db.allTx(); renderAll();
+      toast('🗑️ הקטגוריה נמחקה'); openCatsSheet();
+    });
+  });
+}
+
 // ---------- הגדרות וגיבוי ----------
 $('#settingsBtn').onclick = () => openSettings();
 function openSettings() { openSheet(`<h3>⚙️ הגדרות</h3>
@@ -1120,6 +1186,7 @@ function openSettings() { openSheet(`<h3>⚙️ הגדרות</h3>
   <button class="btn ghost full" id="toShare" style="margin-bottom:10px">📤 שתף את האפליקציה עם חבר</button>
   <button class="btn ghost full" id="toFeedback" style="margin-bottom:10px">💌 שליחת משוב / הצעה / תקלה</button>
   ${isStandalone() ? '' : '<button class="btn ghost full" id="toInstall" style="margin-bottom:10px">📲 התקנה על המסך (כמו אפליקציה)</button>'}
+  <button class="btn ghost full parent-only" id="toCats" style="margin-bottom:10px">🏷️ קטגוריות — להוסיף / לשנות שם</button>
   <button class="btn grad full parent-only" id="toExcel" style="margin-bottom:10px">📊 הורדת סיכום לאקסל</button>
   <div class="row2" style="margin-bottom:10px"><button class="btn ghost" id="exp">⬇️ גיבוי</button><button class="btn ghost" id="imp">⬆️ שחזור מגיבוי</button></div>
   <input type="file" id="impFile" accept="application/json,.json" hidden>
@@ -1128,6 +1195,7 @@ function openSettings() { openSheet(`<h3>⚙️ הגדרות</h3>
   drawSync(sh.querySelector('#syncCard'));
   drawLockCard(sh.querySelector('#lockCard'));
   sh.querySelector('#toExcel').onclick = () => openExportSheet();
+  sh.querySelector('#toCats').onclick = () => openCatsSheet();
   sh.querySelector('#toHelp').onclick = () => openHelp();
   sh.querySelector('#toShare').onclick = () => openHelp('איך משתפים את האפליקציה עם חבר');
   sh.querySelector('#toFeedback').onclick = () => openFeedback();
@@ -1491,6 +1559,29 @@ const inputStyle = 'width:100%;height:44px;border-radius:14px;border:1px solid v
 const UITEST = location.hostname === 'localhost' && new URLSearchParams(location.search).has('uitest');
 const FAKE_HH = { id: 'x', name: 'משפחת בדיקה ארוכה מאוד', role: 'parent', invite_code: '8929FF', child_code: 'BC0DC2' };
 
+// ---------- QR להצטרפות ----------
+let qrLib = null;
+const loadQR = () => qrLib ??= new Promise((res, rej) => {
+  const s = document.createElement('script'); s.src = 'vendor/qrcode.js';
+  s.onload = () => res(window.qrcode); s.onerror = () => { qrLib = null; rej(new Error('qr')); }; document.head.appendChild(s);
+});
+const joinLink = code => `${location.origin}${location.pathname}guide/?join=${encodeURIComponent(code)}`;
+async function qrSVG(code) {
+  const qr = (await loadQR())(0, 'M'); qr.addData(joinLink(code)); qr.make();
+  return qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
+}
+async function drawQRs(el) {
+  for (const box of el.querySelectorAll('[data-qr]')) { try { box.innerHTML = await qrSVG(box.dataset.qr); } catch { box.remove(); } }
+  el.querySelectorAll('[data-zoom]').forEach(b => b.onclick = async () => {
+    const ov = document.createElement('div'); ov.className = 'qr-zoom';
+    ov.innerHTML = `<div class="qr-card"><b>${b.dataset.zt}</b><div class="qr big">${await qrSVG(b.dataset.zoom)}</div>
+      <div class="qr-code">${esc(b.dataset.zoom)}</div><div class="sub" style="color:#555">פותחים את המצלמה בטלפון השני ומכוונים לריבוע 📷</div>
+      <button class="btn grad full" style="margin-top:12px">סגירה</button></div>`;
+    ov.onclick = e => { if (e.target === ov || e.target.closest('button')) ov.remove(); };
+    document.body.appendChild(ov);
+  });
+}
+
 async function drawSync(el) {
   const hh = UITEST ? FAKE_HH : sync.household();
   if (UITEST && !syncUser) syncUser = { id: 'u1', email: 'a.very.long.email.address@example.com' };
@@ -1547,16 +1638,18 @@ async function drawSync(el) {
     <span style="flex:1;min-width:120px">${inner}</span>${actions}</div>`;
   el.innerHTML = `<b style="font-size:16px">👨‍👩‍👧 ${esc(hh.name)}</b> <span class="sub" id="syncState">· מסונכרן ✓</span>
     <div class="sub" style="margin:4px 0 12px">${esc(syncUser.email)} · אתה הורה — רואה הכל ומנהל את המשפחה</div>
-    <div class="sub" style="margin-bottom:6px">🔑 קודי הצטרפות — אפשר להקריא או להעתיק:</div>
+    <div class="sub" style="margin-bottom:6px">🔑 קודי הצטרפות — סורקים את הריבוע במצלמה של הטלפון, או מקריאים / מעתיקים:</div>
     <div class="row2" style="margin-bottom:14px">
       <div style="text-align:center;background:linear-gradient(160deg,rgba(124,58,237,.35),rgba(168,85,247,.2));border:1px solid rgba(196,181,253,.4);border-radius:18px;padding:12px 6px;min-width:0;overflow:hidden">
         <div class="sub" style="color:#E9D5FF">👨‍👩 קוד להורה</div>
         <div style="font-size:clamp(20px,6vw,28px);font-weight:800;letter-spacing:2px;direction:ltr;margin:4px 0 8px;white-space:nowrap">${hh.invite_code}</div>
-        <button class="chip" data-copy="${hh.invite_code}">📋 העתקה</button></div>
+        <div class="qr" data-qr="${hh.invite_code}"></div>
+        <button class="chip" data-copy="${hh.invite_code}">📋 העתקה</button> <button class="chip" data-zoom="${hh.invite_code}" data-zt="👨‍👩 קוד להורה">🔍 להגדיל</button></div>
       <div style="text-align:center;background:linear-gradient(160deg,rgba(249,115,22,.35),rgba(251,146,60,.2));border:1px solid rgba(253,186,116,.4);border-radius:18px;padding:12px 6px;min-width:0;overflow:hidden">
         <div class="sub" style="color:#FFEDD5">🧒 קוד לילד</div>
         <div style="font-size:clamp(20px,6vw,28px);font-weight:800;letter-spacing:2px;direction:ltr;margin:4px 0 8px;white-space:nowrap">${hh.child_code || '—'}</div>
-        ${hh.child_code ? `<button class="chip" data-copy="${hh.child_code}">📋 העתקה</button>` : ''}</div>
+        ${hh.child_code ? `<div class="qr" data-qr="${hh.child_code}"></div>
+        <button class="chip" data-copy="${hh.child_code}">📋 העתקה</button> <button class="chip" data-zoom="${hh.child_code}" data-zt="🧒 קוד לילד">🔍 להגדיל</button>` : ''}</div>
     </div>
     <div class="sub" style="margin-bottom:6px">👨‍👩‍👧 מי במשפחה:</div>
     <div id="famList" class="sub">טוען…</div>
@@ -1567,6 +1660,7 @@ async function drawSync(el) {
     <div class="sub" style="margin-top:10px;line-height:1.6">📱 מחובר — יש לו טלפון משלו (הורה רואה הכל, ילד רק מוסיף)<br>✏️ רק שם — רושמים בשבילו, למשל "יעל: גלידה 15"</div>
 `;
 
+  drawQRs(el);
   el.querySelectorAll('[data-copy]').forEach(b => b.onclick = async () => {
     try { await navigator.clipboard.writeText(b.dataset.copy); b.textContent = '✅ הועתק'; } catch { b.textContent = b.dataset.copy; }
   });
@@ -1621,6 +1715,7 @@ async function drawSync(el) {
 
 async function reloadFromDb() {
   S.tx = await db.allTx();
+  S.cats = await db.getKV('cats', {}); applyCustomCats(S.cats);
   S.budgets = await db.getKV('budgets', {});
   S.learned = await db.getKV('learned', {});
   S.people = cleanPeople(await db.getKV('people', []));
@@ -1630,6 +1725,7 @@ async function reloadFromDb() {
 // ---------- הפעלה ----------
 async function load() {
   S.tx = await db.allTx();
+  S.cats = await db.getKV('cats', {}); applyCustomCats(S.cats);
   S.budgets = await db.getKV('budgets', {});
   S.learned = await db.getKV('learned', {});
   S.people = cleanPeople(await db.getKV('people', []));
