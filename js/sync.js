@@ -2,6 +2,10 @@
 // הנתונים נשמרים קודם כל במכשיר (עובד גם בלי אינטרנט), ונשלחים לענן ברקע.
 import { CONFIG } from './config.js';
 import * as db from './db.js';
+import * as track from './track.js';
+
+// 📊 נתוני שימוש כלליים למפתח (בלי תוכן) — ראו track.js
+track.init({ app: 'kesef', url: CONFIG.url, key: CONFIG.key });
 
 let sb = null, hh = null, channel = null, onRemote = null, flushing = false;
 export const enabled = () => !!(CONFIG.url && CONFIG.key);
@@ -291,6 +295,7 @@ export async function start({ onRemoteChange, onStatus }) {
     const u = await user();
     if (!u) return { user: null, household: null };
     await db.setKV('lastUser', { id: u.id, email: u.email }, true);
+    track.ping(sb);
     hh = await db.getKV('household', null);
     try { await loadHousehold(); } catch { /* בלי רשת — נשתמש במה ששמור */ }
     if (hh) {
@@ -309,7 +314,7 @@ export async function start({ onRemoteChange, onStatus }) {
   }
 }
 
-async function refresh() { await flush(); if (await pull()) remoteChanged(); }
+async function refresh() { track.ping(sb); await flush(); if (await pull()) remoteChanged(); }
 let listening = false;
 function listen() {
   if (listening) return;
@@ -320,6 +325,7 @@ function listen() {
 
 /** אחרי כניסה/הצטרפות */
 export async function connected() {
+  track.ping(sb);
   await db.setKV('lastSync', '1970-01-01T00:00:00Z', true);
   await flush();
   await pull();
