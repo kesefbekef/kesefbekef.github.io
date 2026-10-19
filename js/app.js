@@ -22,12 +22,15 @@ const monthLabel = m => { const [y, mo] = m.split('-').map(Number); return `${MO
 const timeOf = iso => new Date(iso).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
 const thisMonth = () => ym(new Date());
 
+const RECOVERY = /type=recovery/.test(location.hash);
 const S = { tx: [], budgets: {}, learned: {}, people: [], me: null, month: thisMonth(), view: 'chat', catFilter: null, whoFilter: null, search: '' };
 
 // ---------- בני הבית ----------
 const FACES = ['🧔', '👩', '👦', '👧', '👴', '👵', '🧑', '👶'];
 const personOf = id => S.people.find(p => p.id === id);
-const whoLabel = id => { const p = personOf(id); return p ? `${p.e} ${p.name}` : ''; };
+const whoLabel = id => { const p = personOf(id); return p ? `${esc(p.e)} ${esc(p.name)}` : ''; };
+// שמות ואימוג'י של בני הבית מגיעים גם מטלפונים אחרים — מנקים תווים שיכולים להריץ קוד
+const cleanPeople = list => (Array.isArray(list) ? list : []).map(p => ({ ...p, e: String(p.e ?? '').replace(/[<>&"'`]/g, ''), name: String(p.name ?? '').replace(/[<>&"'`]/g, '') }));
 const reEsc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // "רחל: סופר 230" / "סופר 230 על השם של רחל" / "לרחל" → מי + הטקסט בלי השם
@@ -164,7 +167,7 @@ function botHTML(t) {
   return `<div class="cat-ic" style="background:${c.g}">${c.e}</div>
     <div><b>${title}</b><div class="sub">${sub}${day}</div>
     ${askPay}
-    <div class="acts">${t.who && personOf(t.who) ? `<button data-act="who" data-id="${t.id}">${whoLabel(t.who)}</button>` : ''}${pay}<button data-act="fix" data-id="${t.id}">✏️ עריכה</button><button data-act="undo" data-id="${t.id}">↩️ ביטול</button></div></div>`;
+    <div class="acts">${t.who && personOf(t.who) ? `<button data-act="who" data-id="${t.id}">${whoLabel(t.who)}</button>` : ''}${pay}<button data-act="fix" data-id="${t.id}">✏️ עריכה</button><button data-act="undo" data-id="${t.id}">🗑️ מחיקה</button></div></div>`;
 }
 
 function fileSummaryHTML(list, msg) {
@@ -280,7 +283,7 @@ async function send(raw, source = 'text') {
   typing.remove();
   if (dups.length) {
     const { t, d } = dups[0];
-    const by = d.who && personOf(d.who) ? ` ע"י ${esc(whoLabel(d.who))}` : '';
+    const by = d.who && personOf(d.who) ? ` ע"י ${(whoLabel(d.who))}` : '';
     const b = document.createElement('div'); b.className = 'bot new';
     b.innerHTML = `<div class="cat-ic" style="background:linear-gradient(135deg,#F59E0B,#F97316)">⚠️</div>
       <div><b>נראה שזה כבר נרשם</b><div class="sub">"${esc(d.desc)} · ${fmt(d.inst > 1 ? d.total : d.amount)}"${by} ב-${new Date(d.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}${dups.length > 1 ? ` (ועוד ${dups.length - 1})` : ''}</div>
@@ -365,20 +368,31 @@ $('#chat').addEventListener('click', e => {
 
 async function removeTx(t) {
   S.tx = S.tx.filter(x => x.id !== t.id); await db.delTx(t.id);
-  renderAll(); toast('נמחק ↩️');
+  renderAll();
+  toastUndo(`🗑️ נמחק: ${t.desc}`, async () => { S.tx.push(t); await db.putTx(t); renderAll(); toast('↩️ הוחזר'); });
+}
+// הודעה עם כפתור "בטל" — 6 שניות להתחרט
+const toastUndo = (text, undo) => toastAction(text, '↩️ בטל', undo);
+function toastAction(text, label, fn) {
+  const el = $('#toast');
+  el.textContent = text + ' ';
+  const b = document.createElement('button'); b.className = 'tundo'; b.textContent = label;
+  b.onclick = () => { el.classList.remove('show'); fn(); };
+  el.appendChild(b); el.classList.remove('warn'); el.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove('show'), 6000);
 }
 
 const payGrid = sel => `<div class="catgrid">${Object.entries(PAY).map(([id, p]) =>
   `<button class="catbtn ${id === sel ? 'sel' : ''}" data-pay="${id}"><div class="cat-ic" style="background:var(--card2)">${p.e}</div>${p.n}</button>`).join('')}</div>`;
 
-const whoChips = sel => S.people.map(p => `<button class="chip ${p.id === sel ? 'on' : ''}" data-w="${p.id}">${p.e} ${esc(p.name)}</button>`).join('');
+const whoChips = sel => S.people.map(p => `<button class="chip ${p.id === sel ? 'on' : ''}" data-w="${p.id}">${esc(p.e)} ${esc(p.name)}</button>`).join('');
 
 function openWhoSheet(t) {
   openSheet(`<h3>של מי ההוצאה?</h3><div class="sub" style="margin:-6px 0 12px">"${esc(t.desc)}" · ${fmt(t.inst > 1 ? t.total : t.amount)}</div>
     <div class="chips" style="flex-wrap:wrap;margin-bottom:12px">${whoChips(t.who)}</div>
     <div class="sub">טיפ: אפשר לכתוב ישר בהודעה — "${esc(S.people[0]?.name || 'רחל')}: סופר 230"</div>`, sh => {
     sh.querySelectorAll('[data-w]').forEach(b => b.onclick = async () => {
-      t.who = b.dataset.w; await db.putTx(t); closeSheet(); renderAll(); toast(`נשמר על ${whoLabel(t.who)}`);
+      t.who = b.dataset.w; await db.putTx(t); closeSheet(); renderAll(); toast(`נשמר על ${personOf(t.who).e} ${personOf(t.who).name}`);
     });
   });
 }
@@ -438,7 +452,7 @@ function openCategory(id, m = S.month) {
     </div>
     <div class="card" style="padding:4px 14px;margin-bottom:12px">${list.length ? list.map(t => {
       const extra = t.inst > 1 ? ` · תשלום ${installmentNo(t, m)}/${t.inst}` : '';
-      const who = t.who && personOf(t.who) ? ' · ' + esc(whoLabel(t.who)) : '';
+      const who = t.who && personOf(t.who) ? ' · ' + (whoLabel(t.who)) : '';
       return `<button class="tx" data-ct="${t.id}"><div class="nm"><div>${esc(t.desc)}</div><small>${new Date(t.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}${extra}${who}${t.pay ? ' · ' + PAY[t.pay].e : ''}</small></div><div class="am ${isInc ? 'plus' : ''}">${fmt(amountIn(t, m))}</div></button>`;
     }).join('') : `<div class="empty"><span class="em">🌱</span>אין ${isInc ? 'הכנסות' : 'הוצאות'} בחודש הזה</div>`}</div>
     ${isInc ? '' : `<button class="btn grad full" id="cBudget" style="margin-bottom:8px">🎯 שינוי התקציב</button>`}
@@ -535,7 +549,7 @@ function renderInsights() {
     const byWho = {};
     for (const t of txInMonth(m)) if (t.cat !== 'income') { const k = t.who || 'none'; byWho[k] = (byWho[k] || 0) + amountIn(t, m); }
     const rows = Object.entries(byWho).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
-    if (rows.length) tips.push(['👨‍👩‍👧', `<b>מי הוציא כמה:</b><br>${rows.map(([k, v]) => `${k === 'none' ? '❔ לא צוין' : esc(whoLabel(k))}: ${fmt(v)}`).join('<br>')}`]);
+    if (rows.length) tips.push(['👨‍👩‍👧', `<b>מי הוציא כמה:</b><br>${rows.map(([k, v]) => `${k === 'none' ? '❔ לא צוין' : (whoLabel(k))}: ${fmt(v)}`).join('<br>')}`]);
   }
   const byPay = {};
   for (const t of txInMonth(m)) if (t.cat !== 'income') { const k = t.pay || 'none'; byPay[k] = (byPay[k] || 0) + amountIn(t, m); }
@@ -580,13 +594,13 @@ function renderTx() {
   const used = [...new Set(txInMonth(m).map(t => t.cat))];
   $('#txFilter').innerHTML = `<button class="chip ${!S.catFilter ? 'on' : ''}" data-f="">הכל</button>` +
     used.map(id => `<button class="chip ${S.catFilter === id ? 'on' : ''}" data-f="${id}">${catOf(id).e} ${catOf(id).n}</button>`).join('');
-  if (S.people.length > 1) $('#txFilter').innerHTML += S.people.map(p => `<button class="chip ${S.whoFilter === p.id ? 'on' : ''}" data-wf="${p.id}">${p.e} ${esc(p.name)}</button>`).join('');
+  if (S.people.length > 1) $('#txFilter').innerHTML += S.people.map(p => `<button class="chip ${S.whoFilter === p.id ? 'on' : ''}" data-wf="${p.id}">${esc(p.e)} ${esc(p.name)}</button>`).join('');
   const list = txInMonth(m).filter(t => (!S.catFilter || t.cat === S.catFilter) && (!S.whoFilter || t.who === S.whoFilter) && (!q || t.desc.toLowerCase().includes(q) || t.raw.toLowerCase().includes(q)))
     .sort((a, b) => b.date.localeCompare(a.date));
   $('#txList').innerHTML = list.length ? list.map(t => {
     const c = catOf(t.cat), inc = t.cat === 'income';
     const extra = t.inst > 1 ? ` · תשלום ${installmentNo(t, m)}/${t.inst}` : '';
-    return `<button class="tx" data-id="${t.id}"><div class="cat-ic" style="background:${c.g}">${c.e}</div><div class="nm"><div>${esc(t.desc)}</div><small>${c.n} · ${new Date(t.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}${extra}${t.pay ? ' · ' + PAY[t.pay].e + ' ' + PAY[t.pay].n : ''}${t.who && personOf(t.who) ? ' · ' + esc(whoLabel(t.who)) : ''}</small></div><div class="am ${inc ? 'plus' : ''}">${inc ? '+' : ''}${fmt(t.amount)}</div></button>`;
+    return `<button class="tx" data-id="${t.id}"><div class="cat-ic" style="background:${c.g}">${c.e}</div><div class="nm"><div>${esc(t.desc)}</div><small>${c.n} · ${new Date(t.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}${extra}${t.pay ? ' · ' + PAY[t.pay].e + ' ' + PAY[t.pay].n : ''}${t.who && personOf(t.who) ? ' · ' + (whoLabel(t.who)) : ''}</small></div><div class="am ${inc ? 'plus' : ''}">${inc ? '+' : ''}${fmt(t.amount)}</div></button>`;
   }).join('') : `<div class="empty"><span class="em">🔍</span>אין תנועות ${S.catFilter || q ? 'שמתאימות לחיפוש' : 'בחודש הזה'}</div>`;
 }
 $('#txFilter').addEventListener('click', e => {
@@ -1275,7 +1289,7 @@ function showLock() {
 }
 // לחיצה בכל מקום במסך הנעילה (חוץ מהמקלדת) = Face ID / טביעת אצבע
 $('#lock').addEventListener('click', e => {
-  if (e.target.closest('#lockPad') || e.target.closest('#lockBio')) return;
+  if (e.target.closest('#lockPad') || e.target.closest('#lockBio') || e.target.closest('#lockForgot') || e.target.closest('#lockForgotBox')) return;
   if (lock.settings()?.cred) tryBio(false);
 });
 function unlockNow() { $('#lock').classList.remove('on'); fails = 0; }
@@ -1300,6 +1314,25 @@ $('#lockPad').addEventListener('click', async e => {
   }
 });
 $('#lockBio').onclick = () => tryBio(false);
+// 🔢 שכחתי את הקוד — פותחים עם הסיסמה של החשבון, והנעילה מתבטלת (אפשר להגדיר קוד חדש באזור האישי)
+$('#lockForgot').onclick = () => {
+  const box = $('#lockForgotBox');
+  box.hidden = !box.hidden; $('#lockPad').hidden = !box.hidden;
+  if (!box.hidden) { box.querySelector('input').value = ''; box.querySelector('input').focus(); }
+};
+$('#lockPwGo').onclick = async () => {
+  const b = $('#lockPwGo'), pw = $('#lockPw').value;
+  if (!pw) return;
+  if (!navigator.onLine) { $('#lockErr').textContent = 'צריך אינטרנט כדי לבדוק את הסיסמה'; return; }
+  b.disabled = true;
+  try {
+    await sync.checkPassword(pw);
+    lock.disable(); unlockNow();
+    $('#lockForgotBox').hidden = true; $('#lockPad').hidden = false;
+    toast('🔓 הנעילה בוטלה. אפשר להגדיר קוד חדש ב"אזור אישי"');
+  } catch (x) { $('#lockErr').textContent = x.message; }
+  b.disabled = false;
+};
 document.addEventListener('visibilitychange', () => {
   const st = lock.settings(); if (!st) return;
   if (document.hidden) hiddenAt = Date.now();
@@ -1470,7 +1503,9 @@ async function drawSync(el) {
       <input id="sEmail" type="email" autocomplete="email" placeholder="מייל" style="${inputStyle}">
       <input id="sPass" type="password" autocomplete="current-password" placeholder="סיסמה (לפחות 6 תווים)" style="${inputStyle}">
       <div class="err" id="sErr"></div>
-      <div class="row2"><button class="btn grad" id="sIn">כניסה</button><button class="btn ghost" id="sUp">הרשמה חדשה</button></div>`;
+      <div class="row2"><button class="btn grad" id="sIn">כניסה</button><button class="btn ghost" id="sUp">הרשמה חדשה</button></div>
+      <button class="linkbtn" id="sForgot">🔑 שכחתי סיסמה</button>`;
+    el.querySelector('#sForgot').onclick = e => forgotPassword(el.querySelector('#sEmail'), el.querySelector('#sErr'), e.target);
     const go2 = async fn => {
       const e = el.querySelector('#sEmail').value.trim(), p = el.querySelector('#sPass').value;
       if (!/^\S+@\S+\.\S+$/.test(e)) { el.querySelector('#sErr').textContent = 'צריך מייל תקין'; return; }
@@ -1543,9 +1578,9 @@ async function drawSync(el) {
     try { members = UITEST ? [{ user_id: 'u1', role: 'parent' }, { user_id: 'u2', role: 'child' }, { user_id: 'u3', role: 'parent' }] : await sync.listMembers(); } catch { offline = true; }
     const html = S.people.map(p => {
       const m = members.find(x => x.user_id === p.uid), me = p.uid === syncUser.id;
-      if (m) return row(`📱 ${p.e} <b>${esc(p.name)}</b>${me ? ' (אני)' : ''}`,
+      if (m) return row(`📱 ${esc(p.e)} <b>${esc(p.name)}</b>${me ? ' (אני)' : ''}`,
         `<button class="chip ${m.role === 'parent' ? 'on' : ''}" data-role="${m.user_id}" data-to="${m.role === 'parent' ? 'child' : 'parent'}">${m.role === 'parent' ? '👨‍👩 הורה' : '🧒 ילד'}</button>${me ? '' : `<button class="chip" data-rm="${m.user_id}" aria-label="הסרה מהמשפחה">✕</button>`}`);
-      return row(`✏️ ${p.e} <b>${esc(p.name)}</b> <span class="sub">· רק שם</span>`,
+      return row(`✏️ ${esc(p.e)} <b>${esc(p.name)}</b> <span class="sub">· רק שם</span>`,
         `<span data-invbox="${p.id}"><button class="chip" data-inv="${p.id}">📱 הזמנה</button></span><button class="chip" data-del="${p.id}" aria-label="מחיקת השם">✕</button>`);
     }).join('') + members.filter(m => !S.people.some(p => p.uid === m.user_id)).map(m =>
       row(`📱 👤 <span class="sub">נרשם, עוד לא בחר שם</span>`,
@@ -1588,7 +1623,7 @@ async function reloadFromDb() {
   S.tx = await db.allTx();
   S.budgets = await db.getKV('budgets', {});
   S.learned = await db.getKV('learned', {});
-  S.people = await db.getKV('people', []);
+  S.people = cleanPeople(await db.getKV('people', []));
   renderAll();
 }
 
@@ -1597,7 +1632,7 @@ async function load() {
   S.tx = await db.allTx();
   S.budgets = await db.getKV('budgets', {});
   S.learned = await db.getKV('learned', {});
-  S.people = await db.getKV('people', []);
+  S.people = cleanPeople(await db.getKV('people', []));
   S.me = await db.getKV('me', null);
   renderAll();
 }
@@ -1609,7 +1644,31 @@ load().then(async () => {
   syncUser = r.user;
   await reloadFromDb();
   showGate();
+  if (RECOVERY && syncUser) newPasswordSheet();
 });
+
+// 🔑 אחרי לחיצה על הקישור במייל "שכחתי סיסמה"
+function newPasswordSheet() {
+  openSheet(`<h3>🔑 סיסמה חדשה</h3><div class="sub" style="margin:-6px 0 12px">בחר סיסמה חדשה לחשבון ${esc(syncUser.email || '')}</div>
+    <input id="npPass" type="password" autocomplete="new-password" placeholder="סיסמה חדשה (לפחות 6 תווים)" style="${inputStyle}">
+    <div class="err" id="npErr"></div><button class="btn grad full" id="npSave">שמירה</button>`, sh => {
+    sh.querySelector('#npSave').onclick = async () => {
+      const pw = sh.querySelector('#npPass').value;
+      if (pw.length < 6) { sh.querySelector('#npErr').textContent = 'הסיסמה צריכה להיות לפחות 6 תווים'; return; }
+      try { await sync.changePassword(pw); closeSheet(); toast('✅ הסיסמה הוחלפה'); }
+      catch (x) { sh.querySelector('#npErr').textContent = x.message; }
+    };
+  });
+  history.replaceState(null, '', location.pathname + location.search);
+}
+// כפתור "שכחתי סיסמה" — משתמש במייל שכבר הוקלד
+async function forgotPassword(emailInput, errEl, btn) {
+  const e = emailInput.value.trim();
+  if (!/^\S+@\S+\.\S+$/.test(e)) { errEl.textContent = 'קודם כתוב את המייל שלך למעלה'; emailInput.focus(); return; }
+  btn.disabled = true;
+  try { await sync.resetPassword(e); errEl.textContent = ''; toast('📧 שלחנו לך מייל — לחץ על הקישור שבו ובחר סיסמה חדשה'); btn.textContent = '📧 נשלח! בדוק את המייל'; }
+  catch (x) { errEl.textContent = x.message; btn.disabled = false; }
+}
 
 // ---------- מסך פתיחה: נרשמים לפני שמתחילים ----------
 async function gateStep() {
@@ -1639,6 +1698,7 @@ async function showGate() {
       <div class="err"></div>
       <button class="btn grad full" id="gUp" style="margin-bottom:8px">הרשמה</button>
       <button class="btn ghost full" id="gIn">כבר נרשמתי — כניסה</button>
+      <button class="linkbtn" id="gForgot">🔑 שכחתי סיסמה</button>
       <a href="guide/" target="_blank" rel="noopener" class="sub" style="display:block;text-align:center;margin-top:14px;color:#F9A8D4">❓ צריך עזרה? למדריך</a>`;
     const go2 = async (fn, btn) => {
       const e = body.querySelector('#gEmail').value.trim(), p = body.querySelector('#gPass').value;
@@ -1654,6 +1714,7 @@ async function showGate() {
     };
     body.querySelector('#gUp').onclick = e => go2(sync.signUp, e.target);
     body.querySelector('#gIn').onclick = e => go2(sync.signIn, e.target);
+    body.querySelector('#gForgot').onclick = e => forgotPassword(body.querySelector('#gEmail'), body.querySelector('.err'), e.target);
     body.querySelectorAll('input').forEach(i => i.oninput = () => err(''));
     return;
   }
@@ -1687,7 +1748,7 @@ async function showGate() {
   let face = 0;
   body.innerHTML = `<h2>🙋 איך קוראים לך?</h2>
     <p class="sub" style="margin-bottom:16px">כל מה שתרשום יופיע אוטומטית על השם שלך</p>
-    ${free.length ? `<div class="sub" style="margin-bottom:6px">אולי זה אתה?</div><div class="chips" style="flex-wrap:wrap;margin-bottom:14px">${free.map(p => `<button class="chip ${p.name === joinName ? 'on' : ''}" data-claim="${p.id}">אני ${p.e} ${esc(p.name)}</button>`).join('')}</div>` : ''}
+    ${free.length ? `<div class="sub" style="margin-bottom:6px">אולי זה אתה?</div><div class="chips" style="flex-wrap:wrap;margin-bottom:14px">${free.map(p => `<button class="chip ${p.name === joinName ? 'on' : ''}" data-claim="${p.id}">אני ${esc(p.e)} ${esc(p.name)}</button>`).join('')}</div>` : ''}
     <div style="display:flex;gap:8px"><button class="round attach" id="gFace" style="width:48px;height:48px" aria-label="בחירת אייקון">${FACES[0]}</button>
       <input id="gMe" placeholder="השם שלי" style="${inputStyle};margin:0;flex:1"></div>
     <div class="err" style="margin-top:8px"></div>
@@ -1710,7 +1771,12 @@ async function showGate() {
 // ---------- עדכונים אוטומטיים ----------
 if ('serviceWorker' in navigator) {
   const hadController = !!navigator.serviceWorker.controller;
-  navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController) toast('✨ האפליקציה עודכנה לגרסה חדשה'); });
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController) toastAction('✨ יש גרסה חדשה', '🔄 לרענן', () => location.reload()); });
 }
 
-if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').then(reg => {
+  // בודקים אם יש גרסה חדשה בכל פעם שחוזרים לאפליקציה
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => {}); });
+}).catch(() => {});
+// מבקשים מהטלפון לא למחוק את הנתונים שבמכשיר (בעיקר באייפון)
+navigator.storage?.persist?.().catch(() => {});

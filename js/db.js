@@ -55,7 +55,7 @@ export async function importAll(data) {
 export async function clearFamilyData() {
   const db = await open();
   await done(db.transaction('tx', 'readwrite').objectStore('tx').clear());
-  for (const k of ['budgets', 'learned', 'people', 'outbox', 'lastSync', 'household', 'me'])
+  for (const k of ['budgets', 'learned', 'people', 'outbox', 'outboxRejected', 'lastSync', 'household', 'me', 'base:budgets', 'base:learned', 'base:people'])
     await done(db.transaction('kv', 'readwrite').objectStore('kv').delete(k));
 }
 
