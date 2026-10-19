@@ -1,5 +1,5 @@
 // מאפשר לאפליקציה להיפתח גם בלי אינטרנט — ומהר
-const CACHE = 'kesef-20261019141420';
+const CACHE = 'kesef-20261019160457';
 // קבצים שנשמרים מיד בהתקנה (הספריות הכבדות — אקסל/PDF — נשמרות רק בפעם הראשונה שמשתמשים בהן)
 const FILES = ['./', 'index.html', 'css/style.css', 'js/app.js', 'js/db.js', 'js/parse.js', 'js/categories.js', 'js/importer.js', 'js/exporter.js', 'js/sync.js', 'js/lock.js', 'js/help.js', 'js/config.js', 'js/track.js', 'vendor/supabase.js',
   'manifest.webmanifest', 'guide/', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png', 'icons/icon-maskable-512.png'];
@@ -13,10 +13,20 @@ self.addEventListener('activate', e => {
 });
 // קודם מהעותק בטלפון (פתיחה מיידית), ובמקביל מביאים גרסה טרייה מהרשת לפעם הבאה.
 // עדכון אמיתי של האפליקציה מגיע דרך גרסה חדשה של הקובץ הזה (מוחלף בכל העלאה).
+// באותה כתובת יושבות גם אפליקציות אחרות (/zman/, /lomdim/ …) — נוגעים רק במה ששייך לכסף בכיף
+const BASE = new URL('./', location).pathname;
+const OWN_DIRS = ['guide', 'css', 'js', 'vendor', 'icons', 'admin'];
+function isOurs(url) {
+  if (url.origin !== location.origin || !url.pathname.startsWith(BASE)) return false;
+  const rest = url.pathname.slice(BASE.length);
+  if (!rest.includes('/')) return rest === '' || rest.includes('.'); // השורש וקבצי השורש (index.html, manifest…)
+  return OWN_DIRS.includes(rest.split('/')[0]);
+}
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
-  const mine = url.origin === location.origin;
+  const mine = isOurs(url);
+  if (url.origin === location.origin && !mine) return; // אפליקציה אחרת — הדפדפן מטפל לבד
   const fonts = /fonts\.(googleapis|gstatic)\.com$/.test(url.hostname);
   if (!mine && !fonts) return;
   e.respondWith(caches.open(CACHE).then(async c => {
