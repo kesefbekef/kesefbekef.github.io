@@ -161,6 +161,12 @@ nav.toc a{flex:none;text-decoration:none;font-size:15px;font-weight:600;padding:
 .d-chag .col.a{height:60px;background:#6B5F8A}.d-chag .col.b{height:90px;background:linear-gradient(180deg,#F97316,#EC4899);animation-delay:.3s}
 @keyframes colup{0%{transform:scaleY(0)}30%,100%{transform:none}}
 .d-chag .lbls{display:flex;justify-content:center;gap:14px;font-size:12px;color:#B9AED6;margin-top:6px}.d-chag .lbls span{width:44px;text-align:center}
+/* 📅 תשלום קבוע ← תזכורת */
+.d-fix .rowf{display:flex;align-items:center;gap:10px;background:rgba(255,255,255,.08);border-radius:12px;padding:8px 10px}
+.d-fix .btnf{margin-inline-start:auto;background:#fff;color:#1E1533;border-radius:999px;padding:4px 10px;font-weight:700;font-size:13px;animation:tap 3.5s infinite}
+@keyframes tap{0%,30%{transform:none}35%{transform:scale(.88)}42%,100%{transform:none}}
+.d-fix .zm{margin-top:12px;background:linear-gradient(135deg,#06B6D4,#3B82F6);border-radius:14px;padding:8px 12px;animation:zmin 3.5s infinite}
+@keyframes zmin{0%,40%{opacity:0;transform:translateY(14px)}55%,100%{opacity:1;transform:none}}
 @media (prefers-reduced-motion: reduce){.demo *{animation:none !important;opacity:1 !important}}
 footer{padding:28px 0;text-align:center;color:#8B82A6;font-size:14px}
 </style>
@@ -188,7 +194,7 @@ footer{padding:28px 0;text-align:center;color:#8B82A6;font-size:14px}
 <section class="dark" id="new">
   <div class="wrap">
     <div class="eyebrow">🆕 חדש באפליקציה</div>
-    <h2>11 דברים חדשים — ככה זה נראה 👇</h2>
+    <h2>12 דברים חדשים — ככה זה נראה 👇</h2>
     <div class="nw">
       <div class="card"><div class="demo d-env">
           <div class="row"><div class="ic" style="background:linear-gradient(135deg,#22C55E,#84CC16)">🛒</div><div><b>מזון וסופר</b><small style="display:block;color:#B9AED6;font-size:12px">מתוך 2,500₪</small></div>
@@ -220,6 +226,9 @@ footer{padding:28px 0;text-align:center;color:#8B82A6;font-size:14px}
         <h3>➗ מי חייב למי + גמ"חים</h3><p>🎯 תקציב ← <b>"➗ מי חייב למי"</b>, או ישר בצ'אט: <b>"הלוויתי לדוד 500"</b>, <b>"לוויתי מגמ"ח 3000"</b>, <b>"דוד החזיר 200"</b>. רק שמות — הצד השני לא צריך את האפליקציה. החזר בתשלומים? מקבלים <b>תזכורת</b> כשמגיע תשלום. הוצאה משותפת? ✏️ עריכה ← <b>"➗ לחלק"</b>.</p></div>
       <div class="card"><div class="demo d-chag"><div style="text-align:center;font-weight:700;margin-bottom:6px">🍷 פסח</div><div class="row2x"><div class="col a"></div><div class="col b"></div></div><div class="lbls"><span>תשפ״ו</span><span>תשפ״ז</span></div></div>
         <h3>🕎 לפי הלוח העברי</h3><p>ב-<b>💡 תובנות</b> ← <b>"🕎 לפי הלוח העברי"</b>: כמה עלה <b>כל חג</b> (חגי תשרי, חנוכה, פורים, פסח, שבועות — כולל ימי ההכנה) מול שנה שעברה, וכמה יצא בכל חודש עברי. ליד כל חודש מופיע גם <b>החודש העברי</b> (אפשר לכבות ב-⚙️ ← 🎨 תצוגה).</p></div>
+      <div class="card"><div class="demo d-fix"><div class="rowf"><span style="font-size:22px">🏠</span><div><b>חשמל</b><small style="display:block;color:#B9AED6;font-size:12px">בערך 450₪ · הבא ב-3.11</small></div><span class="btnf">📅 תזכורת</span></div>
+          <div class="zm">⏰ זמן בכיף: "לשלם חשמל" · 2.11 ✓</div></div>
+        <h3>📅 תזכורת לפני תשלום קבוע</h3><p>ב-💡 תובנות ← <b>"📅 תשלומים קבועים"</b>: מה עומד לרדת בקרוב ומתי נגמרים תשלומים. לחיצה על <b>"📅 תזכורת"</b> פותחת את <b>זמן בכיף</b> עם תזכורת מוכנה ליום שלפני. ולהפך — משימת תשלום שבוצעה בזמן בכיף ← <b>"💰 לרשום בכסף בכיף"</b>.</p></div>
     </div>
   </div>
 </section>
