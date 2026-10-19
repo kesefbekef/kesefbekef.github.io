@@ -114,6 +114,11 @@ export async function checkPassword(password) {
   const { error } = await (await client()).auth.signInWithPassword({ email: u.email, password });
   if (error) throw new Error(nice(error));
 }
+// 📊 האם המשתמש הוא המנהל (מציג כפתור ללוח הבקרה)
+export async function isAdmin() {
+  try { if (!enabled() || !(await user())) return false; const { data } = await (await client()).rpc('is_app_admin'); return data === true; }
+  catch { return false; }
+}
 export async function changePassword(pw) {
   const { error } = await (await client()).auth.updateUser({ password: pw });
   if (error) throw new Error(nice(error));
