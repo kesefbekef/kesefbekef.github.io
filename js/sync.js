@@ -232,3 +232,14 @@ export async function connected() {
   await pull();
   subscribe();
 }
+
+// 📧 סיכום חודשי למייל (להורים)
+export async function getMonthlyEmail() {
+  const { data, error } = await (await client()).rpc('my_monthly_email');
+  if (error) throw new Error(nice(error));
+  return data !== false;
+}
+export async function setMonthlyEmail(on) {
+  const { error } = await (await client()).rpc('set_monthly_email', { on_: !!on });
+  if (error) throw new Error(nice(error));
+}
