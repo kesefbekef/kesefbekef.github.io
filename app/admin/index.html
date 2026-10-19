@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#0B0712">
+<title>לוח בקרה</title>
+<link rel="icon" href="../icons/icon-192.png">
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0B0712;--card:#15101F;--card2:#1C1530;--line:#2A2238;--ink:#F5F0FF;--soft:#B9AED6;--g:linear-gradient(135deg,#7C3AED,#EC4899 55%,#F97316);--gt:linear-gradient(135deg,#0EA5E9,#14B8A6 60%,#22C55E)}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Rubik,system-ui,sans-serif;background:var(--bg);color:var(--ink);line-height:1.45;min-height:100vh;overflow-x:hidden}
+.wrap{max-width:900px;margin:0 auto;padding:16px 16px 60px}
+h1{font-size:30px;font-weight:800;background:var(--g);-webkit-background-clip:text;background-clip:text;color:transparent}
+.top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px}
+.btn{font:inherit;font-weight:700;border:none;border-radius:14px;padding:10px 14px;background:var(--card2);color:var(--ink);cursor:pointer}
+.btn.g{background:var(--g);color:#fff}
+.sub{color:var(--soft);font-size:14px}
+input{width:100%;height:48px;border-radius:14px;border:1px solid var(--line);background:var(--card2);color:var(--ink);padding:0 14px;font:inherit;font-size:16px;margin-bottom:10px;outline:none}
+.login{max-width:360px;margin:12vh auto 0;background:var(--card);border:1px solid var(--line);border-radius:24px;padding:24px}
+.login h2{margin-bottom:6px}.login .btn{width:100%;margin-top:4px;padding:14px}
+.err{color:#FDA4AF;min-height:22px;font-size:14px;margin:4px 0}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:12px 8px;text-align:center;animation:pop .5s both}
+.stat b{display:block;font-size:28px;font-weight:800}
+.stat span{font-size:13px;color:var(--soft)}
+.stat:nth-child(2){animation-delay:.05s}.stat:nth-child(3){animation-delay:.1s}.stat:nth-child(4){animation-delay:.15s}.stat:nth-child(5){animation-delay:.2s}.stat:nth-child(6){animation-delay:.25s}
+@keyframes pop{from{opacity:0;transform:translateY(14px) scale(.96)}}
+.tabs{display:flex;gap:8px;overflow-x:auto;margin-bottom:14px;scrollbar-width:none}
+.tabs button{flex:none;font:inherit;font-weight:700;font-size:15px;border:1px solid var(--line);background:var(--card);color:var(--soft);border-radius:999px;padding:9px 14px;cursor:pointer}
+.tabs button.on{background:var(--g);color:#fff;border-color:transparent}
+.list{display:grid;gap:10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:14px;animation:pop .4s both}
+.row{display:flex;align-items:center;gap:10px}
+.av{width:44px;height:44px;flex:none;border-radius:50%;display:grid;place-items:center;font-size:22px;background:var(--card2)}
+.name{font-weight:700;font-size:17px}
+.mail{font-size:13px;color:var(--soft);direction:ltr;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:62vw}
+.when{margin-inline-start:auto;text-align:left;font-size:13px;color:var(--soft);white-space:nowrap}
+.when b{display:block;font-size:14px;color:var(--ink)}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-inline-end:4px;background:#4B4266}
+.dot.on{background:#22C55E;box-shadow:0 0 0 0 rgba(34,197,94,.6);animation:live 1.8s infinite}
+@keyframes live{70%{box-shadow:0 0 0 8px rgba(34,197,94,0)}}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.chip{font-size:13px;font-weight:600;border-radius:999px;padding:4px 10px;background:var(--card2);color:#E9D5FF}
+.chip.k{background:rgba(124,58,237,.25)}.chip.z{background:rgba(20,184,166,.22);color:#99F6E4}
+.chip.inst{background:rgba(34,197,94,.2);color:#86EFAC}.chip.web{background:rgba(249,115,22,.18);color:#FDBA74}
+.chip.err{background:rgba(244,63,94,.2);color:#FDA4AF}
+.emsg{font-family:ui-monospace,Menlo,monospace;font-size:13px;direction:ltr;text-align:left;background:var(--card2);border-radius:10px;padding:8px;margin-top:8px;word-break:break-word}
+.empty{text-align:center;color:var(--soft);padding:30px 10px}
+.foot{margin-top:18px;text-align:center}
+@media(max-width:380px){.stat b{font-size:24px}.mail{max-width:52vw}}
+</style>
+</head>
+<body>
+<div class="wrap" id="root"><div class="empty">טוען…</div></div>
+
+<script src="../vendor/supabase.js"></script>
+<script type="module">
+import { CONFIG } from '../js/config.js';
+const sb = window.supabase.createClient(CONFIG.url, CONFIG.key, { auth: { persistSession: true, autoRefreshToken: true } });
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const rtf = new Intl.RelativeTimeFormat('he', { numeric: 'auto' });
+function ago(t) {
+  if (!t) return 'אף פעם';
+  const s = (Date.now() - new Date(t)) / 1000;
+  if (s < 60) return 'עכשיו';
+  if (s < 3600) return rtf.format(-Math.round(s / 60), 'minute');
+  if (s < 86400) return rtf.format(-Math.round(s / 3600), 'hour');
+  if (s < 86400 * 30) return rtf.format(-Math.round(s / 86400), 'day');
+  return new Date(t).toLocaleDateString('he-IL');
+}
+const fresh = t => t && Date.now() - new Date(t) < 15 * 60 * 1000;
+const APPN = { kesef: ['k', '💰 כסף'], zman: ['z', '⏰ זמן'] };
+let DATA = null, tab = 'people', timer = null;
+
+async function start() {
+  const { data } = await sb.auth.getSession();
+  if (!data.session) return login();
+  await load();
+}
+
+function login(msg = '') {
+  clearInterval(timer);
+  $('#root').innerHTML = `<div class="login"><h2>🔐 לוח בקרה</h2><p class="sub" style="margin-bottom:14px">כניסה עם החשבון של כסף בכיף / זמן בכיף</p>
+    <input id="em" type="email" autocomplete="email" placeholder="מייל">
+    <input id="pw" type="password" autocomplete="current-password" placeholder="סיסמה">
+    <div class="err" id="er">${esc(msg)}</div><button class="btn g" id="go">כניסה</button></div>`;
+  $('#go').onclick = async () => {
+    $('#go').disabled = true;
+    const { error } = await sb.auth.signInWithPassword({ email: $('#em').value.trim(), password: $('#pw').value });
+    if (error) { $('#er').textContent = /Invalid/.test(error.message) ? 'המייל או הסיסמה לא נכונים' : error.message; $('#go').disabled = false; return; }
+    load();
+  };
+  $('#pw').onkeydown = e => { if (e.key === 'Enter') $('#go').click(); };
+}
+
+async function load() {
+  const { data, error } = await sb.rpc('admin_overview');
+  if (error) {
+    if (/not allowed/.test(error.message)) { await sb.auth.signOut(); return login('אין הרשאה לחשבון הזה'); }
+    $('#root').innerHTML = `<div class="empty">⚠️ ${esc(/fetch|network/i.test(error.message) ? 'אין חיבור לאינטרנט' : error.message)}<br><br><button class="btn" onclick="location.reload()">🔄 לנסות שוב</button></div>`;
+    return;
+  }
+  DATA = data; draw();
+  clearInterval(timer); timer = setInterval(async () => { if (document.hidden) return; const r = await sb.rpc('admin_overview'); if (!r.error) { DATA = r.data; draw(); } }, 60000);
+}
+
+function lastSeen(u) { return (u.devices || []).reduce((m, d) => (!m || d.last_seen > m ? d.last_seen : m), null) || u.last_sign_in_at; }
+
+function draw() {
+  const users = DATA.users || [], errs = DATA.errors || [], week = Date.now() - 7 * 86400000;
+  const devs = [...users.flatMap(u => u.devices || []), ...(DATA.anon_devices || [])];
+  const installed = users.filter(u => (u.devices || []).some(d => d.standalone)).length;
+  const active = users.filter(u => { const t = lastSeen(u); return t && new Date(t) > week; }).length;
+  const errWeek = errs.filter(e => new Date(e.at) > week).length;
+  $('#root').innerHTML = `<div class="top"><h1>📊 לוח בקרה</h1><button class="btn" id="out">יציאה</button></div>
+    <div class="stats">
+      <div class="stat"><b>${users.length}</b><span>👥 משתמשים</span></div>
+      <div class="stat"><b>${active}</b><span>🔥 פעילים השבוע</span></div>
+      <div class="stat"><b>${installed}</b><span>📲 התקינו</span></div>
+      <div class="stat"><b>${(DATA.households || []).length}</b><span>💰 משפחות</span></div>
+      <div class="stat"><b>${(DATA.groups || []).length}</b><span>⏰ קבוצות</span></div>
+      <div class="stat"><b style="color:${errWeek ? '#FDA4AF' : '#86EFAC'}">${errWeek}</b><span>🐞 תקלות השבוע</span></div>
+    </div>
+    <div class="tabs">${[['people', '👥 אנשים'], ['fam', '🏠 משפחות וקבוצות'], ['errs', `🐞 תקלות (${errs.length})`], ['devs', `📱 מכשירים (${devs.length})`]].map(([k, l]) => `<button data-t="${k}" class="${tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+    <div class="list" id="list"></div>
+    <div class="foot sub">עודכן ${ago(DATA.now)} · מתעדכן לבד כל דקה <button class="btn" id="rf" style="margin-inline-start:8px">🔄</button></div>`;
+  $('#out').onclick = async () => { await sb.auth.signOut(); login(); };
+  $('#rf').onclick = load;
+  document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => { tab = b.dataset.t; draw(); });
+  ({ people: drawPeople, fam: drawFam, errs: drawErrs, devs: drawDevs })[tab](users, errs, devs);
+}
+
+function devChips(list) {
+  return (list || []).map(d => `<span class="chip ${APPN[d.app]?.[0] || ''}">${APPN[d.app]?.[1] || esc(d.app)}</span><span class="chip ${d.standalone ? 'inst' : 'web'}">${d.standalone ? '📲 מותקן' : '🌐 דפדפן'} · ${esc(d.device || '')}</span>`).join('');
+}
+function drawPeople(users) {
+  const list = [...users].sort((a, b) => String(lastSeen(b) || '').localeCompare(String(lastSeen(a) || '')));
+  $('#list').innerHTML = list.length ? list.map((u, i) => {
+    const t = lastSeen(u);
+    return `<div class="card" style="animation-delay:${Math.min(i, 10) * .04}s"><div class="row">
+      <div class="av">${esc(u.emoji || '🙂')}</div>
+      <div style="min-width:0"><div class="name">${esc(u.name || 'בלי שם')}</div><div class="mail">${esc(u.email)}</div></div>
+      <div class="when"><b><span class="dot ${fresh(t) ? 'on' : ''}"></span>${ago(t)}</b>נרשם ${new Date(u.created_at).toLocaleDateString('he-IL')}</div></div>
+      <div class="chips">
+        <span class="chip k">💰 ${u.kesef_week} השבוע · ${u.kesef_total} סה"כ</span>
+        <span class="chip z">⏰ ${u.zman_week} השבוע · ${u.zman_total} סה"כ</span>
+        ${devChips(u.devices) || '<span class="chip">עוד לא נפתח מאז שהמעקב נוסף</span>'}
+      </div></div>`;
+  }).join('') : '<div class="empty">עוד אין משתמשים</div>';
+}
+function drawFam(users) {
+  const byId = Object.fromEntries(users.map(u => [u.id, u]));
+  const who = id => { const u = byId[id]; return u ? `${esc(u.emoji || '🙂')} ${esc(u.name || u.email)}` : '❔'; };
+  const hh = (DATA.households || []).map(h => `<div class="card"><div class="row"><div class="av">💰</div><div><div class="name">${esc(h.name)}</div><div class="sub">כסף בכיף · נפתחה ${new Date(h.created_at).toLocaleDateString('he-IL')}</div></div></div>
+    <div class="chips">${(h.members || []).map(m => `<span class="chip k">${m.role === 'child' ? '🧒' : '👨‍👩'} ${who(m.user_id)}</span>`).join('')}</div></div>`);
+  const gr = (DATA.groups || []).map(g => `<div class="card"><div class="row"><div class="av">⏰</div><div><div class="name">${esc(g.name)}</div><div class="sub">זמן בכיף · נפתחה ${new Date(g.created_at).toLocaleDateString('he-IL')}</div></div></div>
+    <div class="chips">${(g.members || []).map(m => `<span class="chip z">${m.role === 'child' ? '🧒' : m.role === 'admin' ? '⭐' : '🙂'} ${m.user_id ? who(m.user_id) : esc(m.nickname) + ' (רק שם)'}</span>`).join('')}</div></div>`);
+  $('#list').innerHTML = [...hh, ...gr].join('') || '<div class="empty">עוד אין משפחות</div>';
+}
+function drawErrs(users, errs) {
+  $('#list').innerHTML = errs.length ? errs.map(e => `<div class="card"><div class="row"><span class="chip ${APPN[e.app]?.[0] || ''}">${APPN[e.app]?.[1] || esc(e.app)}</span>
+      <span class="chip">${esc(e.device || '')}</span><div class="when"><b>${ago(e.at)}</b>${e.email ? esc(e.email) : ''}</div></div>
+      <div class="emsg">${esc(e.message)}${e.source ? '<br>📍 ' + esc(e.source) : ''}</div>
+      ${e.version ? `<div class="sub" style="margin-top:6px;direction:ltr;text-align:right">${esc(e.version)}</div>` : ''}</div>`).join('')
+    : '<div class="empty">🎉 אין תקלות</div>';
+}
+function drawDevs(users, errs, devs) {
+  const owner = new Map(users.flatMap(u => (u.devices || []).map(d => [d, u])));
+  $('#list').innerHTML = devs.length ? [...devs].sort((a, b) => String(b.last_seen).localeCompare(String(a.last_seen))).map(d => {
+    const u = owner.get(d);
+    return `<div class="card"><div class="row"><div class="av">${d.standalone ? '📲' : '🌐'}</div><div style="min-width:0"><div class="name">${esc(d.device || 'מכשיר')}</div>
+      <div class="sub">${u ? esc(u.name || u.email) : 'לא מחובר'} · נפתח ${d.opens} פעמים</div></div>
+      <div class="when"><b><span class="dot ${fresh(d.last_seen) ? 'on' : ''}"></span>${ago(d.last_seen)}</b>${APPN[d.app]?.[1] || ''}</div></div></div>`;
+  }).join('') : '<div class="empty">עוד אין מכשירים — יופיעו אחרי שיפתחו את האפליקציה בגרסה החדשה</div>';
+}
+// בדיקת עיצוב במחשב בלבד: localhost/admin/?demo
+if (location.hostname === 'localhost' && location.search.includes('demo')) {
+  const h = n => new Date(Date.now() - n * 3600000).toISOString();
+  DATA = { now: h(0), users: [
+    { id: 'a', name: 'מוישי', emoji: '😎', email: 'a.very.long.address.for.testing@example.com', created_at: h(40), last_sign_in_at: h(2), kesef_week: 23, kesef_total: 310, zman_week: 9, zman_total: 41,
+      devices: [{ app: 'kesef', standalone: true, device: 'Android · Chrome', last_seen: h(.1), opens: 52 }, { app: 'zman', standalone: false, device: 'Mac · Chrome', last_seen: h(5), opens: 4 }] },
+    { id: 'b', name: 'פסי', emoji: '🌸', email: 'p@example.com', created_at: h(30), last_sign_in_at: h(20), kesef_week: 4, kesef_total: 12, zman_week: 0, zman_total: 3,
+      devices: [{ app: 'kesef', standalone: false, device: 'iPhone · Safari', last_seen: h(20), opens: 7 }] },
+    { id: 'c', name: null, emoji: null, email: 'friend@example.com', created_at: h(300), last_sign_in_at: null, kesef_week: 0, kesef_total: 0, zman_week: 0, zman_total: 0, devices: null }],
+    households: [{ id: 'h', name: 'משפחת וינדיש', created_at: h(40), members: [{ user_id: 'a', role: 'parent' }, { user_id: 'b', role: 'parent' }] }],
+    groups: [{ id: 'g', name: 'הבית', kind: 'family', created_at: h(30), members: [{ user_id: 'a', nickname: 'אבא', role: 'admin' }, { user_id: null, nickname: 'יוסי', role: 'child' }] }],
+    anon_devices: [{ app: 'zman', standalone: false, device: 'Windows · Chrome', last_seen: h(50), opens: 1 }],
+    errors: [{ app: 'kesef', message: "TypeError: Cannot read properties of undefined (reading 'amount')", source: 'app.js:412', device: 'iPhone · Safari', version: 'kesef-20261019132348', at: h(3), email: 'p@example.com' }] };
+  draw();
+} else start();
+</script>
+</body>
+</html>
