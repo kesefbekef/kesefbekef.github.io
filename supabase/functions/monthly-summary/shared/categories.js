@@ -28,9 +28,47 @@ export const INCOME_CAT = { n: 'הכנסה', e: '💰', c: '#4ADE80', g: 'linear
 export const INCOME_WORDS = ['משכורת','הכנסה','קיבלתי','החזר','מענק','קצבה','קצבת','ביטוח לאומי','בונוס','העברה אליי','נכנס לי','נכנסו','שכר','מלגה','דמי אבטלה'];
 
 // כל מילות המפתח, הארוכות קודם — כדי ש"סופר פארם" ינצח את "סופר"
-const KW = Object.entries(CATS)
-  .flatMap(([id, c]) => c.k.map(w => [w.toLowerCase(), id]))
-  .sort((a, b) => b[0].length - a[0].length);
+let KW = [];
+function buildKW() {
+  KW = Object.entries(CATS)
+    .flatMap(([id, c]) => c.k.map(w => [w.toLowerCase(), id]))
+    .sort((a, b) => b[0].length - a[0].length);
+}
+buildKW();
+
+// ---------- קטגוריות אישיות של המשפחה ----------
+// custom = { food: { n, e, c } (שינוי לקטגוריה מוכנה), c_ab12: { n, e, c, custom: true } (קטגוריה חדשה) }
+export const CAT_COLORS = ['#7C3AED', '#EC4899', '#F97316', '#EAB308', '#22C55E', '#14B8A6', '#06B6D4', '#3B82F6', '#64748B', '#F43F5E'];
+export const CAT_EMOJIS = ['🐶', '🐱', '📚', '🎓', '💼', '🏋️', '⚽', '🎸', '✈️', '🕍', '🍷', '🎁', '💇', '🧹', '🔧', '💻', '📱', '🚲', '🌳', '🍼', '💍', '🏥', '🛠️', '⭐'];
+const BASE = Object.fromEntries(Object.entries(CATS).map(([id, c]) => [id, { ...c, k: [...c.k] }]));
+export const isBaseCat = id => id in BASE;
+// השם עצמו הוא מילת מפתח: "הכלב" ← גם "כלב" (כדי ש"אוכל לכלב" יזוהה)
+const nameKW = n => { const w = n.toLowerCase(); return w.length > 3 && w.startsWith('ה') ? [w, w.slice(1)] : [w]; };
+const grad = c => `linear-gradient(135deg,${c},${c}99)`;
+// ניקוי: שמות/אייקונים מגיעים מבני המשפחה ומוצגים בהרבה מקומות — בלי תווי HTML, וצבע רק בפורמט #RRGGBB
+const clean = (v, max) => String(v ?? '').replace(/[<>&"'`\\]/g, '').trim().slice(0, max);
+const color = v => /^#[0-9A-Fa-f]{6}$/.test(v || '') ? v : '';
+export function applyCustomCats(raw = {}) {
+  const custom = {};
+  for (const [id, o] of Object.entries(raw || {})) {
+    if (!o || typeof o !== 'object' || !/^[a-z0-9_]{1,20}$/.test(id)) continue;
+    custom[id] = { n: clean(o.n, 24), e: clean(o.e, 8), c: color(o.c), custom: !!o.custom };
+  }
+  for (const id of Object.keys(CATS)) delete CATS[id];
+  const put = (id, c) => { CATS[id] = c; };
+  for (const [id, b] of Object.entries(BASE)) {
+    if (id === 'other') continue;
+    const o = custom[id];
+    put(id, o ? { ...b, n: o.n || b.n, e: o.e || b.e, c: o.c || b.c, g: o.c && o.c !== b.c ? grad(o.c) : b.g, k: [...b.k, ...(o.n && o.n !== b.n ? nameKW(o.n) : [])] } : b);
+  }
+  for (const [id, o] of Object.entries(custom)) {
+    if (BASE[id] || !o || !o.custom || !o.n) continue;
+    put(id, { n: o.n, e: o.e || '⭐', c: o.c || '#7C3AED', g: grad(o.c || '#7C3AED'), budget: 0, custom: true, k: nameKW(o.n) });
+  }
+  const o = custom.other;
+  put('other', o ? { ...BASE.other, n: o.n || BASE.other.n, e: o.e || BASE.other.e, c: o.c || BASE.other.c, g: o.c ? grad(o.c) : BASE.other.g } : BASE.other);
+  buildKW();
+}
 
 export function isIncome(text) {
   const s = text.toLowerCase();
@@ -41,7 +79,7 @@ export function isIncome(text) {
 export function classify(text, learned = {}) {
   const s = ' ' + text.toLowerCase().replace(/[-_.]/g, ' ').replace(/\s+/g, ' ') + ' ';
   const mine = Object.keys(learned).sort((a, b) => b.length - a.length).find(w => w && s.includes(w));
-  if (mine) return learned[mine];
+  if (mine && (CATS[learned[mine]] || learned[mine] === 'income')) return learned[mine];
   const hit = KW.find(([w]) => s.includes(w));
   return hit ? hit[1] : 'other';
 }

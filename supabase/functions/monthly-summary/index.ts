@@ -7,7 +7,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 (globalThis as any).window = globalThis;
 (globalThis as any).ExcelJS = ExcelJS;
 const xp = await import('./shared/exporter.js');
-const { CATS, catOf } = await import('./shared/categories.js');
+const { CATS, catOf, applyCustomCats } = await import('./shared/categories.js');
 
 const APP = 'https://kesefbekef.github.io/';
 const MONTHS = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
@@ -24,7 +24,7 @@ async function all(q: any) {
   }
 }
 
-function summaryHTML(name: string, label: string, tx: any[], budgets: any, anchor: Date) {
+function summaryHTML(name: string, label: string, tx: any[], budgets: any, people: any[], anchor: Date) {
   const { start, end } = xp.periodRange('month', anchor);
   const occ = xp.collect(tx, start, end);
   const inc = occ.filter((o: any) => o.t.cat === 'income').reduce((s: number, o: any) => s + o.amount, 0);
@@ -35,6 +35,10 @@ function summaryHTML(name: string, label: string, tx: any[], budgets: any, ancho
   const budgetOf = (c: string) => budgets?.[c] ?? (CATS as any)[c]?.budget ?? 0;
   const over = top.filter(([c, v]) => budgetOf(c) > 0 && v > budgetOf(c));
   const bal = inc - exp;
+  const incWho: Record<string, number> = {};
+  for (const o of occ) if (o.t.cat === 'income') { const k = o.t.who || 'none'; incWho[k] = (incWho[k] || 0) + o.amount; }
+  const whoName = (k: string) => { const p = people.find((x: any) => x.id === k); return p ? `${esc(p.e || '')} ${esc(p.name || '')}` : '❔ לא צוין'; };
+  const incRows = people.length > 1 ? Object.entries(incWho).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]) : [];
   const row = ([c, v]: [string, number]) => { const k = catOf(c), b = budgetOf(c), p = b ? Math.min(100, Math.round(v / b * 100)) : 0;
     return `<tr><td style="padding:8px 0;font-size:15px">${k.e} ${esc(k.n)}</td><td style="padding:8px 0;text-align:left;font-weight:bold;font-size:15px">${fmt(v)}</td></tr>
       <tr><td colspan="2" style="padding:0 0 6px"><div style="height:8px;border-radius:8px;background:#EEE"><div style="height:8px;width:${p}%;border-radius:8px;background:${v > b && b ? '#E11D48' : '#EC4899'}"></div></div>
@@ -54,6 +58,7 @@ function summaryHTML(name: string, label: string, tx: any[], budgets: any, ancho
       <td style="background:#fff;border-radius:16px;padding:14px;text-align:center"><div style="font-size:13px;color:#777">⚖️ מאזן</div><div style="font-size:21px;font-weight:bold;color:${bal >= 0 ? '#16A34A' : '#E11D48'}">${bal < 0 ? '-' : ''}${fmt(Math.abs(bal))}</div></td>
     </tr></table>
     ${top.length ? `<div style="background:#fff;border-radius:18px;padding:16px;margin-top:14px"><div style="font-weight:bold;font-size:17px;margin-bottom:6px">🎯 לאן הלך הכסף</div><table style="width:100%;border-collapse:collapse">${top.slice(0, 6).map(row).join('')}</table></div>` : ''}
+    ${incRows.length ? `<div style="background:#fff;border-radius:18px;padding:16px;margin-top:14px"><div style="font-weight:bold;font-size:17px;margin-bottom:6px">💰 מי הכניס כמה</div><table style="width:100%;border-collapse:collapse">${incRows.map(([k, v]) => `<tr><td style="padding:6px 0;font-size:15px">${whoName(k)}</td><td style="padding:6px 0;text-align:left;font-weight:bold;font-size:15px;color:#16A34A">${fmt(v)}</td></tr>`).join('')}</table></div>` : ''}
     ${tip ? `<div style="background:#FEF9C3;border-radius:18px;padding:14px;margin-top:14px;font-size:15px">${tip}</div>` : ''}
     <div style="text-align:center;margin-top:18px"><a href="${APP}" style="display:inline-block;background:#EC4899;color:#fff;text-decoration:none;font-weight:bold;padding:13px 26px;border-radius:30px">פתיחת האפליקציה</a></div>
     <div style="font-size:13px;color:#777;text-align:center;margin-top:14px">📎 מצורף קובץ אקסל צבעוני עם כל הפרטים</div>
@@ -88,11 +93,12 @@ Deno.serve(async req => {
       const { data: h } = await sb.from('households').select('name').eq('id', hh).single();
       const tx = (await all(sb.from('tx').select('data').eq('household_id', hh).eq('deleted', false).order('id'))).map(r => r.data);
       const kv = Object.fromEntries(((await sb.from('kv').select('key,value').eq('household_id', hh)).data || []).map((r: any) => [r.key, r.value]));
+      applyCustomCats(kv.cats || {}); // הקטגוריות האישיות של המשפחה הזו
       const st = xp.quickStats(tx, 'month', anchor);
       if (!st.count) { report.push({ hh, skipped: 'no tx' }); continue; }
       const wb = await xp.buildWorkbook({ tx, budgets: kv.budgets || {}, people: kv.people || [], kind: 'month', anchor });
       const xlsx = new Uint8Array(await wb.blob.arrayBuffer());
-      const html = summaryHTML(h?.name || 'המשפחה', label, tx, kv.budgets || {}, anchor);
+      const html = summaryHTML(h?.name || 'המשפחה', label, tx, kv.budgets || {}, Array.isArray(kv.people) ? kv.people : [], anchor);
       if (dry) { report.push({ hh, dry: true, count: st.count, xlsxBytes: xlsx.length, htmlChars: html.length, parents: uids.length }); continue; }
       for (const uid of uids) {
         const { data: u } = await sb.auth.admin.getUserById(uid);

@@ -24,7 +24,7 @@ const done = req => new Promise((res, rej) => { req.onsuccess = () => res(req.re
 
 // הסנכרון נרשם כאן כדי לשמוע על כל שינוי מקומי (remote=true — שינוי שהגיע מטלפון אחר)
 export const hooks = { tx: null, del: null, kv: null };
-const SYNCED_KV = ['budgets', 'learned', 'people'];
+const SYNCED_KV = ['budgets', 'learned', 'people', 'cats'];
 
 export async function allTx() { return done((await store('tx', 'readonly')).getAll()); }
 export async function putTx(t, remote = false) { const r = await done((await store('tx', 'readwrite')).put(t)); if (!remote) hooks.tx?.(t); return r; }
@@ -41,7 +41,7 @@ export async function setKV(key, val, remote = false) {
 
 export async function exportAll() {
   return { version: 1, exported: new Date().toISOString(), tx: await allTx(),
-    budgets: await getKV('budgets', {}), learned: await getKV('learned', {}), people: await getKV('people', []) };
+    budgets: await getKV('budgets', {}), learned: await getKV('learned', {}), people: await getKV('people', []), cats: await getKV('cats', {}) };
 }
 export async function importAll(data) {
   if (!data || !Array.isArray(data.tx)) throw new Error('קובץ גיבוי לא תקין');
@@ -49,13 +49,14 @@ export async function importAll(data) {
   if (data.budgets) await setKV('budgets', data.budgets);
   if (data.learned) await setKV('learned', data.learned);
   if (data.people) await setKV('people', data.people);
+  if (data.cats) await setKV('cats', data.cats);
 }
 
 // מעבר משפחה: מוחקים מהמכשיר את נתוני המשפחה הקודמת (בענן הם נשארים אצלה)
 export async function clearFamilyData() {
   const db = await open();
   await done(db.transaction('tx', 'readwrite').objectStore('tx').clear());
-  for (const k of ['budgets', 'learned', 'people', 'outbox', 'outboxRejected', 'lastSync', 'household', 'me', 'base:budgets', 'base:learned', 'base:people'])
+  for (const k of ['budgets', 'learned', 'people', 'outbox', 'outboxRejected', 'lastSync', 'household', 'me', 'base:budgets', 'base:learned', 'base:people', 'cats', 'base:cats'])
     await done(db.transaction('kv', 'readwrite').objectStore('kv').delete(k));
 }
 

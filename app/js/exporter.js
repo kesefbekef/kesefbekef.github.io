@@ -136,7 +136,7 @@ export async function buildWorkbook({ tx, budgets, people = [], kind, anchor }) 
   const totalExp = exp.reduce((s, o) => s + o.amount, 0), totalInc = incs.reduce((s, o) => s + o.amount, 0);
   const days = Math.round((end - start) / 864e5);
   const factor = kind === 'year' ? 12 : kind === 'month' ? 1 : days / 30;
-  const budgetOf = id => (budgets[id] ?? CATS[id].budget) * factor;
+  const budgetOf = id => (budgets[id] ?? CATS[id]?.budget ?? 0) * factor;
 
   const wb = new ExcelJS.Workbook();
   wb.creator = 'כסף בכיף'; wb.created = new Date();
@@ -207,6 +207,19 @@ export async function buildWorkbook({ tx, budgets, people = [], kind, anchor }) 
       });
       r++;
     }
+    // הכנסות לפי בני הבית — מי הכניס כמה
+    const incRows = rows.filter(([, v]) => v.inc > 0).sort((a, b) => b[1].inc - a[1].inc);
+    const totalInc = incRows.reduce((s, [, v]) => s + v.inc, 0);
+    if (incRows.length) {
+      section(ws, r++, '💰 מי הכניס כמה');
+      header(ws, r++, ['מי', 'הכנסות', '% מההכנסות', '', '', 'גרף']);
+      incRows.forEach(([k, v]) => {
+        const share = totalInc ? v.inc / totalInc : 0;
+        cells(ws, r++, [k === 'none' ? '❔ לא צוין' : whoName(k), v.inc, share, '', '', bar(share)],
+          { bg: tint(C.green, .12), fmts: [null, NIS, PCT], colors: [null, C.green, null, null, null, C.green] });
+      });
+      r++;
+    }
   }
 
   // פירוט לפי זמן: שנה → חודשים, חודש/שבוע → ימים
@@ -243,7 +256,7 @@ export async function buildWorkbook({ tx, budgets, people = [], kind, anchor }) 
   if (!occ.length) tips.push('אין תנועות בתקופה הזו.');
   const top = byCat.filter(x => x.v > 0);
   if (top[0]) tips.push(`ההוצאה הגדולה: ${CATS[top[0].id].e} ${CATS[top[0].id].n} — ${Math.round(top[0].v / totalExp * 100)}% מכלל ההוצאות.`);
-  for (const { id, v } of top) if (v > budgetOf(id)) tips.push(`🚨 ${CATS[id].n} עבר את התקציב ב-${Math.round((v / budgetOf(id) - 1) * 100)}%.`);
+  for (const { id, v } of top) if (budgetOf(id) && v > budgetOf(id)) tips.push(`🚨 ${CATS[id].n} עבר את התקציב ב-${Math.round((v / budgetOf(id) - 1) * 100)}%.`);
   if (totalInc) tips.push(totalInc >= totalExp ? `🏆 נחסכו ${Math.round((totalInc - totalExp) / totalInc * 100)}% מההכנסות.` : `📉 ההוצאות גבוהות מההכנסות ב-${Math.round(totalExp - totalInc).toLocaleString('he-IL')} ₪.`);
   if (byPay.cash) tips.push(`💵 במזומן יצאו ${Math.round(byPay.cash).toLocaleString('he-IL')} ₪.`);
   if (byPay.none) tips.push(`❔ ב-${Math.round(byPay.none).toLocaleString('he-IL')} ₪ לא צוין אמצעי תשלום.`);
