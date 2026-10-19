@@ -230,7 +230,7 @@ async function send(c, table, rows, rejected) {
 
 async function pushEverything() {
   const ops = (await db.allTx()).map(t => ({ t: 'tx', id: t.id, data: t, at: Date.now() }));
-  for (const k of ['budgets', 'learned', 'people', 'cats']) {
+  for (const k of ['budgets', 'learned', 'people', 'cats', 'goals', 'maaser', 'pocket']) {
     const v = await db.getKV(k, null);
     if (v && (Array.isArray(v) ? v.length : Object.keys(v).length)) ops.push({ t: 'kv', key: k, value: v, at: Date.now() });
   }
@@ -243,7 +243,7 @@ async function applyTx(row) {
   else await db.putTx(row.data, true);
 }
 async function applyKv(row) {
-  if (!['budgets', 'learned', 'people', 'cats'].includes(row.key)) return;
+  if (!['budgets', 'learned', 'people', 'cats', 'goals', 'maaser', 'pocket'].includes(row.key)) return;
   const pending = (await db.getKV('outbox', [])).find(o => o.t === 'kv' && o.key === row.key);
   if (pending) {
     // יש כאן שינוי שעוד לא נשלח — ממזגים, ולא דורסים אותו
@@ -380,4 +380,22 @@ export async function disablePush() {
 }
 async function budgetAlert(cats) {
   try { await (await client()).functions.invoke('kesef-alert', { body: { cats } }); } catch (e) { console.warn('alert', e); }
+}
+
+// ---------- 🧾 צילום קבלה (Supabase Storage, תיקייה פרטית לכל משפחה) ----------
+export async function uploadReceipt(txId, blob) {
+  if (!hh) throw new Error('צריך להיות מחוברים למשפחה כדי לשמור קבלה');
+  if (!navigator.onLine) throw new Error('אין אינטרנט — נסו שוב כשיש קליטה');
+  const path = `${hh.id}/${txId}.jpg`;
+  const { error } = await (await client()).storage.from('receipts').upload(path, blob, { upsert: true, contentType: 'image/jpeg' });
+  if (error) throw new Error(nice(error));
+  return path;
+}
+export async function receiptURL(path) {
+  const { data, error } = await (await client()).storage.from('receipts').createSignedUrl(path, 600);
+  if (error) throw new Error(nice(error));
+  return data.signedUrl;
+}
+export async function deleteReceipt(path) {
+  try { await (await client()).storage.from('receipts').remove([path]); } catch { /* */ }
 }

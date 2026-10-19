@@ -52,6 +52,11 @@ try { var f = localStorage.getItem('fontScale'); if (f && f !== '1') document.do
         <div class="stat" style="background:var(--g3)"><small>הכנסות</small><div id="incSum"></div></div>
         <div class="stat" style="background:linear-gradient(135deg,#F43F5E,#F97316)"><small>הוצאות</small><div id="expSum"></div></div>
       </div>
+      <div class="extras">
+        <button id="goalsBtn"><span>🐷</span>קופות חיסכון</button>
+        <button id="maaserBtn"><span>🤲</span>מעשר</button>
+        <button id="pocketBtn"><span>🧒</span>דמי כיס</button>
+      </div>
       <div class="cards">
         <button class="card tip" id="recoBtn"><div class="em">🪄</div><p><b>המלצה לתקציב לפי ההוצאות שלך</b><br>לחץ כדי לראות כמה כדאי להגדיר לכל קטגוריה</p></button>
         <div id="budgetList" class="stg" style="display:flex;flex-direction:column;gap:12px"></div>

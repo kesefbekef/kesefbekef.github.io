@@ -282,3 +282,17 @@ button:active{transform:scale(.96)}
 /* 🏷️ תגיות אירוע */
 .tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
 .tag{font-size:12px;padding:2px 8px;border-radius:999px;background:linear-gradient(135deg,rgba(124,58,237,.45),rgba(236,72,153,.45));color:#fff}
+/* 🐷🤲🧒 שלושת הכפתורים במסך התקציב */
+.extras{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:0 16px 12px}
+.extras button{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:10px 4px;font-size:12.5px;font-weight:600;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0}
+.extras span{font-size:26px}
+.ring2{width:64px;height:64px;border-radius:50%;display:grid;place-items:center;flex:none;position:relative}
+.ring2 b{width:52px;height:52px;border-radius:50%;background:#15151F;display:grid;place-items:center;font-size:22px}
+.goal-card{display:flex;align-items:center;gap:12px}
+.goal-card .nm{flex:1;min-width:0}
+.big-num{font-size:30px;font-weight:800}
+.mv{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px}
+.kid-only{display:none !important}
+body.kid .kid-only{display:block !important}
+body.kid .extras{display:none}
+.receipt{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:14px}
