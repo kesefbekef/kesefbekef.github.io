@@ -222,6 +222,21 @@ export async function buildWorkbook({ tx, budgets, people = [], kind, anchor }) 
     }
   }
 
+  // 🏷️ לפי אירועים (בתקופה הזו)
+  const byTag = {};
+  for (const o of occ) for (const g of o.t.tags || []) { byTag[g] ??= { inc: 0, ex: 0 }; byTag[g][o.t.cat === 'income' ? 'inc' : 'ex'] += o.amount; }
+  const tagRows = Object.entries(byTag).sort((a, b) => b[1].ex - a[1].ex);
+  if (tagRows.length) {
+    section(ws, r++, '🏷️ לפי אירועים');
+    header(ws, r++, ['אירוע', 'הוצאות', 'הכנסות', '% מההוצאות', '', 'גרף']);
+    for (const [g, v] of tagRows) {
+      const share = totalExp ? v.ex / totalExp : 0;
+      cells(ws, r++, ['#' + g, v.ex, v.inc || null, share, '', bar(share)],
+        { bg: tint(C.purple, .1), fmts: [null, NIS, NIS, PCT], colors: [null, null, C.green, null, null, C.purple] });
+    }
+    r++;
+  }
+
   // פירוט לפי זמן: שנה → חודשים, חודש/שבוע → ימים
   const byMonths = kind === 'year' || (kind === 'range' && days > 62);
   if (byMonths) {
@@ -275,7 +290,7 @@ export async function buildWorkbook({ tx, budgets, people = [], kind, anchor }) 
     { header: 'תאריך', key: 'date', width: 12 }, { header: 'תיאור', key: 'desc', width: 26 }, { header: 'מה נכתב במקור', key: 'raw', width: 34 },
     { header: 'קטגוריה', key: 'cat', width: 20 }, { header: 'סכום', key: 'amount', width: 14 },
     { header: 'סוג', key: 'type', width: 10 }, { header: 'אמצעי תשלום', key: 'pay', width: 16 },
-    { header: 'מי', key: 'who', width: 14 }, { header: 'מקור', key: 'src', width: 10 }, { header: 'הערות', key: 'note', width: 30 },
+    { header: 'מי', key: 'who', width: 14 }, { header: 'אירוע', key: 'tags', width: 16 }, { header: 'מקור', key: 'src', width: 10 }, { header: 'הערות', key: 'note', width: 30 },
   ];
   wt.getRow(1).eachCell(c => {
     c.fill = fill(C.purple); c.font = { name: FONT, bold: true, color: { argb: 'FFFFFFFF' } };
@@ -289,7 +304,7 @@ export async function buildWorkbook({ tx, budgets, people = [], kind, anchor }) 
     const row = wt.addRow({ date: new Date(Date.UTC(o.date.getFullYear(), o.date.getMonth(), o.date.getDate())), desc: t.desc,
       raw: t.source === 'file' ? `📄 ${t.raw || ''}` : (t.raw || ''), cat: `${c.e} ${c.n}`,
       amount: o.amount, type: income ? 'הכנסה' : o.amount < 0 ? 'זיכוי' : 'הוצאה',
-      pay: t.pay ? `${PAY[t.pay].e} ${PAY[t.pay].n}` : '', who: whoName(t.who), src: SRC[t.source] || '', note: notes });
+      pay: t.pay ? `${PAY[t.pay].e} ${PAY[t.pay].n}` : '', who: whoName(t.who), tags: (t.tags || []).map(g => '#' + g).join(' '), src: SRC[t.source] || '', note: notes });
     row.eachCell({ includeEmpty: true }, cell => {
       cell.font = { name: FONT, color: income ? { argb: argb(C.green) } : undefined, bold: income };
       cell.fill = fill(i % 2 ? '#FFFFFF' : C.soft); cell.border = box; cell.alignment = { vertical: 'middle' };

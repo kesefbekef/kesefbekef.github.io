@@ -1,5 +1,5 @@
 import { CATS, classify, isIncome, catOf, applyCustomCats, isBaseCat, CAT_COLORS, CAT_EMOJIS } from './categories.js';
-import { parseMessage, stripVav, detectPay, PAY } from './parse.js';
+import { parseMessage, stripVav, detectPay, PAY, takeTags, cleanTag } from './parse.js';
 import * as db from './db.js';
 import * as imp from './importer.js';
 import * as xp from './exporter.js';
@@ -12,6 +12,17 @@ const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmt = n => Math.round(n).toLocaleString('he-IL') + '₪';
+// 🎬 מספר "רץ" מהערך הקודם לחדש (כמעט שנייה). בלי אנימציות — מיד
+const noAnim = () => document.documentElement.classList.contains('noanim');
+function countUp(el, to, f = fmt) {
+  if (!el) return;
+  const from = el._v ?? 0; el._v = to; cancelAnimationFrame(el._raf);
+  if (noAnim() || from === to || document.hidden) { el.textContent = f(to); return; }
+  const t0 = performance.now(), D = 900;
+  const step = now => { const k = Math.min(1, (now - t0) / D), e = 1 - Math.pow(1 - k, 3);
+    el.textContent = f(from + (to - from) * e); if (k < 1) el._raf = requestAnimationFrame(step); };
+  el._raf = requestAnimationFrame(step);
+}
 const pad = n => String(n).padStart(2, '0');
 const ym = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
 const ymd = d => `${ym(d)}-${pad(d.getDate())}`;
@@ -165,7 +176,7 @@ function botHTML(t) {
   const askPay = !t.pay && !t.paySkip && t.source !== 'file' && Date.now() - new Date(t.created) < 12 * 3600e3
     ? `<div class="paynow"><span>💳 איך שולם?</span>${['credit', 'cash', 'transfer', 'bit'].map(k => `<button data-act="setpay" data-pay="${k}" data-id="${t.id}">${PAY[k].e} ${PAY[k].n.split('/')[0]}</button>`).join('')}<button data-act="skippay" data-id="${t.id}" class="skip">דלג</button></div>` : '';
   return `<div class="cat-ic" style="background:${c.g}">${c.e}</div>
-    <div><b>${title}</b><div class="sub">${sub}${day}</div>
+    <div><b>${title}</b><div class="sub">${sub}${day}</div>${t.tags?.length ? `<div class="tags">${t.tags.map(x => `<span class="tag">#${esc(x)}</span>`).join('')}</div>` : ''}
     ${askPay}
     <div class="acts">${t.who && personOf(t.who) ? `<button data-act="who" data-id="${t.id}">${whoLabel(t.who)}</button>` : ''}${pay}<button data-act="fix" data-id="${t.id}">✏️ עריכה</button><button data-act="undo" data-id="${t.id}">🗑️ מחיקה</button></div></div>`;
 }
@@ -245,7 +256,8 @@ async function send(raw, source = 'text') {
   if (FEEDBACK_RE.test(raw)) { $('#inp').blur(); openFeedback(raw.replace(FEEDBACK_RE, '').trim(), raw); return; }
   if (help.isHelpRequest(raw)) { $('#inp').blur(); openHelp(raw, help.wantsGuide(raw) && !help.answer(raw).length); return; }
   const named = detectWho(raw);
-  const items = parseMessage(named.text);
+  const tagged = takeTags(named.text);
+  const items = parseMessage(tagged.text);
   const me = document.createElement('div');
   me.className = 'me new'; me.innerHTML = esc(raw);
   $('#chat').appendChild(me);
@@ -275,7 +287,7 @@ async function send(raw, source = 'text') {
     const inst = !income && it.installments > 1 ? it.installments : 0;
     return { id: db.newId(), msg, raw, desc, cat, source, created: now.toISOString(), date: date.toISOString(),
       amount: inst ? Math.round(it.amount / inst * 100) / 100 : it.amount, total: it.amount, inst, pay: pay || (inst ? 'credit' : null),
-      who: named.who || S.me || null };
+      who: named.who || S.me || null, ...(tagged.tags.length ? { tags: tagged.tags } : {}) };
   });
 
   // ⚠️ כפילות: אותו סכום בערך + אותה קטגוריה או שם דומה, באותו חודש — שואלים לפני שרושמים
@@ -330,7 +342,7 @@ async function commitTx(pending) {
     const b = budgetOf(cat), m = ym(new Date(added.find(t => t.cat === cat).date)), after = spentIn(cat, m);
     if (!b) continue;
     if (before[cat] <= b && after > b) toast(`🚨 עברת את תקציב ${catOf(cat).n}`, true);
-    else if (before[cat] < b * .8 && after >= b * .8) toast(`⚠️ הגעת ל-80% מתקציב ${catOf(cat).n}`, true);
+    else if (before[cat] < b * .9 && after >= b * .9) toast(`🔔 הגעת ל-90% מתקציב ${catOf(cat).n} — נשארו ${fmt(b - after)}`, true);
   }
   for (const cat of new Set(added.map(t => t.cat))) $(`#st-${cat}`)?.classList.add('pop');
 }
@@ -386,6 +398,20 @@ function toastAction(text, label, fn) {
 const payGrid = sel => `<div class="catgrid">${Object.entries(PAY).map(([id, p]) =>
   `<button class="catbtn ${id === sel ? 'sel' : ''}" data-pay="${id}"><div class="cat-ic" style="background:var(--card2)">${p.e}</div>${p.n}</button>`).join('')}</div>`;
 
+// 🏷️ שדה תגית אירוע + הצעות מהתגיות שכבר בשימוש
+const allTags = () => { const m = new Map(); for (const t of S.tx) for (const g of t.tags || []) m.set(g, (m.get(g) || 0) + 1); return [...m.entries()].sort((a, b) => b[1] - a[1]).map(x => x[0]); };
+function tagField(id, cur) {
+  const sug = allTags().filter(g => !cur.includes(g)).slice(0, 6);
+  return `<label class="field"><span>🏷️ אירוע (לא חובה) — למשל: בר_מצווה, פסח</span><input id="${id}" value="${cur.map(esc).join(' ')}" placeholder="#חתונה_של_דודי"></label>
+    ${sug.length ? `<div class="chips" style="flex-wrap:wrap;margin:-6px 0 14px">${sug.map(g => `<button class="chip" data-tagsug="${esc(g)}" data-for="${id}">#${esc(g)}</button>`).join('')}</div>` : ''}`;
+}
+function readTags(sh, id) { return [...new Set((sh.querySelector('#' + id)?.value || '').split(/[\s,]+/).map(cleanTag).filter(Boolean))]; }
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-tagsug]'); if (!b) return;
+  const inp = document.getElementById(b.dataset.for); if (!inp) return;
+  const v = inp.value.trim(); if (!v.split(/\s+/).map(cleanTag).includes(b.dataset.tagsug)) inp.value = (v ? v + ' ' : '') + b.dataset.tagsug; b.remove();
+});
+
 const whoChips = sel => S.people.map(p => `<button class="chip ${p.id === sel ? 'on' : ''}" data-w="${p.id}">${esc(p.e)} ${esc(p.name)}</button>`).join('');
 
 function openWhoSheet(t) {
@@ -413,7 +439,7 @@ function renderHero() {
   const m = thisMonth(), inc = incomeIn(m), exp = expenseIn(m);
   const kid = !sync.isParent();
   $('#heroLabel').textContent = kid ? 'רשמת החודש' : inc ? 'נשאר לך החודש' : 'הוצאת החודש';
-  $('#left').textContent = !kid && inc ? fmt(inc - exp) : fmt(exp);
+  countUp($('#left'), !kid && inc ? inc - exp : exp);
   const pct = Math.round(exp / totalBudget() * 100);
   $('#usedBar').style.width = Math.min(100, pct) + '%';
   $('#usedPct').textContent = `${pct}% מהתקציב נוצל`;
@@ -466,11 +492,15 @@ function openCategory(id, m = S.month) {
 // ---------- תקציב ----------
 function renderBudget() {
   const m = S.month;
-  $('#incSum').textContent = fmt(incomeIn(m));
-  $('#expSum').textContent = fmt(expenseIn(m));
+  countUp($('#incSum'), incomeIn(m));
+  countUp($('#expSum'), expenseIn(m));
   $('#budgetList').innerHTML = Object.entries(CATS).map(([id, c]) => {
-    const s = spentIn(id, m), b = budgetOf(id), p = b ? Math.min(100, s / b * 100) : 0, o = b && s > b;
-    return `<button class="card" data-cat="${id}"><div class="cat-row"><div class="cat-ic" style="background:${c.g}">${c.e}</div><div class="nm">${esc(c.n)}</div><div class="am ${o ? 'over' : ''}">${fmt(s)} / ${b ? fmt(b) : 'בלי תקציב'}</div></div><div class="pbar"><i style="width:${p}%;background:${o ? 'linear-gradient(90deg,#F43F5E,#FB7185)' : c.g}"></i></div></button>`;
+    const s = spentIn(id, m), b = budgetOf(id), p = b ? Math.min(100, s / b * 100) : 0, o = b && s > b, left = b - s;
+    // ✉️ מעטפה: כמה נשאר — בגדול. אדום כשנגמר / חרגנו
+    const env = !b ? `<div class="env"><small>הוצאתם</small><b>${fmt(s)}</b></div>`
+      : left > 0 ? `<div class="env ${p >= 90 ? 'warn' : ''}"><small>נשארו</small><b>${fmt(left)}</b></div>`
+      : `<div class="env empty-env"><small>${left === 0 ? 'המעטפה ריקה' : 'חריגה'}</small><b>${left === 0 ? '0₪' : '-' + fmt(-left)}</b></div>`;
+    return `<button class="card" data-cat="${id}"><div class="cat-row"><div class="cat-ic" style="background:${c.g}">${c.e}</div><div class="nm">${esc(c.n)}<small class="sub" style="display:block">${b ? `${fmt(s)} מתוך ${fmt(b)}` : 'בלי תקציב'}</small></div>${env}</div><div class="pbar"><i style="width:${p}%;background:${o || (b && left <= 0) ? 'linear-gradient(90deg,#F43F5E,#FB7185)' : c.g}"></i></div></button>`;
   }).join('');
 }
 $('#budgetList').addEventListener('click', e => {
@@ -516,7 +546,7 @@ function renderInsights() {
   const parts = Object.entries(CATS).map(([id, c]) => ({ id, c, v: spentIn(id, m) })).filter(x => x.v > 0).sort((a, b) => b.v - a.v);
   let acc = 0;
   $('#donut').style.background = exp ? `conic-gradient(${parts.map(p => { const a = acc; acc += p.v / exp * 100; return `${p.c.c} ${a}% ${acc}%`; }).join(',')})` : 'rgba(255,255,255,.08)';
-  $('#donutSum').textContent = fmt(exp);
+  countUp($('#donutSum'), exp);
   $('#legend').innerHTML = parts.map(p => `<span><i style="background:${p.c.c}"></i>${p.c.n} ${Math.round(p.v / exp * 100)}%</span>`).join('');
 
   const tips = [];
@@ -566,8 +596,32 @@ function renderInsights() {
   const inst = txInMonth(m).filter(t => t.inst > 1);
   if (inst.length) tips.push(['💳', `<b>${inst.length} תשלומים פעילים</b> בסך ${fmt(inst.reduce((s, t) => s + t.amount, 0))} החודש.`]);
 
-  $('#tips').innerHTML = historyCard(m) + tips.map(([e, h]) => `<div class="card tip"><div class="em">${e}</div><p>${h}</p></div>`).join('');
+  $('#tips').innerHTML = historyCard(m) + tagsCard() + tips.map(([e, h]) => `<div class="card tip"><div class="em">${e}</div><p>${h}</p></div>`).join('');
 }
+
+// 🏷️ אירועים: כמה עלה כל אירוע (מכל הזמנים, בכל הקטגוריות)
+function tagsCard() {
+  const by = new Map();
+  for (const t of S.tx) for (const g of t.tags || []) {
+    const o = by.get(g) || { exp: 0, inc: 0, n: 0, cats: {} }; const v = t.inst > 1 ? t.total : t.amount;
+    if (t.cat === 'income') o.inc += v; else { o.exp += v; o.cats[t.cat] = (o.cats[t.cat] || 0) + v; } o.n++; by.set(g, o);
+  }
+  if (!by.size) return '';
+  const rows = [...by.entries()].sort((a, b) => b[1].exp - a[1].exp);
+  return `<div class="card"><b style="font-size:16px">🏷️ אירועים</b><div class="sub" style="margin:2px 0 8px">כמה עלה כל אירוע — בכל הקטגוריות ביחד</div>
+    ${rows.map(([g, o]) => `<button class="tx" data-tag="${esc(g)}"><div class="cat-ic" style="background:linear-gradient(135deg,#7C3AED,#EC4899)">🏷️</div>
+      <div class="nm"><div>#${esc(g)}</div><small>${o.n} רשומות · ${Object.entries(o.cats).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([c]) => catOf(c).e).join(' ')}${o.inc ? ` · נכנס ${fmt(o.inc)}` : ''}</small></div>
+      <div class="am">${fmt(o.exp)}</div></button>`).join('')}</div>`;
+}
+$('#tips').addEventListener('click', e => {
+  const b = e.target.closest('[data-tag]'); if (!b) return;
+  const g = b.dataset.tag, list = S.tx.filter(t => t.tags?.includes(g)).sort((a, b) => b.date.localeCompare(a.date));
+  openSheet(`<h3>🏷️ #${esc(g)}</h3><div class="sub" style="margin:-6px 0 12px">${list.length} רשומות · סה״כ ${fmt(list.filter(t => t.cat !== 'income').reduce((s, t) => s + (t.inst > 1 ? t.total : t.amount), 0))}</div>
+    <div class="card stg" style="padding:4px 12px">${list.map(t => { const c = catOf(t.cat);
+      return `<button class="tx" data-ct="${t.id}"><div class="cat-ic" style="background:${c.g}">${c.e}</div><div class="nm"><div>${esc(t.desc)}</div><small>${c.n} · ${new Date(t.date).toLocaleDateString('he-IL')}</small></div><div class="am ${t.cat === 'income' ? 'plus' : ''}">${fmt(t.inst > 1 ? t.total : t.amount)}</div></button>`; }).join('')}</div>`, sh => {
+    sh.querySelectorAll('[data-ct]').forEach(x => x.onclick = () => { const t = S.tx.find(y => y.id === x.dataset.ct); if (t) openEditSheet(t); });
+  });
+});
 
 // תמונה לאורך זמן: עד 12 חודשים אחורה שיש בהם נתונים
 function historyCard(m) {
@@ -602,12 +656,12 @@ function renderTx() {
   $('#txFilter').innerHTML = `<button class="chip ${!S.catFilter ? 'on' : ''}" data-f="">הכל</button>` +
     used.map(id => `<button class="chip ${S.catFilter === id ? 'on' : ''}" data-f="${id}">${catOf(id).e} ${catOf(id).n}</button>`).join('');
   if (S.people.length > 1) $('#txFilter').innerHTML += S.people.map(p => `<button class="chip ${S.whoFilter === p.id ? 'on' : ''}" data-wf="${p.id}">${esc(p.e)} ${esc(p.name)}</button>`).join('');
-  const list = txInMonth(m).filter(t => (!S.catFilter || t.cat === S.catFilter) && (!S.whoFilter || t.who === S.whoFilter) && (!q || t.desc.toLowerCase().includes(q) || t.raw.toLowerCase().includes(q)))
+  const list = txInMonth(m).filter(t => (!S.catFilter || t.cat === S.catFilter) && (!S.whoFilter || t.who === S.whoFilter) && (!q || t.desc.toLowerCase().includes(q) || t.raw.toLowerCase().includes(q) || (t.tags || []).some(g => g.toLowerCase().includes(q.replace(/^#/, '')))))
     .sort((a, b) => b.date.localeCompare(a.date));
   $('#txList').innerHTML = list.length ? list.map(t => {
     const c = catOf(t.cat), inc = t.cat === 'income';
     const extra = t.inst > 1 ? ` · תשלום ${installmentNo(t, m)}/${t.inst}` : '';
-    return `<button class="tx" data-id="${t.id}"><div class="cat-ic" style="background:${c.g}">${c.e}</div><div class="nm"><div>${esc(t.desc)}</div><small>${c.n} · ${new Date(t.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}${extra}${t.pay ? ' · ' + PAY[t.pay].e + ' ' + PAY[t.pay].n : ''}${t.who && personOf(t.who) ? ' · ' + (whoLabel(t.who)) : ''}</small></div><div class="am ${inc ? 'plus' : ''}">${inc ? '+' : ''}${fmt(t.amount)}</div></button>`;
+    return `<button class="tx" data-id="${t.id}"><div class="cat-ic" style="background:${c.g}">${c.e}</div><div class="nm"><div>${esc(t.desc)}</div><small>${c.n} · ${new Date(t.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}${extra}${t.pay ? ' · ' + PAY[t.pay].e + ' ' + PAY[t.pay].n : ''}${t.who && personOf(t.who) ? ' · ' + (whoLabel(t.who)) : ''}${t.tags?.length ? ' · ' + t.tags.map(g => '#' + esc(g)).join(' ') : ''}</small></div><div class="am ${inc ? 'plus' : ''}">${inc ? '+' : ''}${fmt(t.amount)}</div></button>`;
   }).join('') : `<div class="empty"><span class="em">🔍</span>אין תנועות ${S.catFilter || q ? 'שמתאימות לחיפוש' : 'בחודש הזה'}</div>`;
 }
 $('#txFilter').addEventListener('click', e => {
@@ -636,6 +690,7 @@ function openEditSheet(t) {
     <div class="sub" style="margin-bottom:8px">אמצעי תשלום</div>
     <div class="chips" id="ePay" style="flex-wrap:wrap;margin-bottom:14px">${Object.entries(PAY).map(([id, p]) => `<button class="chip ${id === pay ? 'on' : ''}" data-p="${id}">${p.e} ${p.n}</button>`).join('')}</div>
     ${S.people.length ? `<div class="sub" style="margin-bottom:8px">של מי?</div><div class="chips" id="eWho" style="flex-wrap:wrap;margin-bottom:14px">${whoChips(who)}</div>` : ''}
+    ${tagField('eTag', t.tags || [])}
     <div class="row2"><button class="btn danger" id="eDel">🗑️ מחיקה</button><button class="btn grad" id="eSave">שמירה</button></div>`, sh => {
     sh.querySelectorAll('[data-cat]').forEach(btn => btn.onclick = () => {
       cat = btn.dataset.cat; sh.querySelectorAll('[data-cat]').forEach(x => x.classList.toggle('sel', x === btn));
@@ -654,6 +709,7 @@ function openEditSheet(t) {
       const desc = sh.querySelector('#eDesc').value.trim() || t.desc;
       if (cat !== t.cat) { const key = desc.toLowerCase(); if (key.length >= 2) { S.learned[key] = cat; await db.setKV('learned', S.learned); } }
       Object.assign(t, { desc, cat, pay, who, date: new Date(d + 'T12:00:00').toISOString() });
+      const tg = readTags(sh, 'eTag'); if (tg.length) t.tags = tg; else delete t.tags;
       if (t.inst > 1) { t.total = v; t.amount = Math.round(v / t.inst * 100) / 100; } else { t.amount = v; t.total = v; }
       await db.putTx(t); closeSheet(); renderAll(); toast('✅ נשמר');
     };
@@ -904,6 +960,7 @@ function openAddForm(cat) {
     <div class="sub" style="margin-bottom:8px">${inc ? 'איך התקבל?' : 'איך שולם?'} (לא חובה)</div>
     <div class="chips" id="aPay" style="flex-wrap:wrap;margin-bottom:14px">${Object.entries(PAY).map(([id, p]) => `<button class="chip" data-p="${id}">${p.e} ${p.n}</button>`).join('')}</div>
     ${!inc && S.people.length ? `<div class="sub" style="margin-bottom:8px">של מי?</div><div class="chips" id="aWho" style="flex-wrap:wrap;margin-bottom:14px">${whoChips(who)}</div>` : ''}
+    ${tagField('aTag', [])}
     <button class="btn grad full" id="aSave">✅ שמירה</button>`, sh => {
     sh.querySelector('#aBack').onclick = openAddSheet;
     sh.querySelectorAll('#aPay [data-p]').forEach(b => b.onclick = () => {
@@ -927,6 +984,7 @@ function openAddForm(cat) {
       const t = { id: db.newId(), msg: db.newId(), raw: `${desc} ${total}${inst ? ` ב-${inst} תשלומים` : ''}`, desc, cat, source: 'plus',
         created: now.toISOString(), date: new Date(d + 'T12:00:00').toISOString(),
         amount: inst ? Math.round(total / inst * 100) / 100 : total, total, inst, pay: pay || (inst ? 'credit' : null), paySkip: !pay, who };
+      const tg = readTags(sh, 'aTag'); if (tg.length) t.tags = tg;
       const dup = !force && findDup(t);
       if (dup) {
         force = true;
@@ -1176,12 +1234,55 @@ function openCatEdit(id) {
   });
 }
 
+// ---------- 🔔 התראה לטלפון כשמתקרבים לסוף התקציב (הורים) ----------
+async function drawPushCard(el) {
+  if (!el) return;
+  if (!syncUser && !UITEST) { el.style.display = 'none'; return; }
+  const st = UITEST ? 'off' : await sync.pushState();
+  el.innerHTML = `<b style="font-size:16px">🔔 התראה כשמתקרבים לסוף התקציב</b>
+    <div class="sub" style="margin:4px 0 10px">כשמישהו במשפחה רושם הוצאה והקטגוריה מגיעה ל-<b>90%</b> או עוברת את <b>100%</b> — תקפוץ התראה בטלפון. (לא בשבת — נשלח במוצ"ש)</div>
+    ${st === 'unsupported' ? `<div class="sub">📲 כדי לקבל התראות צריך קודם להתקין את האפליקציה על המסך${/iphone|ipad/i.test(navigator.userAgent) ? ' (באייפון: שיתוף ⬆️ ← "הוסף למסך הבית")' : ''}.</div>`
+      : st === 'denied' ? `<div class="sub">🚫 ההתראות חסומות. פותחים את הגדרות הטלפון ← האפליקציה ← התראות ← מאשרים.</div>`
+      : `<div class="chips"><button class="chip ${st === 'on' ? 'on' : ''}" data-push="on">🔔 פועל</button><button class="chip ${st === 'on' ? '' : 'on'}" data-push="off">🔕 כבוי</button></div>`}
+    <div class="err" id="pushErr"></div>`;
+  el.querySelectorAll('[data-push]').forEach(b => b.onclick = async () => {
+    try {
+      if (UITEST) { toast('(בדיקה) היה מפעיל התראות'); return; }
+      if (b.dataset.push === 'on') { await sync.enablePush(); toast('🔔 ההתראות פועלות'); } else { await sync.disablePush(); toast('🔕 ההתראות כבויות'); }
+      drawPushCard(el);
+    } catch (e) { el.querySelector('#pushErr').textContent = e.message; }
+  });
+}
+
+// ---------- 🔠 גודל כתב + 🎬 אנימציות (נשמר בכל טלפון בנפרד) ----------
+const lsGet = k => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* */ } };
+const FONT_SIZES = [['1', 'רגיל'], ['1.12', 'גדול'], ['1.25', 'ענק']];
+function drawViewCard(el) {
+  const fs = lsGet('fontScale') || '1', anim = !noAnim();
+  el.innerHTML = `<b style="font-size:16px">🎨 תצוגה</b>
+    <div class="sub" style="margin:8px 0 6px">🔠 גודל כתב</div>
+    <div class="chips" style="flex-wrap:wrap">${FONT_SIZES.map(([v, n], i) => `<button class="chip ${v === fs ? 'on' : ''}" data-fs="${v}" style="font-size:${14 + i * 2}px">א ${n}</button>`).join('')}</div>
+    <div class="sub" style="margin:12px 0 6px">🎬 אנימציות</div>
+    <div class="chips"><button class="chip ${anim ? 'on' : ''}" data-an="on">✨ פועל</button><button class="chip ${anim ? '' : 'on'}" data-an="off">⏸️ כבוי</button></div>`;
+  el.querySelectorAll('[data-fs]').forEach(b => b.onclick = () => {
+    lsSet('fontScale', b.dataset.fs); document.documentElement.style.zoom = b.dataset.fs === '1' ? '' : b.dataset.fs;
+    drawViewCard(el); toast('🔠 גודל הכתב עודכן');
+  });
+  el.querySelectorAll('[data-an]').forEach(b => b.onclick = () => {
+    lsSet('anim', b.dataset.an); document.documentElement.classList.toggle('noanim', b.dataset.an === 'off');
+    drawViewCard(el); toast(b.dataset.an === 'on' ? '✨ האנימציות פועלות' : '⏸️ האנימציות כבויות');
+  });
+}
+
 // ---------- הגדרות וגיבוי ----------
 $('#settingsBtn').onclick = () => openSettings();
 function openSettings() { openSheet(`<h3>⚙️ הגדרות</h3>
   <div class="card" id="meCard" style="margin-bottom:12px"></div>
   <div class="card" id="syncCard" style="margin-bottom:12px"></div>
   <div class="card" id="lockCard" style="margin-bottom:12px"></div>
+  <div class="card parent-only" id="pushCard" style="margin-bottom:12px"></div>
+  <div class="card" id="viewCard" style="margin-bottom:12px"></div>
   <a class="btn grad full" id="toAdmin" href="admin/" hidden style="margin-bottom:10px;display:block;text-align:center;text-decoration:none">📊 לוח בקרה — רק לך</a>
   <button class="btn ghost full" id="toHelp" style="margin-bottom:10px">❓ עזרה ואיך משתמשים</button>
   <button class="btn ghost full" id="toShare" style="margin-bottom:10px">📤 שתף את האפליקציה עם חבר</button>
@@ -1195,6 +1296,8 @@ function openSettings() { openSheet(`<h3>⚙️ הגדרות</h3>
   drawMe(sh.querySelector('#meCard'));
   drawSync(sh.querySelector('#syncCard'));
   drawLockCard(sh.querySelector('#lockCard'));
+  drawViewCard(sh.querySelector('#viewCard'));
+  drawPushCard(sh.querySelector('#pushCard'));
   sync.isAdmin().then(ok => { const a = sh.querySelector('#toAdmin'); if (ok && a) a.hidden = false; });
   sh.querySelector('#toExcel').onclick = () => openExportSheet();
   sh.querySelector('#toCats').onclick = () => openCatsSheet();
@@ -1743,6 +1846,7 @@ load().then(async () => {
   await reloadFromDb();
   showGate();
   if (RECOVERY && syncUser) newPasswordSheet();
+  if (new URLSearchParams(location.search).get('v') === 'budget') go('budget'); // לחיצה על התראת תקציב
 });
 
 // 🔑 אחרי לחיצה על הקישור במייל "שכחתי סיסמה"
