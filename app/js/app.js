@@ -849,7 +849,8 @@ function renderQuick() {
   const frequent = Object.entries(count).filter(([d]) => d !== 'הוצאה').sort((a, b) => b[1] - a[1]).slice(0, 6).map(([d]) => d);
   const defaults = ['סופר', 'טעינה לרכב', 'קפה', 'משכורת', 'חשמל', 'צדקה'];
   const words = [...new Set([...frequent, ...defaults])].slice(0, 8);
-  $('#quick').innerHTML = words.map(w => `<button class="chip" data-q="${esc(w)}">${catOf(isIncome(w) ? 'income' : classify(w, S.learned)).e} ${esc(w)}</button>`).join('') + '<button class="chip" data-helpchip="1">❓ עזרה</button>';
+  // ❓ עזרה ראשונה בשורה — שלא תיעלם בסוף הגלילה
+  $('#quick').innerHTML = '<button class="chip" data-helpchip="1">❓ עזרה</button>' + words.map(w => `<button class="chip" data-q="${esc(w)}">${catOf(isIncome(w) ? 'income' : classify(w, S.learned)).e} ${esc(w)}</button>`).join('');
 }
 $('#quick').addEventListener('click', e => {
   if (e.target.closest('[data-helpchip]')) { openHelp(); return; }
@@ -2163,6 +2164,7 @@ function drawViewCard(el) {
 }
 
 // ---------- הגדרות וגיבוי ----------
+$('#helpBtn').onclick = () => openHelp();
 $('#settingsBtn').onclick = () => openSettings();
 function openSettings() { openSheet(`<h3>⚙️ הגדרות</h3>
   <div class="card" id="meCard" style="margin-bottom:12px"></div>
