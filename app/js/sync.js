@@ -73,11 +73,19 @@ export async function loadHousehold() {
   await db.setKV('household', hh, true);
   return hh;
 }
+// 🔐 מעלים נתונים מהטלפון למשפחה רק אם הם מעולם לא היו של משפחה אחרת (טלפון חדש לפני הרשמה).
+// אחרת — מנקים אותם קודם, כדי שנתונים של משפחה אחת לא יגיעו בטעות למשפחה אחרת
+async function adoptLocalData() {
+  const owner = await db.getKV('dataHousehold', null), synced = await db.getKV('lastSync', null);
+  if ((owner && owner !== hh.id) || (!owner && synced)) { await db.clearFamilyData(); await db.setKV('household', hh, true); }
+  else if (!owner) await pushEverything();
+  await db.setKV('dataHousehold', hh.id, true);
+}
 export async function createHousehold(name) {
   const { error } = await (await client()).rpc('create_household', { hname: name });
   if (error) throw new Error(nice(error));
   await loadHousehold();
-  await pushEverything();
+  await adoptLocalData();
   return hh;
 }
 export async function joinHousehold(code) {
@@ -85,7 +93,14 @@ export async function joinHousehold(code) {
   if (error) throw new Error(nice(error));
   if (!data) throw new Error(HEB_ERR['bad code']);
   await loadHousehold();
-  await pushEverything();
+  await adoptLocalData();
+  return hh;
+}
+// 🔐 הורה מחליף את קודי ההצטרפות — הקודים, הקישורים וה-QR הישנים מפסיקים לעבוד
+export async function regenerateCodes() {
+  const { error } = await (await client()).rpc('regenerate_codes');
+  if (error) throw new Error(/not allowed/.test(error.message) ? 'רק הורה יכול להחליף קודים' : nice(error));
+  await loadHousehold();
   return hh;
 }
 
@@ -305,7 +320,12 @@ export async function start({ onRemoteChange, onStatus }) {
     await db.setKV('lastUser', { id: u.id, email: u.email }, true);
     track.ping(sb);
     hh = await db.getKV('household', null);
-    try { await loadHousehold(); } catch { /* בלי רשת — נשתמש במה ששמור */ }
+    const prev = hh;
+    let loaded = false;
+    try { await loadHousehold(); loaded = true; } catch { /* בלי רשת — נשתמש במה ששמור */ }
+    // 🔐 הוסרת מהמשפחה: השרת כבר לא מחזיר אותה — מוחקים מהטלפון את העותק של הנתונים שלה
+    if (loaded && prev && !hh) { stop(); await db.clearFamilyData(); return { user: u, household: null, removed: prev.name || true }; }
+    if (hh && !(await db.getKV('dataHousehold', null))) await db.setKV('dataHousehold', hh.id, true);
     if (hh) {
       // לא מחכים לרשת — האפליקציה כבר עובדת עם מה ששמור בטלפון
       refresh().then(() => subscribe()).catch(e => { console.warn('sync start', e); status('wait'); });

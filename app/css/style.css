@@ -388,3 +388,7 @@ body.noting .tour-ring,body.noting .notes-fab{display:none!important}
 .rec-acts{display:flex;gap:6px;flex:none}
 .rec-acts button{width:38px;height:38px;border-radius:12px;background:var(--card2);border:1px solid var(--line);font-size:15px}
 .rec-acts button.armed{width:auto;padding:0 8px;font-size:12.5px;color:#FB7185;border-color:#FB7185}
+.regen{display:flex;gap:10px;align-items:flex-start;background:rgba(244,63,94,.08);border:1px solid rgba(251,113,133,.35);border-radius:14px;padding:10px;margin:-4px 0 14px}
+.regen .chip{flex:none}
+.regen .chip.armed{background:#F43F5E;border-color:#F43F5E}
+.regen .sub{font-size:12.5px;line-height:1.4}

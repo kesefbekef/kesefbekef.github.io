@@ -2663,6 +2663,8 @@ async function drawSync(el) {
         ${hh.child_code ? `<div class="qr" data-qr="${hh.child_code}"></div>
         <button class="chip" data-copy="${hh.child_code}">📋 העתקה</button> <button class="chip" data-zoom="${hh.child_code}" data-zt="🧒 קוד לילד">🔍 להגדיל</button>` : ''}</div>
     </div>
+    <div class="regen"><button class="chip" id="regenCodes">🔄 להחליף קודים</button>
+      <span class="sub">מישהו לא רצוי קיבל קוד או קישור? מחליפים — והקודים, הקישורים וה-QR הישנים מפסיקים לעבוד מיד. מי שכבר במשפחה נשאר.</span></div>
     <div class="sub" style="margin-bottom:6px">👨‍👩‍👧 מי במשפחה:</div>
     <div id="famList" class="sub">טוען…</div>
     <div class="err" id="memErr"></div>
@@ -2673,6 +2675,14 @@ async function drawSync(el) {
 `;
 
   drawQRs(el);
+  el.querySelector('#regenCodes')?.addEventListener('click', async e => {
+    const b = e.currentTarget;
+    if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = '⚠️ בטוח? לחץ שוב'; b.classList.add('armed'); return; }
+    if (UITEST) { toast('(בדיקה) הקודים היו מתחלפים'); return; }
+    b.disabled = true; b.textContent = '⏳ מחליף…';
+    try { await sync.regenerateCodes(); toast('🔐 הוחלפו קודים — הישנים כבר לא עובדים'); confetti(); drawSync(el); }
+    catch (x) { b.disabled = false; b.textContent = '🔄 להחליף קודים'; toast(x.message, true); }
+  });
   el.querySelectorAll('[data-copy]').forEach(b => b.onclick = async () => {
     try { await navigator.clipboard.writeText(b.dataset.copy); b.textContent = '✅ הועתק'; } catch { b.textContent = b.dataset.copy; }
   });
@@ -2697,7 +2707,12 @@ async function drawSync(el) {
     });
     box.querySelectorAll('[data-rm]').forEach(b => b.onclick = async () => {
       if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'להסיר?'; return; }
-      try { await sync.removeMember(b.dataset.rm); toast('הוסר מהמשפחה'); drawFamily(); } catch (x) { err(x.message); }
+      try {
+        await sync.removeMember(b.dataset.rm);
+        // גם השם שלו יורד מהרשימה (השרת כבר מחק — כאן מעדכנים מיד גם בטלפון)
+        if (S.people.some(p => p.uid === b.dataset.rm)) { S.people = S.people.filter(p => p.uid !== b.dataset.rm); await db.setKV('people', S.people); renderAll(); }
+        toast('הוסר מהמשפחה — הוא כבר לא רואה את הנתונים'); drawFamily();
+      } catch (x) { err(x.message); }
     });
     box.querySelectorAll('[data-inv]').forEach(b => b.onclick = () => {
       const p = personOf(b.dataset.inv);
@@ -2753,6 +2768,12 @@ load().then(async () => {
     onStatus: st => { const el = document.querySelector('#syncState'); if (el) el.textContent = st === 'ok' ? '· מסונכרן ✓' : '· ממתין לרשת…'; },
   });
   syncUser = r.user;
+  if (r.removed) { // 🔐 הוסרת מהמשפחה — העותק בטלפון נמחק
+    await reloadFromDb();
+    setTimeout(() => openSheet(`<div class="onb-emo">👋</div><h3 style="text-align:center">הוסרת מהמשפחה</h3>
+      <div class="sub" style="text-align:center;margin:-4px 0 14px">הורה במשפחה "${esc(typeof r.removed === 'string' ? r.removed : '')}" הסיר אותך. הנתונים שלה נמחקו מהטלפון הזה.<br>אפשר לפתוח משפחה חדשה, או להצטרף שוב עם קוד חדש.</div>
+      <button class="btn grad full" id="rmOk">הבנתי</button>`, sh => { sh.querySelector('#rmOk').onclick = () => { closeSheet(); showGate(); }; }), 300);
+  }
   await reloadFromDb();
   showGate();
   if (RECOVERY && syncUser) newPasswordSheet();

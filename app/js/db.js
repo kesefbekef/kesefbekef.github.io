@@ -58,7 +58,7 @@ export async function importAll(data) {
 export async function clearFamilyData() {
   const db = await open();
   await done(db.transaction('tx', 'readwrite').objectStore('tx').clear());
-  for (const k of ['budgets', 'learned', 'people', 'outbox', 'outboxRejected', 'lastSync', 'household', 'me', 'base:budgets', 'base:learned', 'base:people', 'cats', 'base:cats', 'goals', 'base:goals', 'maaser', 'base:maaser', 'pocket', 'base:pocket', 'debts', 'base:debts', 'recurring', 'base:recurring'])
+  for (const k of ['budgets', 'learned', 'people', 'outbox', 'outboxRejected', 'lastSync', 'household', 'me', 'base:budgets', 'base:learned', 'base:people', 'cats', 'base:cats', 'goals', 'base:goals', 'maaser', 'base:maaser', 'pocket', 'base:pocket', 'debts', 'base:debts', 'recurring', 'base:recurring', 'dataHousehold'])
     await done(db.transaction('kv', 'readwrite').objectStore('kv').delete(k));
 }
 
