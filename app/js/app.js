@@ -110,31 +110,52 @@ function confetti() {
   }
 }
 
+// ---------- ↩️ ניווט: כפתור "חזור" של הטלפון חוזר בדיוק מסך אחד ----------
+// כל צעד (מסך / חלון / חלון בתוך חלון) נרשם בהיסטוריה. "חזור" מבטל את הצעד האחרון בלבד.
+const nav = []; let ignorePop = 0, queued = 0, curSheet = null, sheetReopen = null, backing = false;
+function hPush(entry) { nav.push(entry); if (ignorePop) queued++; else history.pushState({ n: nav.length }, ''); }
+function hDrop(n) {
+  if (n <= 0) return;
+  nav.length = Math.max(0, nav.length - n);
+  if (queued >= n) { queued -= n; return; }
+  n -= queued; queued = 0; ignorePop++; history.go(-n);
+}
+window.addEventListener('popstate', () => {
+  if (ignorePop) { ignorePop--; if (!ignorePop) while (queued) { history.pushState({ n: nav.length - queued + 1 }, ''); queued--; } return; }
+  const e = nav.pop(); e?.undo();
+});
+const sheetTitle = html => (html.match(/<h3[^>]*>([\s\S]*?)<\/h3>/)?.[1] || '').replace(/<[^>]+>/g, '').trim();
+
 // ---------- גיליון תחתון ----------
-// כפתור "חזור" של הטלפון סוגר את החלון במקום לצאת מהאפליקציה
-let sheetHist = false, popPending = false;
-function openSheet(html, mount) {
+function openSheet(html, mount, fromBack = false) {
+  fromBack = fromBack || backing;
+  // חלונות של רשימות נפתחים מחדש ב"חזור" (כדי להראות מספרים עדכניים), השאר — כמו שהיו
+  const open = $('#sheet').classList.contains('on'), title = sheetTitle(html), next = { html, mount, title, reopen: sheetReopen }; sheetReopen = null;
+  if (!fromBack) {
+    if (!open || !curSheet) hPush({ t: 'sheet', undo: () => closeSheet(true) });
+    else if (curSheet.title !== title || !title) {
+      // חוזרים לחלון שכבר פתוח מתחת? (כפתור "↩️ חזרה" בתוך החלון) — מורידים את מה שמעליו
+      const i = nav.findIndex(e => e.t === 'sheet' && e.prev && e.prev.title && e.prev.title === title);
+      if (i >= 0) hDrop(nav.length - i);
+      else { const prev = curSheet; hPush({ t: 'sheet', prev, undo: () => { if (prev.reopen) { backing = true; try { prev.reopen(); } finally { backing = false; } } else openSheet(prev.html, prev.mount, true); } }); }
+    } // אותו חלון בדיוק (רענון אחרי שמירה) — לא נרשם צעד חדש
+  }
+  curSheet = next;
   $('#sheet').innerHTML = '<div class="grip"></div>' + html;
   $('#sheet').scrollTop = 0;
   $('#overlay').classList.add('on'); $('#sheet').classList.add('on');
-  if (!sheetHist && !popPending) { history.pushState({ sheet: 1 }, ''); sheetHist = true; }
   mount?.($('#sheet'));
 }
 function closeSheet(fromPop) {
   $('#overlay').classList.remove('on'); $('#sheet').classList.remove('on');
   document.querySelector('.tour-card')?.classList.remove('hide'); // כרטיס הסיור חוזר
   document.body.classList.remove('noting');
-  if (sheetHist && fromPop !== true) { sheetHist = false; popPending = true; history.back(); }
-  else if (fromPop === true) sheetHist = false;
+  if (fromPop !== true) { let k = 0; for (let i = nav.length - 1; i >= 0 && nav[i].t === 'sheet'; i--) k++; hDrop(k); }
+  curSheet = null;
 }
 $('#overlay').onclick = closeSheet;
 // המסגרת עצמה לעולם לא נגללת (פוקוס על שדה בחלון יכול להזיז אותה ולשבור את המסך)
 $('#app').addEventListener('scroll', e => { e.target.scrollTop = 0; e.target.scrollLeft = 0; });
-window.addEventListener('popstate', () => {
-  const open = $('#sheet').classList.contains('on');
-  if (popPending) { popPending = false; if (open) { history.pushState({ sheet: 1 }, ''); sheetHist = true; } return; }
-  if (open) closeSheet(true);
-});
 // משיכה כלפי מטה (כשהחלון גלול לראש) — החלון יורד ונסגר, חוזרים למסך הראשי
 (() => {
   const sh = $('#sheet'); let y0 = null, dy = 0, drag = false;
@@ -819,7 +840,13 @@ document.addEventListener('click', e => {
   S.month = addMonths(S.month, Number(b.dataset.mn)); S.catFilter = null; renderAll();
 });
 
-function go(v) {
+function go(v, fromBack = false) {
+  // ↩️ מעבר בין מסכים נרשם בהיסטוריה — "חזור" מחזיר למסך הקודם (ולא יוצא מהאפליקציה)
+  if (!fromBack && v !== S.view && !$('#sheet').classList.contains('on')) {
+    const top = nav[nav.length - 1];
+    if (top?.t === 'view' && top.from === v) hDrop(1); // חזרה ידנית למסך הקודם = כמו "חזור"
+    else { const from = S.view; hPush({ t: 'view', from, undo: () => go(from, true) }); }
+  }
   S.view = v;
   $$('nav button[data-v]').forEach(x => x.classList.toggle('on', x.dataset.v === v));
   $$('.view').forEach(x => x.classList.toggle('on', x.id === 'v-' + v));
@@ -1313,6 +1340,7 @@ const monthsUntil = m => { if (!m) return 0; const [y, mo] = m.split('-').map(Nu
 // S.goals = { id: { n, e, target, date: 'YYYY-MM', dep: [{ d, a, w }] } }
 const goalSaved = g => (g.dep || []).reduce((s, x) => s + x.a, 0);
 function openGoals() {
+  sheetReopen = () => openGoals();
   const list = Object.entries(S.goals || {});
   openSheet(`<h3>🐷 קופות חיסכון</h3><div class="sub" style="margin:-6px 0 12px">חוסכים למשהו? פותחים קופה עם יעד ותאריך — והאפליקציה אומרת כמה לשים בצד כל חודש.</div>
     ${list.length ? `<div class="stg" style="display:flex;flex-direction:column;gap:10px">${list.map(([id, g]) => {
@@ -1407,10 +1435,11 @@ function maaserCalc() {
 }
 const saveMaaser = async patch => { await saveKV('maaser', { ...S.maaser, ...patch }); openMaaser(); };
 function openMaaser() {
+  sheetReopen = () => openMaaser();
   const r = maaserCalc(), M = S.maaser || {};
   const custom = ![10, 20].includes(r.pct);
   const kinds = Object.entries(r.kinds).sort((a, b) => b[1].v - a[1].v);
-  openSheet(`<h3>🤲 ${r.pct === 20 ? 'חומש' : 'מעשר'}</h3>
+  openSheet(`<h3>🤲 מעשר</h3><div class="sub" style="margin:-6px 0 10px">${r.pct === 20 ? 'חומש 20%' : r.pct + '%'}</div>
     <div class="card" style="text-align:center;margin-bottom:12px">
       <small class="sub">${r.left > 0 ? 'נשאר לתת' : r.left < 0 ? 'נתתם יותר — יתרה לזכותכם' : 'הכל ניתן 👏'}</small>
       <div class="big-num" id="mLeft" style="color:${r.left > 0 ? '#FACC15' : '#4ADE80'}">${fmt(Math.abs(r.left))}</div>
@@ -1460,6 +1489,7 @@ const pocketOf = pid => S.pocket?.[pid] || { goal: null, mv: [] };
 const pocketBal = pid => (pocketOf(pid).mv || []).reduce((s, x) => s + x.a, 0);
 const kidsList = () => S.people;
 function openPocket(only = null) {
+  sheetReopen = () => openPocket(only);
   const kids = only ? S.people.filter(p => p.id === only) : kidsList();
   const rate = S.pocket?.rate || { stars: 10, nis: 5 };
   openSheet(`<h3>🧒 ${only ? 'הקופה שלי' : 'קופות דמי כיס'}</h3>
@@ -1562,6 +1592,7 @@ function debtDue(x) {
   return { per, behind: Math.max(0, num(k * per - debtPaid(x))), next: k < x.plan.n ? next : null };
 }
 function openDebts() {
+  sheetReopen = () => openDebts();
   const list = Object.entries(S.debts || {}).filter(([, x]) => debtLeft(x) > 0 || Date.now() - new Date(x.d) < 30 * 864e5);
   const owedToUs = list.filter(([, x]) => x.dir === 'lent').reduce((s, [, x]) => s + debtLeft(x), 0);
   const weOwe = list.filter(([, x]) => x.dir === 'borrowed').reduce((s, [, x]) => s + debtLeft(x), 0);
@@ -1801,6 +1832,7 @@ async function postRecurring() {
 }
 const ruleLine = r => `${r.variable ? '≈ ' : ''}${fmt(r.amount)} · כל ${r.day} לחודש${r.end ? ' · עד ' + monthLabel(r.end) : ''}${r.paused ? ' · ⏸️ מושהה' : ''}`;
 function openRecurring() {
+  sheetReopen = () => openRecurring();
   const list = Object.entries(S.recurring || {}), act = list.filter(([, r]) => !r.paused);
   const inSum = act.filter(([, r]) => r.cat === 'income').reduce((s, [, r]) => s + r.amount, 0), outSum = act.filter(([, r]) => r.cat !== 'income').reduce((s, [, r]) => s + r.amount, 0);
   openSheet(`<h3>🔁 הקבועים שלי</h3><div class="sub" style="margin:-6px 0 12px">נרשמים לבד כל חודש ביום שבחרתם. אפשר לערוך, להשהות או להפסיק.</div>
@@ -1984,7 +2016,7 @@ async function tourGo(i) {
   if (i < 0 || i >= TOUR.length) return tourStop();
   tourI = i; const s = TOUR[i];
   if ($('#sheet').classList.contains('on') && !s.open) closeSheet();
-  if (s.v && S.view !== s.v) go(s.v);
+  if (s.v && S.view !== s.v) go(s.v, true);
   if (s.open) s.open();
   await new Promise(r => setTimeout(r, s.open ? 450 : 200));
   let el = typeof s.sel === 'function' ? s.sel() : s.sel ? document.querySelector(s.sel) : null;
@@ -2065,6 +2097,7 @@ function openNotes() {
 // ---------- 🏷️ קטגוריות אישיות (מסונכרן לכל המשפחה) ----------
 async function saveCats() { await db.setKV('cats', S.cats); applyCustomCats(S.cats); renderAll(); }
 function openCatsSheet() {
+  sheetReopen = () => openCatsSheet();
   openSheet(`<h3>🏷️ קטגוריות</h3><div class="sub" style="margin:-6px 0 12px">אפשר להוסיף קטגוריה משלכם או לשנות שם, אייקון וצבע. השינוי מגיע לכל המשפחה 👨‍👩‍👧</div>
     <div class="card" style="padding:4px 12px">${Object.entries(CATS).map(([id, c]) => `<button class="tx cat-li" data-ec="${id}">
       <div class="cat-ic" style="background:${c.g}">${c.e}</div><div class="nm"><div>${c.n}</div>${c.custom ? '<small>✨ שלנו</small>' : ''}</div>
@@ -2168,7 +2201,8 @@ function drawViewCard(el) {
 // ---------- הגדרות וגיבוי ----------
 $('#helpBtn').onclick = () => openHelp();
 $('#settingsBtn').onclick = () => openSettings();
-function openSettings() { openSheet(`<h3>⚙️ הגדרות</h3>
+function openSettings() {
+  sheetReopen = () => openSettings(); openSheet(`<h3>⚙️ הגדרות</h3>
   <div class="card" id="meCard" style="margin-bottom:12px"></div>
   <div class="card" id="syncCard" style="margin-bottom:12px"></div>
   <div class="card" id="lockCard" style="margin-bottom:12px"></div>
