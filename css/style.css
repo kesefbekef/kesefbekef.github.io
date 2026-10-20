@@ -328,3 +328,6 @@ body.demo header{padding-top:10px}
 body.touring .notes-fab{z-index:62;position:fixed}
 .tour-card .tlist[hidden]{display:none}
 body.touring .notes-fab{bottom:calc(215px + var(--safe-b))} /* בזמן הסיור — מעל כרטיס הסיור */
+
+/* כשחלון ההערות פתוח בזמן הסיור — בלי טבעת ובלי בועה מעל השדה, כדי שאפשר יהיה לכתוב וללחוץ "שמירה" */
+body.noting .tour-ring,body.noting .notes-fab{display:none!important}
