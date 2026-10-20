@@ -161,7 +161,7 @@ site_url = "https://kesefbekef.github.io/"
 # The public URL that Auth serves on. Defaults to the API external URL with `/auth/v1` appended.
 # external_url = ""
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
-additional_redirect_urls = ["https://kesefbekef.github.io/", "https://zd0542964361.github.io/kesef-bekef/", "http://localhost:5173"]
+additional_redirect_urls = ["https://kesefbekef.github.io/", "https://zd0542964361.github.io/kesef-bekef/", "http://localhost:5173", "https://zd0542964361.github.io/zman-bekef/**", "https://zmanbekef.github.io/**", "http://localhost:5174"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # JWT issuer URL. If not set, defaults to auth.external_url.
