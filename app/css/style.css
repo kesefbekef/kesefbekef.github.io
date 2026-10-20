@@ -393,3 +393,6 @@ body.noting .tour-ring,body.noting .notes-fab{display:none!important}
 .regen .chip.armed{background:#F43F5E;border-color:#F43F5E}
 .regen .sub{font-size:12.5px;line-height:1.4}
 .removed-note{background:rgba(244,63,94,.12);border:1px solid rgba(251,113,133,.45);border-radius:16px;padding:12px 14px;margin-bottom:16px;line-height:1.5;font-size:14.5px;text-align:right}
+/* 🔑 חלון "סיסמה חדשה" / קישור שפג — תמיד מעל מסך הכניסה והנעילה */
+body.over-gate .overlay{z-index:110}
+body.over-gate .sheet{z-index:111}

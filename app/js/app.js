@@ -36,6 +36,8 @@ const timeOf = iso => new Date(iso).toLocaleTimeString('he-IL', { hour: '2-digit
 const thisMonth = () => ym(new Date());
 
 const RECOVERY = /type=recovery/.test(location.hash);
+// קישור מהמייל שכבר לא תקף (פג תוקף / נפתח כבר — לפעמים Gmail "בודק" קישורים מראש)
+const LINK_ERR = /error_code=|error=access_denied/.test(location.hash) ? decodeURIComponent((location.hash.match(/error_code=([^&]+)/) || [])[1] || 'error') : '';
 const S = { tx: [], budgets: {}, learned: {}, cats: {}, goals: {}, maaser: {}, pocket: {}, debts: {}, recurring: {}, people: [], me: null, month: thisMonth(), view: 'chat', catFilter: null, whoFilter: null, search: '' };
 
 // ---------- בני הבית ----------
@@ -149,7 +151,7 @@ function openSheet(html, mount, fromBack = false) {
 function closeSheet(fromPop) {
   $('#overlay').classList.remove('on'); $('#sheet').classList.remove('on');
   document.querySelector('.tour-card')?.classList.remove('hide'); // כרטיס הסיור חוזר
-  document.body.classList.remove('noting');
+  document.body.classList.remove('noting', 'over-gate');
   if (fromPop !== true) { let k = 0; for (let i = nav.length - 1; i >= 0 && nav[i].t === 'sheet'; i--) k++; hDrop(k); }
   curSheet = null;
 }
@@ -2824,21 +2826,40 @@ load().then(async () => {
   await showGate();
   if (!$('#gate').classList.contains('on')) openStartView();
   if (RECOVERY && syncUser) newPasswordSheet();
+  else if (LINK_ERR) linkErrorSheet();
+  if (r.deleted) toast('👋 החשבון הזה כבר לא קיים — אפשר להירשם מחדש', true);
   if (new URLSearchParams(location.search).get('v') === 'budget') go('budget'); // לחיצה על התראת תקציב
   await postRecurring();
   starsLink(); addLink(); if (!$('#sheet').classList.contains('on')) maybeOnboard();
   debtReminder();
 });
 
+// 🔑 הקישור מהמייל לא עבד (פג תוקף / כבר נפתח) — מסבירים ומאפשרים לשלוח שוב
+function linkErrorSheet() {
+  history.replaceState(null, '', location.pathname + location.search);
+  document.body.classList.add('over-gate');
+  openSheet(`<div class="onb-emo">⏰</div><h3 style="text-align:center">הקישור מהמייל כבר לא תקף</h3>
+    <div class="sub" style="text-align:center;margin:-4px 0 14px">קישור לאיפוס סיסמה עובד <b>פעם אחת בלבד</b> ולזמן קצר. לפעמים תיבת המייל "בודקת" אותו לפני שלוחצים.<br>שולחים מייל חדש ולוחצים על הקישור <b>מיד</b>:</div>
+    <input id="leMail" type="email" autocomplete="email" placeholder="המייל שאיתו נרשמת" style="${inputStyle}">
+    <div class="err" id="leErr"></div><button class="btn grad full" id="leSend">📧 לשלוח קישור חדש</button>`, sh => {
+    sh.querySelector('#leSend').onclick = async e => {
+      const m = sh.querySelector('#leMail').value.trim(); if (!/.+@.+\..+/.test(m)) { sh.querySelector('#leErr').textContent = 'צריך מייל תקין'; return; }
+      e.target.disabled = true;
+      try { await sync.resetPassword(m); e.target.textContent = '📧 נשלח! פתחו את המייל ולחצו על הקישור'; }
+      catch (x) { e.target.disabled = false; sh.querySelector('#leErr').textContent = x.message; }
+    };
+  });
+}
 // 🔑 אחרי לחיצה על הקישור במייל "שכחתי סיסמה"
 function newPasswordSheet() {
+  document.body.classList.add('over-gate'); // מעל מסך הכניסה / הנעילה — אחרת לא רואים את החלון
   openSheet(`<h3>🔑 סיסמה חדשה</h3><div class="sub" style="margin:-6px 0 12px">בחר סיסמה חדשה לחשבון ${esc(syncUser.email || '')}</div>
     <input id="npPass" type="password" autocomplete="new-password" placeholder="סיסמה חדשה (לפחות 6 תווים)" style="${inputStyle}">
     <div class="err" id="npErr"></div><button class="btn grad full" id="npSave">שמירה</button>`, sh => {
     sh.querySelector('#npSave').onclick = async () => {
       const pw = sh.querySelector('#npPass').value;
       if (pw.length < 6) { sh.querySelector('#npErr').textContent = 'הסיסמה צריכה להיות לפחות 6 תווים'; return; }
-      try { await sync.changePassword(pw); closeSheet(); toast('✅ הסיסמה הוחלפה'); }
+      try { await sync.changePassword(pw); document.body.classList.remove('over-gate'); closeSheet(); toast('✅ הסיסמה הוחלפה — אפשר להיכנס איתה'); showGate(); }
       catch (x) { sh.querySelector('#npErr').textContent = x.message; }
     };
   });
