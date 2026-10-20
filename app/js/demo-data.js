@@ -56,13 +56,15 @@ export function demoData(now = new Date()) {
   const kv = {
     people, me: 'p_dad',
     cats: { c_dog: { n: 'הכלב', e: '🐶', c: '#F97316', custom: true } },
-    budgets: { food: 2600, rest: 450, c_dog: 150, fun: 400 },
+    budgets: { _mode: 'auto', food: 2600, rest: 450, c_dog: 150, fun: 400 },
     learned: {},
     goals: {
       g_wed: { n: 'חתונה של יוסי', e: '💍', target: 20000, date: `${Y + 1}-06`, dep: [{ d: iso(Y, M - 2, 1), a: 6000, w: 'p_dad' }, { d: iso(Y, M - 1, 1), a: 2500, w: 'p_mom' }, { d: iso(Y, M, 1), a: 2500, w: 'p_dad' }] },
       g_car: { n: 'רכב חדש', e: '🚗', target: 40000, date: '', dep: [{ d: iso(Y, M - 1, 5), a: 4000, w: 'p_dad' }] },
     },
-    maaser: { pct: 10, since: '' },
+    maaser: { pct: 10, since: '', incOff: { 'קצבת ילדים': false }, deduct: true, deductCats: ['health'], giveCounts: true,
+      dist: [{ id: 'm1', name: 'ישיבת אור החיים', v: 40, unit: 'pct', done: true }, { id: 'm2', name: 'משפחת כהן (סיוע)', v: 500, unit: 'nis', done: true },
+        { id: 'm3', name: 'קופת העיר', v: 20, unit: 'pct', done: false }, { id: 'm4', name: 'גמ"ח כלים', v: 300, unit: 'nis', done: false }] },
     pocket: {
       rate: { stars: 10, nis: 5 },
       p_kid1: { goal: { n: 'אופניים', target: 400 }, mv: [{ id: id(), d: iso(Y, M - 1, 2), a: 100, note: 'דמי כיס', src: 'dep' }, { id: id(), d: iso(Y, M - 1, 20), a: 25, note: '50⭐ כוכבים', src: 'stars' }, { id: id(), d: iso(Y, M, 3), a: -30, note: 'ספר', src: 'spend' }, { id: id(), d: iso(Y, M, 5), a: 150, note: 'מתנה מסבתא', src: 'dep' }] },
