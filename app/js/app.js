@@ -7,7 +7,7 @@ import * as sync from './sync.js';
 import * as lock from './lock.js';
 import * as help from './help.js';
 import { demoData } from './demo-data.js';
-import { fixedPayments, dueMonths } from './fixed.js';
+import { fixedPayments, dueMonths, nextRuleDate } from './fixed.js';
 
 // ---------- עזרים ----------
 const $ = s => document.querySelector(s);
@@ -1045,8 +1045,9 @@ function openAddForm(cat) {
     </div>
     <div class="rec-box ${rec ? 'on' : ''}" id="aRecBox"><button class="chip ${rec ? 'on' : ''}" id="aRec">🔁 קבוע כל חודש</button>
       <div class="rec-more"><div class="row2"><label class="field"><span>ביום בחודש</span><input id="aRecDay" type="number" inputmode="numeric" min="1" max="28" value="${Math.min(28, new Date().getDate())}"></label>
-        <label class="field"><span>כמה חודשים? (ריק = בלי סוף)</span><input id="aRecN" type="number" inputmode="numeric" placeholder="∞"></label></div>
-        <label class="field"><span>או: עד חודש (לא חובה)</span><input id="aRecEnd" type="month"></label>
+        <label class="field"><span>כמה חודשים?</span><input id="aRecN" type="number" inputmode="numeric" placeholder="♾️"></label></div>
+        <div class="chips" id="aRecDur" style="flex-wrap:wrap;margin-bottom:10px"><button class="chip on" data-dur="0">♾️ ללא סוף</button><button class="chip" data-dur="3">3 חודשים</button><button class="chip" data-dur="6">חצי שנה</button><button class="chip" data-dur="12">שנה</button><button class="chip" data-dur="end">📅 עד תאריך</button></div>
+        <label class="field" id="aRecEndF" style="display:none"><span>עד חודש</span><input id="aRecEnd" type="month"></label>
         <label class="chk"><input type="checkbox" id="aRecVar"> 💡 הסכום משתנה (כמו חשמל) — לשאול כל חודש כמה יצא</label></div></div>
     ${inc && S.people.length ? `<div class="who-box"><div class="who-q">👤 של מי ההכנסה?</div><div class="chips" id="aWho" style="flex-wrap:wrap">${whoChips(who)}</div></div>` : ''}
     <label class="field"><span>${inc ? 'מאיפה?' : 'על מה? / איפה?'} (לא חובה)</span><input id="aDesc" placeholder="למשל: ${ADD_HINT[cat] || ''}"></label>
@@ -1058,6 +1059,11 @@ function openAddForm(cat) {
     ${tagField('aTag', [])}
     <button class="btn grad full" id="aSave">✅ שמירה</button>`, sh => {
     sh.querySelector('#aBack').onclick = openAddSheet;
+    sh.querySelectorAll('#aRecDur [data-dur]').forEach(b => b.onclick = () => {
+      sh.querySelectorAll('#aRecDur [data-dur]').forEach(x => x.classList.toggle('on', x === b));
+      const v = b.dataset.dur; sh.querySelector('#aRecEndF').style.display = v === 'end' ? '' : 'none';
+      sh.querySelector('#aRecN').value = v === 'end' || v === '0' ? '' : v; if (v !== 'end') sh.querySelector('#aRecEnd').value = '';
+    });
     sh.querySelector('#aRec').onclick = e => { rec = !rec; e.currentTarget.classList.toggle('on', rec); sh.querySelector('#aRecBox').classList.toggle('on', rec); };
     sh.querySelector('#aDate').onchange = e => { const d = new Date(e.target.value + 'T12:00:00'); if (!isNaN(d)) sh.querySelector('#aRecDay').value = Math.min(28, d.getDate()); };
     sh.querySelectorAll('#aPay [data-p]').forEach(b => b.onclick = () => {
@@ -1773,6 +1779,7 @@ const REC_PRESETS = [
   ['🛡️', 'ביטוחים', 'home', 350, 1], ['💼', 'משכורת', 'income', 12000, 1], ['👨‍👩‍👧', 'קצבת ילדים', 'income', 350, 20], ['🔑', 'שכירות שנכנסת', 'income', 4500, 1],
 ];
 const recId = (rid, m) => `rec_${rid}_${m}`;
+const monthsBetween = (a, b) => { const [y1, m1] = a.split('-').map(Number), [y2, m2] = b.split('-').map(Number); return (y2 - y1) * 12 + (m2 - m1); };
 const recEnd = (start, months, endM) => endM || (months > 0 ? addMonths(start, months - 1) : '');
 async function saveRule(rid, rule) { await saveKV('recurring', { ...S.recurring, [rid]: rule }); }
 async function postRecurring() {
@@ -1797,12 +1804,23 @@ function openRecurring() {
   const inSum = act.filter(([, r]) => r.cat === 'income').reduce((s, [, r]) => s + r.amount, 0), outSum = act.filter(([, r]) => r.cat !== 'income').reduce((s, [, r]) => s + r.amount, 0);
   openSheet(`<h3>🔁 הקבועים שלי</h3><div class="sub" style="margin:-6px 0 12px">נרשמים לבד כל חודש ביום שבחרתם. אפשר לערוך, להשהות או להפסיק.</div>
     <div class="duo" style="padding:0 0 12px"><div class="stat" style="background:var(--g3)"><small>נכנס כל חודש</small><div>${fmt(inSum)}</div></div><div class="stat" style="background:linear-gradient(135deg,#F43F5E,#F97316)"><small>יוצא כל חודש</small><div>${fmt(outSum)}</div></div></div>
-    ${list.length ? `<div class="card stg" style="padding:4px 12px">${list.sort((a, b) => (a[1].cat === 'income' ? 0 : 1) - (b[1].cat === 'income' ? 0 : 1) || a[1].day - b[1].day).map(([rid, r]) => { const c = catOf(r.cat);
-      return `<button class="tx" data-rule="${rid}" style="${r.paused ? 'opacity:.55' : ''}"><div class="cat-ic" style="background:${c.g}">${c.e}</div><div class="nm"><div>${esc(r.desc)}</div><small>${ruleLine(r)}</small></div><div class="am ${r.cat === 'income' ? 'plus' : ''}">${r.cat === 'income' ? '+' : ''}${fmt(r.amount)}</div></button>`; }).join('')}</div>`
+    ${list.length ? `<div class="stg" style="display:flex;flex-direction:column;gap:8px">${list.sort((a, b) => (a[1].cat === 'income' ? 0 : 1) - (b[1].cat === 'income' ? 0 : 1) || a[1].day - b[1].day).map(([rid, r]) => { const c = catOf(r.cat), nx = nextRuleDate(r);
+      const total = r.end ? Math.max(1, monthsBetween(r.start, r.end) + 1) : 0, left = r.end ? Math.max(0, monthsBetween(thisMonth(), r.end) + (nx ? 1 : 0)) : 0, ended = r.end && !nx;
+      return `<div class="rec-row ${r.paused ? 'paused' : ''}" data-rule="${rid}"><div class="cat-ic" style="background:${c.g}">${c.e}</div>
+        <div class="nm"><div>${esc(r.desc)} <b class="${r.cat === 'income' ? 'plus' : ''}">${r.cat === 'income' ? '+' : ''}${r.variable ? '≈' : ''}${fmt(r.amount)}</b></div>
+          <small>כל ${r.day} לחודש${r.paused ? ' · ⏸️ מושהה' : ended ? ' · 🏁 הסתיים' : nx ? ` · הבא: ${nx.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}` : ''}</small>
+          <small class="rec-left">${ended ? '🏁 הסתיים' : r.end ? `נשארו ${left} ${left === 1 ? 'חודש' : 'חודשים'}` : '♾️ ללא סוף'}</small>
+          ${r.end ? `<div class="rec-bar"><i style="width:${Math.min(100, (total - left) / total * 100)}%"></i></div>` : ''}</div>
+        <div class="rec-acts"><button data-rp="${rid}" aria-label="${r.paused ? 'המשך' : 'השהיה'}">${r.paused ? '▶️' : '⏸️'}</button><button data-rs="${rid}" aria-label="הפסקה">⏹️</button></div></div>`; }).join('')}</div>`
       : `<div class="empty"><span class="em">🔁</span>עוד אין קבועים. שכירות, ועד בית, משכורת — מכניסים פעם אחת, והם נרשמים לבד כל חודש.</div>`}
-    <div class="row2" style="margin-top:12px"><button class="btn grad" id="rqQuick">⚡ בחירה מהירה</button><button class="btn ghost" id="rqNew">➕ קבוע אחר</button></div>
+    <div class="row2" style="margin-top:12px"><button class="btn grad" id="rqNew">➕ קבוע</button><button class="btn ghost" id="rqQuick">⚡ בחירה מהירה</button></div>
     <div class="sub" style="margin-top:10px">💡 גם בצ'אט: "ועד בית 250 כל חודש" או "שכירות 4200 כל 1 לחודש"</div>`, sh => {
-    sh.querySelectorAll('[data-rule]').forEach(b => b.onclick = () => openRuleEdit(b.dataset.rule));
+    sh.querySelectorAll('[data-rule]').forEach(b => b.onclick = e => { if (!e.target.closest('.rec-acts')) openRuleEdit(b.dataset.rule); });
+    sh.querySelectorAll('[data-rp]').forEach(b => b.onclick = async () => { const r = S.recurring[b.dataset.rp]; await saveRule(b.dataset.rp, { ...r, paused: !r.paused }); toast(r.paused ? '▶️ ממשיך לרשום כל חודש' : '⏸️ מושהה'); if (r.paused) await postRecurring(); openRecurring(); });
+    sh.querySelectorAll('[data-rs]').forEach(b => b.onclick = async () => {
+      if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'בטוח?'; b.classList.add('armed'); return; }
+      const { [b.dataset.rs]: _, ...rest } = S.recurring; await saveKV('recurring', rest); toast('🏁 הקבוע הופסק'); openRecurring();
+    });
     sh.querySelector('#rqQuick').onclick = () => openRecurringSetup(openRecurring);
     sh.querySelector('#rqNew').onclick = () => { addRecDefault = true; openAddSheet(); };
   });

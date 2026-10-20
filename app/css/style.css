@@ -377,3 +377,14 @@ body.noting .tour-ring,body.noting .notes-fab{display:none!important}
 .est{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:6px;background:rgba(250,204,21,.12);border:1px solid rgba(250,204,21,.4);border-radius:12px;padding:6px 8px;font-size:13px}
 .est input{width:90px;height:34px;border-radius:10px;border:1px solid var(--line);background:var(--card2);padding:0 8px;font-size:16px;color:inherit}
 .est button{height:34px;border-radius:10px;padding:0 10px;background:var(--g3);border:none}
+.rec-row{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:10px 12px;cursor:pointer}
+.rec-row.paused{opacity:.5}
+.rec-row .cat-ic{border-radius:14px}
+.rec-row .nm{flex:1;min-width:0}
+.rec-row .nm small{display:block;color:var(--muted);font-size:12.5px}
+.rec-row .rec-left{color:#5EEAD4!important;font-weight:600}
+.rec-bar{height:4px;border-radius:4px;background:rgba(255,255,255,.1);margin-top:5px;overflow:hidden}
+.rec-bar i{display:block;height:100%;background:linear-gradient(90deg,#14B8A6,#22C55E);border-radius:4px;transform-origin:right;animation:fill .6s var(--ease) both}
+.rec-acts{display:flex;gap:6px;flex:none}
+.rec-acts button{width:38px;height:38px;border-radius:12px;background:var(--card2);border:1px solid var(--line);font-size:15px}
+.rec-acts button.armed{width:auto;padding:0 8px;font-size:12.5px;color:#FB7185;border-color:#FB7185}
