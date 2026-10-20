@@ -6,6 +6,7 @@ import * as xp from './exporter.js';
 import * as sync from './sync.js';
 import * as lock from './lock.js';
 import * as help from './help.js';
+import { demoData } from './demo-data.js';
 
 // ---------- עזרים ----------
 const $ = s => document.querySelector(s);
@@ -119,6 +120,7 @@ function openSheet(html, mount) {
 }
 function closeSheet(fromPop) {
   $('#overlay').classList.remove('on'); $('#sheet').classList.remove('on');
+  document.querySelector('.tour-card')?.classList.remove('hide'); // כרטיס הסיור חוזר
   if (sheetHist && fromPop !== true) { sheetHist = false; popPending = true; history.back(); }
   else if (fromPop === true) sheetHist = false;
 }
@@ -1646,6 +1648,150 @@ function hebRange(m) {
   return a === b ? a : `${a}–${b}`;
 }
 
+// ========== 🎭 מצב הדגמה · 🧭 סיור מודרך · 💬 הערות ==========
+// מצב הדגמה = מאגר נפרד (db.DEMO), בלי סנכרון, בלי התראות ובלי כתיבה לשרת. יציאה מחזירה את הנתונים האמיתיים כמו שהם.
+function enterDemo() { lsSet('kesef-demo', '1'); location.href = location.pathname; }
+function exitDemo() { try { localStorage.removeItem('kesef-demo'); } catch { /* */ } location.href = location.pathname; }
+async function demoStart() {
+  if (!(await db.allTx()).length) {
+    const { tx, kv } = demoData();
+    for (const t of tx) await db.putTx(t, true);
+    for (const [k, v] of Object.entries(kv)) await db.setKV(k, v, true);
+  }
+  await reloadFromDb();
+  $('#gate').classList.remove('on');
+  document.body.classList.add('demo');
+  const bar = document.createElement('div'); bar.className = 'demo-bar';
+  bar.innerHTML = `<span>🎭 מצב הדגמה — הנתונים לא אמיתיים</span><button id="dbTour">🧭 סיור</button><button id="dbExit">יציאה ✕</button>`;
+  $('#app').prepend(bar);
+  bar.querySelector('#dbTour').onclick = () => tourStart(0);
+  bar.querySelector('#dbExit').onclick = exitDemo;
+  notesFab();
+  if (!lsGet('kesef-tour-seen')) setTimeout(() => toastAction('🧭 רוצה סיור מודרך בכל התכונות?', '▶️ להתחיל', () => tourStart(0)), 900);
+}
+// אתחול מחדש של נתוני ההדגמה
+async function demoReset() {
+  indexedDB.deleteDatabase('kesef-bekef-demo'); setTimeout(() => location.reload(), 300);
+}
+
+// ---------- 🧭 הסיור: כל התכונות, צעד אחר צעד ----------
+// ⚠️ כלל קבוע: כל תכונה חדשה מוסיפה כאן צעד. v = מסך, sel = מה להאיר (או פונקציה), open = פותח חלון לפני ההארה
+const cardWith = txt => () => [...document.querySelectorAll('#tips .card')].find(c => c.innerText.includes(txt));
+const TOUR = [
+  { v: 'chat', sel: '#inp', t: '💬 רושמים הוצאה כמו הודעה', d: 'כותבים "אושר עד 500" ושולחים — הקטגוריה נבחרת לבד. אפשר כמה ביחד, תאריך ("אתמול"), ושם ("רחל: …").' },
+  { v: 'chat', sel: '#mic', t: '🎤 מדברים במקום להקליד', d: 'לחיצה קצרה — הקלטה עד ⏹️. החזקה — כמו בוואטסאפ: למעלה נועל, הצידה מבטל.' },
+  { v: 'chat', sel: '#attach', t: '📎 פירוט מהבנק / אשראי', d: 'אקסל, PDF או צילום מסך — האפליקציה קוראת את התנועות, ומה שכבר נרשם לא ייספר פעמיים.' },
+  { v: 'chat', sel: '#plusBtn', t: '➕ הוספה בלי צ\'אט', d: 'בוחרים קטגוריה (או 💰 הכנסה), סכום — ושמירה. אפשר גם תגית אירוע.' },
+  { v: 'chat', sel: '.hero', t: '💜 כמה נשאר החודש', d: 'המספר "רץ" לערך החדש, והפס מראה כמה מהתקציב נוצל.' },
+  { v: 'chat', sel: '#stories', t: '⭕ הטבעות של הקטגוריות', d: 'כל טבעת מתמלאת לפי התקציב, ונהיית אדומה כשחורגים. לחיצה — פירוט.' },
+  { v: 'chat', sel: () => [...document.querySelectorAll('#chat .bot .acts')].pop(), t: '✏️ עריכה, מחיקה, של מי', d: 'בכל בועה: לשנות הכל, למחוק (עם ↩️ ביטול), ולבחור על שם מי.' },
+  { v: 'chat', sel: () => [...document.querySelectorAll('#chat .tag')].pop() || $('#inp'), t: '🏷️ תגיות אירוע', d: 'מוסיפים #בר_מצווה להודעה — ורואים בתובנות כמה עלה כל אירוע.' },
+  { v: 'budget', sel: '#v-budget .duo', t: '🎯 הכנסות מול הוצאות', d: 'כמה נכנס וכמה יצא בחודש. לחיצה על ההכנסות — פירוט.' },
+  { v: 'budget', sel: '#budgetList .card', t: '✉️ מעטפות', d: 'בגדול: כמה נשאר בכל קטגוריה. ירוק, צהוב ב-90%, אדום כשנגמר.' },
+  { v: 'budget', sel: '#recoBtn', t: '🪄 המלצה לתקציב', d: 'מחשבת כמה כדאי להגדיר לכל קטגוריה לפי מה שהוצאתם בפועל.' },
+  { v: 'budget', sel: '#sheet', open: () => openGoals(), t: '🐷 קופות חיסכון', d: 'יעד, תאריך — ואומרת כמה לשים בצד כל חודש. מגיעים ליעד? קונפטי.' },
+  { v: 'budget', sel: '#sheet', open: () => openMaaser(), t: '🤲 מעשר', d: '10% (או 20%) מכל הכנסה, פחות מה שניתן בצדקה = כמה נשאר לתת.' },
+  { v: 'budget', sel: '#sheet', open: () => openKid('p_kid1'), t: '🧒 קופת דמי כיס', d: 'לכל ילד קופה ויעד. ⭐ כוכבים ממטלות ב"זמן בכיף" הופכים לשקלים.' },
+  { v: 'budget', sel: '#sheet', open: () => openDebts(), t: '➗ מי חייב למי + גמ"חים', d: 'הלוואות, גמ"ח וחלוקת הוצאות — עם החזר בתשלומים ותזכורת. גם בצ\'אט: "הלוויתי לדוד 500".' },
+  { v: 'insights', sel: '#donut', t: '🍩 לאן הלך הכסף', d: 'חלוקה לפי קטגוריות. הסכום באמצע "רץ" כשנכנסים.' },
+  { v: 'insights', sel: cardWith('תשלומים קבועים'), t: '📅 תשלומים קבועים', d: 'מה יורד כל חודש ומתי נגמרים תשלומים — ולחיצה אחת מוסיפה תזכורת ב"זמן בכיף".' },
+  { v: 'insights', sel: cardWith('הלוח העברי'), t: '🕎 לפי הלוח העברי', d: 'כמה עלה כל חג (כולל ההכנות) מול שנה שעברה, וכל חודש עברי.' },
+  { v: 'insights', sel: cardWith('אירועים'), t: '🏷️ אירועים', d: 'כל התגיות: כמה עלה כל אירוע מכל הקטגוריות ביחד. לחיצה — כל הרשומות.' },
+  { v: 'insights', sel: cardWith('מי הכניס'), t: '💰 מי הכניס כמה', d: 'הכנסות לפי בני הבית — גם באקסל ובמייל החודשי.' },
+  { v: 'insights', sel: cardWith('תמונה לאורך זמן'), t: '📈 תמונה לאורך זמן', d: 'עד 12 חודשים: הכנסה מול הוצאה, וכמה נחסך בסך הכל.' },
+  { v: 'tx', sel: '#search', t: '🔎 חיפוש', d: 'לפי שם, טקסט או #תגית. מתחת — סינון לפי קטגוריה ולפי בן משפחה.' },
+  { v: 'tx', sel: '#sheet', open: () => { const t = S.tx.find(x => x.tags?.length) || S.tx[0]; if (t) openEditSheet(t); }, t: '✏️ עריכת רשומה', d: 'בתוך העריכה: 🏷️ אירוע, 🧾 צילום קבלה, ➗ לחלק עם מישהו, ו"בלי מעשר" להכנסות.' },
+  { v: 'chat', sel: '#exportBtn', t: '📊 סיכום לאקסל', d: 'יומי, שבועי, חודשי, שנתי או בין תאריכים — קובץ צבעוני. ב-1 לחודש הוא מגיע גם במייל.' },
+  { v: 'chat', sel: '#viewCard', open: () => openSettings(), t: '🎨 תצוגה', d: 'גודל כתב (רגיל/גדול/ענק), אנימציות פועל/כבוי, וחודש עברי ליד הלועזי.' },
+  { v: 'chat', sel: '#pushCard', open: () => openSettings(), t: '🔔 התראה לפני חריגה', d: 'ההורים מקבלים התראה בטלפון כשקטגוריה מגיעה ל-90% או עוברת 100%. לא בשבת.' },
+  { v: 'chat', sel: '#toCats', open: () => openSettings(), t: '🏷️ קטגוריות משלכם', d: 'מוסיפים קטגוריה עם שם, אייקון וצבע, או משנים שם לקיימת. מגיע לכל המשפחה.' },
+  { v: 'chat', sel: '#lockCard', open: () => openSettings(), t: '🔒 נעילה', d: 'טביעת אצבע, Face ID או קוד — לכל טלפון בנפרד.' },
+  { v: 'chat', sel: null, t: '👨‍👩‍👧 המשפחה, QR והזמנות', d: 'ב-⚙️ (כשמחוברים): קוד להורה וקוד לילד, ריבועי QR לסריקה, הזמנה בוואטסאפ, ותפקיד הורה/ילד. (במצב הדגמה הכרטיס מוסתר.)' },
+  { v: 'chat', sel: '#toFeedback', open: () => openSettings(), t: '💌 משוב', d: 'משוב, רעיון או תקלה — ישר אליך במייל. גם בצ\'אט: "משוב: …".' },
+  { v: 'chat', sel: () => $('#quick [data-helpchip]'), t: '❓ עזרה בצ\'אט', d: 'שואלים "איך מוסיפים קטגוריה?" — ומקבלים תשובה מיד.' },
+  { v: 'chat', sel: '.notes-fab', t: '💬 ההערות שלך', d: 'בכל מסך: לוחצים, כותבים מה לתקן — וכשמסיימים שולחים את כל ההערות ביחד.' },
+  { v: 'chat', sel: null, t: '🎉 סיימנו!', d: 'זה כל מה שכסף בכיף יודע לעשות. שלח את ההערות שלך ב-💬, ואפשר לצאת ממצב הדגמה למעלה.', end: true },
+];
+let tourI = -1;
+function tourStart(i = 0) { lsSet('kesef-tour-seen', '1'); document.body.classList.add('touring'); notesFab(); tourGo(i); }
+function tourStop() { tourI = -1; document.body.classList.remove('touring'); $('.tour-ring')?.remove(); $('.tour-card')?.remove(); closeSheet(); notesFab(); }
+async function tourGo(i) {
+  if (i < 0 || i >= TOUR.length) return tourStop();
+  tourI = i; const s = TOUR[i];
+  if ($('#sheet').classList.contains('on') && !s.open) closeSheet();
+  if (s.v && S.view !== s.v) go(s.v);
+  if (s.open) s.open();
+  await new Promise(r => setTimeout(r, s.open ? 450 : 200));
+  let el = typeof s.sel === 'function' ? s.sel() : s.sel ? document.querySelector(s.sel) : null;
+  if (el && !el.getClientRects().length) el = null;
+  // גוללים פעמיים: תוכן החלון נטען קצת אחרי שהוא נפתח ויכול להזיז את היעד
+  if (el && el.id !== 'sheet') { el.scrollIntoView({ block: 'center' }); await new Promise(r => setTimeout(r, s.open ? 300 : 60)); el.scrollIntoView({ block: 'center' }); await new Promise(r => setTimeout(r, 60)); }
+  if (tourI !== i) return; // בינתיים עברו לשלב אחר
+  let ring = $('.tour-ring'); if (!ring) { ring = document.createElement('div'); ring.className = 'tour-ring'; document.body.appendChild(ring); }
+  let low = false;
+  if (el) {
+    const r = el.getBoundingClientRect(), pad = 6;
+    Object.assign(ring.style, { display: 'block', top: `${r.top - pad}px`, left: `${r.left - pad}px`, width: `${r.width + pad * 2}px`, height: `${r.height + pad * 2}px` });
+    low = r.top + r.height / 2 > innerHeight / 2;
+  } else ring.style.display = 'none';
+  let card = $('.tour-card'); if (!card) { card = document.createElement('div'); card.className = 'tour-card'; document.body.appendChild(card); }
+  card.classList.toggle('top', low); card.classList.toggle('mid', !el);
+  card.innerHTML = `<div class="tbar"><i style="width:${(i + 1) / TOUR.length * 100}%"></i></div>
+    <div class="sub">שלב ${i + 1} מתוך ${TOUR.length}</div><b>${s.t}</b><p>${s.d}</p>
+    <div class="tbtns"><button id="tPrev" ${i ? '' : 'disabled'}>→ הקודם</button><button class="go" id="tNext">${s.end ? '✅ סיום' : 'הבא ←'}</button><button id="tList" aria-label="כל השלבים">☰</button><button id="tX" aria-label="סגירה">✕</button></div>
+    <div class="tlist" hidden>${TOUR.map((x, k) => `<button data-ti="${k}" class="${k === i ? 'on' : ''}">${k + 1}. ${x.t}</button>`).join('')}</div>`;
+  card.querySelector('#tPrev').onclick = () => tourGo(i - 1);
+  card.querySelector('#tNext').onclick = () => s.end ? tourStop() : tourGo(i + 1);
+  card.querySelector('#tX').onclick = tourStop;
+  card.querySelector('#tList').onclick = () => { const l = card.querySelector('.tlist'); l.hidden = !l.hidden; if (!l.hidden) l.querySelector('.on')?.scrollIntoView({ block: 'center' }); };
+  card.querySelectorAll('[data-ti]').forEach(b => b.onclick = () => tourGo(+b.dataset.ti));
+  if (s.end) confetti();
+  notesFab();
+}
+addEventListener('resize', () => { if (tourI >= 0) tourGo(tourI); });
+
+// ---------- 💬 הערות לתיקון (במצב הדגמה ובזמן הסיור) ----------
+const VIEW_NAMES = { chat: 'צ\'אט', budget: 'תקציב', insights: 'תובנות', tx: 'תנועות' };
+const getNotes = () => { try { return JSON.parse(lsGet('kesef-demoNotes') || '[]'); } catch { return []; } };
+const setNotes = l => lsSet('kesef-demoNotes', JSON.stringify(l));
+function notesFab() {
+  const show = db.DEMO || tourI >= 0;
+  let b = $('.notes-fab');
+  if (!show) { b?.remove(); return; }
+  if (!b) { b = document.createElement('button'); b.className = 'notes-fab'; b.setAttribute('aria-label', 'הערות לתיקון'); b.onclick = openNotes; $('#app').appendChild(b); }
+  const n = getNotes().length;
+  b.innerHTML = `💬${n ? `<i>${n}</i>` : ''}`;
+}
+function noteContext() {
+  const sheet = $('#sheet').classList.contains('on') ? $('#sheet h3')?.innerText : '';
+  return `📍 מסך: ${VIEW_NAMES[S.view] || S.view}${sheet ? ' · חלון: ' + sheet : ''}${tourI >= 0 ? ` · שלב ${tourI + 1}: ${TOUR[tourI].t}` : ''}`;
+}
+const notesText = l => l.map((x, k) => `${k + 1}. ${x.ctx}\n${x.text}`).join('\n\n');
+function openNotes() {
+  const ctx = noteContext(), list = getNotes();
+  $('.tour-card')?.classList.add('hide');
+  openSheet(`<h3>💬 הערות לתיקון</h3><div class="sub" style="margin:-6px 0 10px">${esc(ctx)}</div>
+    <textarea id="nT" rows="3" placeholder="מה לתקן / לשפר כאן?" style="width:100%;border-radius:14px;border:1px solid var(--line);background:var(--card2);padding:10px 12px;font:inherit;font-size:16px;color:inherit;resize:vertical"></textarea>
+    <button class="btn grad full" id="nAdd" style="margin:8px 0 12px">➕ שמירת הערה</button>
+    ${list.length ? `<div class="card" style="padding:4px 12px;margin-bottom:12px">${list.map((x, k) => `<div class="mv" style="align-items:flex-start;gap:8px"><span style="min-width:0;overflow-wrap:anywhere"><small class="sub">${esc(x.ctx)}</small><br>${esc(x.text)}</span><button class="chip" data-nd="${k}" aria-label="מחיקה">🗑️</button></div>`).join('')}</div>
+      <div class="row2"><button class="btn grad" id="nSend">📤 שלח את כל ההערות (${list.length})</button><button class="btn ghost" id="nCopy">📋 העתק</button></div>` : '<div class="empty"><span class="em">📝</span>עוד אין הערות. כל הערה נשמרת כאן עד שתשלח את כולן ביחד.</div>'}
+    <div class="err" id="nErr"></div>`, sh => {
+    sh.querySelector('#nAdd').onclick = () => {
+      const text = sh.querySelector('#nT').value.trim(); if (!text) return sh.querySelector('#nT').focus();
+      setNotes([...getNotes(), { ctx, text, at: new Date().toISOString() }]); notesFab(); toast('📝 ההערה נשמרה'); openNotes();
+    };
+    sh.querySelectorAll('[data-nd]').forEach(b => b.onclick = () => { const l = getNotes(); l.splice(+b.dataset.nd, 1); setNotes(l); notesFab(); openNotes(); });
+    sh.querySelector('#nCopy')?.addEventListener('click', async () => { try { await navigator.clipboard.writeText(notesText(getNotes())); toast('📋 ההערות הועתקו'); } catch { toast('לא הצלחתי להעתיק', true); } });
+    sh.querySelector('#nSend')?.addEventListener('click', async e => {
+      e.target.disabled = true; e.target.textContent = 'שולח…';
+      const l = getNotes(), ok = await sendFeedback({ kind: 'idea', message: notesText(l), subject: `📝 הערות מצב הדגמה — כסף בכיף (${l.length})`, tag: 'הערות מצב הדגמה' });
+      if (ok) { setNotes([]); notesFab(); closeSheet(); confetti(); toast('📤 כל ההערות נשלחו — תודה!'); return; }
+      e.target.disabled = false; e.target.textContent = `📤 שלח את כל ההערות (${l.length})`;
+      sh.querySelector('#nErr').textContent = 'לא הצלחתי לשלוח (אין אינטרנט?). אפשר ללחוץ 📋 העתק ולהדביק.';
+    });
+  });
+}
+
 // ---------- 🏷️ קטגוריות אישיות (מסונכרן לכל המשפחה) ----------
 async function saveCats() { await db.setKV('cats', S.cats); applyCustomCats(S.cats); renderAll(); }
 function openCatsSheet() {
@@ -1708,8 +1854,8 @@ function openCatEdit(id) {
 // ---------- 🔔 התראה לטלפון כשמתקרבים לסוף התקציב (הורים) ----------
 async function drawPushCard(el) {
   if (!el) return;
-  if (!syncUser && !UITEST) { el.style.display = 'none'; return; }
-  const st = UITEST ? 'off' : await sync.pushState();
+  if (!syncUser && !UITEST && !db.DEMO) { el.style.display = 'none'; return; }
+  const st = UITEST || db.DEMO ? 'off' : await sync.pushState();
   el.innerHTML = `<b style="font-size:16px">🔔 התראה כשמתקרבים לסוף התקציב</b>
     <div class="sub" style="margin:4px 0 10px">כשמישהו במשפחה רושם הוצאה והקטגוריה מגיעה ל-<b>90%</b> או עוברת את <b>100%</b> — תקפוץ התראה בטלפון. (לא בשבת — נשלח במוצ"ש)</div>
     ${st === 'unsupported' ? `<div class="sub">📲 כדי לקבל התראות צריך קודם להתקין את האפליקציה על המסך${/iphone|ipad/i.test(navigator.userAgent) ? ' (באייפון: שיתוף ⬆️ ← "הוסף למסך הבית")' : ''}.</div>`
@@ -1718,7 +1864,7 @@ async function drawPushCard(el) {
     <div class="err" id="pushErr"></div>`;
   el.querySelectorAll('[data-push]').forEach(b => b.onclick = async () => {
     try {
-      if (UITEST) { toast('(בדיקה) היה מפעיל התראות'); return; }
+      if (UITEST || db.DEMO) { toast('🎭 במצב הדגמה ההתראות לא נשלחות'); return; }
       if (b.dataset.push === 'on') { await sync.enablePush(); toast('🔔 ההתראות פועלות'); } else { await sync.disablePush(); toast('🔕 ההתראות כבויות'); }
       drawPushCard(el);
     } catch (e) { el.querySelector('#pushErr').textContent = e.message; }
@@ -1757,6 +1903,10 @@ function openSettings() { openSheet(`<h3>⚙️ הגדרות</h3>
   <div class="card" id="lockCard" style="margin-bottom:12px"></div>
   <div class="card parent-only" id="pushCard" style="margin-bottom:12px"></div>
   <div class="card" id="viewCard" style="margin-bottom:12px"></div>
+  ${db.DEMO ? `<div class="card" style="margin-bottom:12px;border-color:#EC4899"><b style="font-size:16px">🎭 מצב הדגמה</b><div class="sub" style="margin:4px 0 10px">הנתונים כאן מדומים ונשמרים בנפרד. הנתונים האמיתיים שלכם לא נגעים.</div>
+    <button class="btn grad full" id="demoTour" style="margin-bottom:8px">🧭 סיור מודרך בכל התכונות</button>
+    <div class="row2"><button class="btn ghost" id="demoReset">🔄 נתונים מחדש</button><button class="btn ghost" id="demoExit">🚪 יציאה</button></div></div>`
+    : '<button class="btn ghost full" id="toDemo" hidden style="margin-bottom:10px">🎭 מצב הדגמה (נתונים מדומים) + סיור</button>'}
   <a class="btn grad full" id="toAdmin" href="admin/" hidden style="margin-bottom:10px;display:block;text-align:center;text-decoration:none">📊 לוח בקרה — רק לך</a>
   <button class="btn ghost full" id="toHelp" style="margin-bottom:10px">❓ עזרה ואיך משתמשים</button>
   <button class="btn ghost full" id="toShare" style="margin-bottom:10px">📤 שתף את האפליקציה עם חבר</button>
@@ -1773,7 +1923,11 @@ function openSettings() { openSheet(`<h3>⚙️ הגדרות</h3>
   drawLockCard(sh.querySelector('#lockCard'));
   drawViewCard(sh.querySelector('#viewCard'));
   drawPushCard(sh.querySelector('#pushCard'));
-  sync.isAdmin().then(ok => { const a = sh.querySelector('#toAdmin'); if (ok && a) a.hidden = false; });
+  sync.isAdmin().then(ok => { const a = sh.querySelector('#toAdmin'); if (ok && a) a.hidden = false; const d = sh.querySelector('#toDemo'); if ((ok || UITEST) && d) d.hidden = false; });
+  sh.querySelector('#toDemo')?.addEventListener('click', enterDemo);
+  sh.querySelector('#demoTour')?.addEventListener('click', () => { closeSheet(); tourStart(0); });
+  sh.querySelector('#demoReset')?.addEventListener('click', demoReset);
+  sh.querySelector('#demoExit')?.addEventListener('click', exitDemo);
   sh.querySelector('#toExcel').onclick = () => openExportSheet();
   sh.querySelector('#toCats').onclick = () => openCatsSheet();
   sh.querySelector('#toMyBox').onclick = () => S.me ? openKid(S.me, true) : toast('קודם בוחרים "אני ___" במשפחה', true);
@@ -1799,6 +1953,20 @@ const FEEDBACK_KEY = 'afe845b5ff6d0c2cd899d08390663e7c'; // הכינוי של Fo
 const FEEDBACK_RE = /^(משוב|פידבק|הערה|הערות|הצעה|הצעת שיפור|רעיון|יש לי רעיון|יש לי הערה|יש לי הצעה|באג|תקלה|בעיה|דיווח|feedback)(?=[\s:,-]|$)[\s:,-]*/i;
 const KINDS = { idea: '💡 רעיון', bug: '🐞 משהו לא עובד', love: '❤️ מחמאה', other: '💬 אחר' };
 
+// שליחת משוב: גם לטבלה בענן וגם למייל (FormSubmit). מחזיר true אם לפחות אחד הצליח
+async function sendFeedback({ kind = 'other', message, contact = '', device = '', subject = '', tag = '' }) {
+  const cloud = sync.saveFeedback({ app: 'kesef-bekef', kind, message: tag ? `[${tag}]\n${message}` : message, contact, device }).catch(() => false);
+  let mailed = false;
+  try {
+    const r = await fetch(`https://formsubmit.co/ajax/${FEEDBACK_KEY}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ _subject: subject || `💌 משוב חדש — כסף בכיף (${KINDS[kind]})`, _template: 'table', _captcha: 'false',
+        'סוג': tag || KINDS[kind], 'משוב': message, 'פרטים לחזרה': contact || '—', 'משפחה': sync.household()?.name || (db.DEMO ? '🎭 מצב הדגמה' : '—'), 'מכשיר': device || '—' }),
+    });
+    mailed = r.ok;
+  } catch { mailed = false; }
+  return mailed || !!(await cloud);
+}
 function openFeedback(text = '', hint = text) {
   let kind = /באג|תקלה|בעיה|לא עובד/.test(hint) ? 'bug' : /רעיון|הצעה|שיפור/.test(hint) ? 'idea' : /תודה|מעולה|אוהב|כל הכבוד|מדהים/.test(hint) ? 'love' : 'other';
   const me = personOf(S.me);
@@ -1820,18 +1988,7 @@ function openFeedback(text = '', hint = text) {
         ? `${navigator.userAgent.match(/iPhone|iPad|Android[^;)]*|Mac|Windows/)?.[0] || 'מכשיר'} · ${screen.width}×${screen.height} · ${isStandalone() ? 'מותקנת' : 'דפדפן'} · ${sync.isParent() ? 'הורה' : 'ילד'}`
         : '';
       e.target.disabled = true; e.target.textContent = 'שולח…';
-      const cloud = sync.saveFeedback({ app: 'kesef-bekef', kind, message, contact, device }).catch(() => false);
-      let mailed = false;
-      try {
-        const r = await fetch(`https://formsubmit.co/ajax/${FEEDBACK_KEY}`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: JSON.stringify({ _subject: `💌 משוב חדש — כסף בכיף (${KINDS[kind]})`, _template: 'table', _captcha: 'false',
-            'סוג': KINDS[kind], 'משוב': message, 'פרטים לחזרה': contact || '—', 'משפחה': sync.household()?.name || '—', 'מכשיר': device || '—' }),
-        });
-        mailed = r.ok;
-      } catch { mailed = false; }
-      const saved = await cloud;
-      if (mailed || saved) { closeSheet(); confetti(); toast('💌 תודה! המשוב נשלח'); return; }
+      if (await sendFeedback({ kind, message, contact, device })) { closeSheet(); confetti(); toast('💌 תודה! המשוב נשלח'); return; }
       e.target.disabled = false; e.target.textContent = '📨 שליחה';
       sh.querySelector('#fErr').innerHTML = `לא הצלחתי לשלוח (אין אינטרנט?). אפשר <a href="mailto:${FEEDBACK_TO}?subject=${encodeURIComponent('משוב — כסף בכיף')}&body=${encodeURIComponent(message)}" style="color:#F9A8D4">לשלוח במייל רגיל</a>`;
     };
@@ -2164,6 +2321,7 @@ async function drawQRs(el) {
 }
 
 async function drawSync(el) {
+  if (db.DEMO) { el.style.display = 'none'; return; }
   const hh = UITEST ? FAKE_HH : sync.household();
   if (UITEST && !syncUser) syncUser = { id: 'u1', email: 'a.very.long.email.address@example.com' };
   if (!sync.enabled() && !UITEST) {
@@ -2316,6 +2474,7 @@ async function load() {
   renderAll();
 }
 load().then(async () => {
+  if (db.DEMO) { await demoStart(); return; } // 🎭 בלי סנכרון, בלי שרת
   const r = await sync.start({
     onRemoteChange: () => reloadFromDb(),
     onStatus: st => { const el = document.querySelector('#syncState'); if (el) el.textContent = st === 'ok' ? '· מסונכרן ✓' : '· ממתין לרשת…'; },
