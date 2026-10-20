@@ -121,6 +121,7 @@ function openSheet(html, mount) {
 function closeSheet(fromPop) {
   $('#overlay').classList.remove('on'); $('#sheet').classList.remove('on');
   document.querySelector('.tour-card')?.classList.remove('hide'); // כרטיס הסיור חוזר
+  document.body.classList.remove('noting');
   if (sheetHist && fromPop !== true) { sheetHist = false; popPending = true; history.back(); }
   else if (fromPop === true) sheetHist = false;
 }
@@ -1769,7 +1770,7 @@ function noteContext() {
 const notesText = l => l.map((x, k) => `${k + 1}. ${x.ctx}\n${x.text}`).join('\n\n');
 function openNotes() {
   const ctx = noteContext(), list = getNotes();
-  $('.tour-card')?.classList.add('hide');
+  $('.tour-card')?.classList.add('hide'); document.body.classList.add('noting');
   openSheet(`<h3>💬 הערות לתיקון</h3><div class="sub" style="margin:-6px 0 10px">${esc(ctx)}</div>
     <textarea id="nT" rows="3" placeholder="מה לתקן / לשפר כאן?" style="width:100%;border-radius:14px;border:1px solid var(--line);background:var(--card2);padding:10px 12px;font:inherit;font-size:16px;color:inherit;resize:vertical"></textarea>
     <button class="btn grad full" id="nAdd" style="margin:8px 0 12px">➕ שמירת הערה</button>
