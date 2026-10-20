@@ -1903,7 +1903,7 @@ function openSettings() { openSheet(`<h3>⚙️ הגדרות</h3>
   <div class="card" id="lockCard" style="margin-bottom:12px"></div>
   <div class="card parent-only" id="pushCard" style="margin-bottom:12px"></div>
   <div class="card" id="viewCard" style="margin-bottom:12px"></div>
-  ${db.DEMO ? `<div class="card" style="margin-bottom:12px;border-color:#EC4899"><b style="font-size:16px">🎭 מצב הדגמה</b><div class="sub" style="margin:4px 0 10px">הנתונים כאן מדומים ונשמרים בנפרד. הנתונים האמיתיים שלכם לא נגעים.</div>
+  ${db.DEMO ? `<div class="card" style="margin-bottom:12px;border-color:#F59E0B"><b style="font-size:16px">🎭 מצב הדגמה</b><div class="sub" style="margin:4px 0 10px">הנתונים כאן מדומים ונשמרים בנפרד. הנתונים האמיתיים שלכם לא נגעים.</div>
     <button class="btn grad full" id="demoTour" style="margin-bottom:8px">🧭 סיור מודרך בכל התכונות</button>
     <div class="row2"><button class="btn ghost" id="demoReset">🔄 נתונים מחדש</button><button class="btn ghost" id="demoExit">🚪 יציאה</button></div></div>`
     : '<button class="btn ghost full" id="toDemo" hidden style="margin-bottom:10px">🎭 מצב הדגמה (נתונים מדומים) + סיור</button>'}
