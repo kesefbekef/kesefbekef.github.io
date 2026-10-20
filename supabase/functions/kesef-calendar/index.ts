@@ -37,9 +37,9 @@ Deno.serve(async req => {
   }
   const il = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' }));
   const ev: string[] = [];
-  for (const f of fixedPayments(tx, il)) {
+  for (const f of fixedPayments(tx, il, kv.recurring || {})) {
     const c = catOf(f.cat);
-    if (f.kind === 'fixed') ev.push(event(`fixed-${encodeURIComponent(f.desc)}`, f.remind, `${c.e} מחר: ${f.desc} (בערך ${nis(f.amount)})`, `תשלום קבוע שזוהה בכסף בכיף. בערך ${nis(f.amount)} כל חודש.`, 'RRULE:FREQ=MONTHLY;COUNT=12'));
+    if (f.kind === 'fixed') ev.push(event(`fixed-${encodeURIComponent(f.desc)}`, f.remind, `${c.e} מחר: ${f.desc} (${f.rule && !f.variable ? '' : 'בערך '}${nis(f.amount)})`, `תשלום קבוע שזוהה בכסף בכיף. בערך ${nis(f.amount)} כל חודש.`, 'RRULE:FREQ=MONTHLY;COUNT=12'));
     else ev.push(event(`inst-${encodeURIComponent(f.desc)}-${day(f.next)}`, f.next, `💳 נגמרים התשלומים: ${f.desc}`, `התשלום האחרון (${f.inst}/${f.inst}). מהחודש הבא מתפנים ${nis(f.amount)} בחודש.`));
   }
   // ➗ החזרי הלוואות לפי לוח התשלומים

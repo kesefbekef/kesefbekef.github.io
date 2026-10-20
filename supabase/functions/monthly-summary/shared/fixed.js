@@ -2,7 +2,7 @@
 const ym = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 
 // קבועות: אותו תיאור, בערך אותו סכום, בחודשיים שונים לפחות (ואחד מהם החודש או בחודש שעבר)
-export function fixedPayments(tx, now = new Date()) {
+export function fixedPayments(tx, now = new Date(), rules = {}) {
   const m = ym(now), prevM = ym(new Date(now.getFullYear(), now.getMonth() - 1, 1)), out = [];
   const byDesc = new Map();
   for (const t of tx) if (t && t.cat !== 'income' && !(t.inst > 1) && t.desc) { const k = t.desc.trim(); (byDesc.get(k) || byDesc.set(k, []).get(k)).push(t); }
@@ -17,6 +17,14 @@ export function fixedPayments(tx, now = new Date()) {
     const remind = new Date(next); remind.setDate(remind.getDate() - 1);
     out.push({ kind: 'fixed', desc, amount: last.amount, cat: last.cat, next, remind });
   }
+  // 🔁 קבועים שהוגדרו ידנית — עדיפים על מה שזוהה לבד
+  for (const [id, r] of Object.entries(rules || {})) {
+    if (!r || r.paused || r.cat === 'income' || !(r.amount > 0)) continue;
+    const next = nextRuleDate(r, now); if (!next) continue;
+    const i = out.findIndex(o => o.desc === r.desc); if (i >= 0) out.splice(i, 1);
+    const remind = new Date(next); remind.setDate(remind.getDate() - 1);
+    out.push({ kind: 'fixed', rule: id, desc: r.desc, amount: r.amount, cat: r.cat, next, remind, variable: !!r.variable });
+  }
   // תשלומים שנגמרים בחודשיים הקרובים
   for (const t of tx) if (t && t.inst > 1) {
     const st = new Date(t.date), end = new Date(st.getFullYear(), st.getMonth() + t.inst - 1, st.getDate(), 12);
@@ -24,4 +32,27 @@ export function fixedPayments(tx, now = new Date()) {
     out.push({ kind: 'inst', desc: t.desc, amount: t.amount, cat: t.cat, inst: t.inst, next: end, remind: end });
   }
   return out.sort((a, b) => a.next - b.next);
+}
+
+// 🔁 הקבוע הבא של כלל: { day, start 'YYYY-MM', end 'YYYY-MM'|'', paused }
+export function nextRuleDate(r, now = new Date()) {
+  const day = Math.min(28, Math.max(1, r.day || 1));
+  let d = new Date(now.getFullYear(), now.getMonth(), day, 12);
+  if (d < new Date(now.getFullYear(), now.getMonth(), now.getDate())) d = new Date(now.getFullYear(), now.getMonth() + 1, day, 12);
+  const m = ym(d);
+  if (r.start && m < r.start) d = new Date(+r.start.slice(0, 4), +r.start.slice(5, 7) - 1, day, 12);
+  if (r.end && ym(d) > r.end) return null;
+  return d;
+}
+// החודשים שבהם הכלל צריך להירשם עד היום (כולל) — מתחילים מ-start
+export function dueMonths(r, now = new Date()) {
+  if (!r || r.paused || !r.start) return [];
+  const day = Math.min(28, Math.max(1, r.day || 1)), out = [];
+  let y = +r.start.slice(0, 4), m = +r.start.slice(5, 7) - 1;
+  for (let k = 0; k < 120; k++, m++) {
+    const d = new Date(y, m, day, 12); if (d > now) break;
+    const key = ym(d); if (r.end && key > r.end) break;
+    out.push(key);
+  }
+  return out;
 }

@@ -13,17 +13,21 @@ export function demoData(now = new Date()) {
   const tx = [];
   const add = (y, m, d, desc, amount, cat, extra = {}) => tx.push({ id: id(), msg: id(), raw: `${desc} ${amount}`, desc, cat, source: 'text',
     created: iso(y, m, d), date: iso(y, m, d), amount, total: amount, inst: 0, who: extra.who || 'p_dad', pay: extra.pay || 'credit', ...extra });
+  // 🔁 קבועים: נרשמים עם מספר קבוע לכל (כלל, חודש) — כמו באפליקציה האמיתית
+  const ymk = (y, m) => `${new Date(y, m, 1).getFullYear()}-${String(new Date(y, m, 1).getMonth() + 1).padStart(2, '0')}`;
+  const addRec = (rid, y, m, d, desc, amount, cat, extra = {}) => tx.push({ id: `rec_${rid}_${ymk(y, m)}`, msg: `rec_${rid}_${ymk(y, m)}`, raw: `🔁 ${desc} ${amount}`, desc, cat, source: 'recurring', rec: rid,
+    created: iso(y, m, d), date: iso(y, m, d), amount, total: amount, inst: 0, who: extra.who || 'p_dad', pay: extra.pay || (cat === 'income' ? 'transfer' : 'standing'), ...extra });
   // שלושה חודשים אחורה + החודש
   for (let k = 3; k >= 0; k--) {
     const y = new Date(Y, M - k, 1).getFullYear(), m = new Date(Y, M - k, 1).getMonth(), last = k === 0 ? D : 28;
     const day = d => Math.min(d, last);
-    add(y, m, day(1), 'משכורת', 12500, 'income', { who: 'p_dad', pay: 'transfer' });
-    add(y, m, day(1), 'משכורת', 9200, 'income', { who: 'p_mom', pay: 'transfer' });
+    addRec('r_sal1', y, m, 1, 'משכורת', 12500, 'income', { who: 'p_dad' });
+    addRec('r_sal2', y, m, 1, 'משכורת', 9200, 'income', { who: 'p_mom' });
     if (k === 1) add(y, m, day(14), 'החזר הוצאות מהעבודה', 340, 'income', { who: 'p_mom', pay: 'transfer', noMaaser: true });
     add(y, m, day(20), 'קצבת ילדים', 345, 'income', { who: 'p_mom', pay: 'transfer' });
-    add(y, m, day(3), 'חשמל', 430 + k * 15, 'home', { pay: 'standing' });
-    add(y, m, day(5), 'ארנונה', 620, 'home', { pay: 'standing' });
-    add(y, m, day(8), 'ועד בית', 150, 'home', { pay: 'standing' });
+    if (k === 0 && D >= 3) addRec('r_elec', y, m, 3, 'חשמל', 470, 'home', { estimate: true }); else if (k > 0) addRec('r_elec', y, m, 3, 'חשמל', 430 + k * 15, 'home');
+    if (k > 0 || D >= 5) addRec('r_arnona', y, m, 5, 'ארנונה', 620, 'home');
+    if (k > 0 || D >= 8) addRec('r_vaad', y, m, 8, 'ועד בית', 150, 'home');
     add(y, m, day(9), 'סלקום', 89, 'subs', { pay: 'standing' });
     add(y, m, day(9), 'נטפליקס', 50, 'subs');
     add(y, m, day(2), 'רמי לוי', 640 + k * 30, 'food', { who: 'p_mom' });
@@ -34,7 +38,7 @@ export function demoData(now = new Date()) {
     add(y, m, day(19), 'פנגו חניה', 35, 'car', { pay: 'bit' });
     add(y, m, day(11), 'פיצה', 120, 'rest', { who: 'p_kid1', pay: 'cash' });
     add(y, m, day(15), 'וולט', 160 + (k === 0 ? 260 : 0), 'rest');
-    add(y, m, day(4), 'חוג כדורגל', 180, 'kids', { who: 'p_kid2' });
+    if (k > 0 || D >= 4) addRec('r_chug', y, m, 4, 'חוג כדורגל', 180, 'kids', { who: 'p_kid2' });
     add(y, m, day(13), 'סופר פארם', 75, 'health', { who: 'p_mom' });
     add(y, m, day(7), 'צדקה', 300, 'give');
     add(y, m, day(16), 'אוכל לכלב', 120, 'c_dog');
@@ -53,7 +57,17 @@ export function demoData(now = new Date()) {
   // 💳 תשלומים: ספה ב-12 תשלומים (נגמרים בקרוב)
   tx.push({ id: id(), msg: id(), raw: 'ספה 6000 ב-12 תשלומים', desc: 'ספה', cat: 'home', source: 'text', created: iso(Y, M - 10, 10), date: iso(Y, M - 10, 10), amount: 500, total: 6000, inst: 12, who: 'p_dad', pay: 'credit' });
 
+  const start = ymk(Y, M - 3);
   const kv = {
+    recurring: {
+      r_sal1: { desc: 'משכורת', amount: 12500, cat: 'income', day: 1, start, end: '', who: 'p_dad' },
+      r_sal2: { desc: 'משכורת', amount: 9200, cat: 'income', day: 1, start, end: '', who: 'p_mom' },
+      r_elec: { desc: 'חשמל', amount: 470, cat: 'home', day: 3, start, end: '', variable: true },
+      r_arnona: { desc: 'ארנונה', amount: 620, cat: 'home', day: 5, start, end: '' },
+      r_vaad: { desc: 'ועד בית', amount: 150, cat: 'home', day: 8, start, end: '' },
+      r_chug: { desc: 'חוג כדורגל', amount: 180, cat: 'kids', day: 4, start, end: ymk(Y, M + 5), who: 'p_kid2' },
+      r_rentin: { desc: 'שכירות שנכנסת', amount: 3800, cat: 'income', day: 28, start: ymk(Y, M + 1), end: '', paused: false },
+    },
     people, me: 'p_dad',
     cats: { c_dog: { n: 'הכלב', e: '🐶', c: '#F97316', custom: true } },
     budgets: { _mode: 'auto', food: 2600, rest: 450, c_dog: 150, fun: 400 },
