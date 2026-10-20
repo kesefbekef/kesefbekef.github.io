@@ -167,6 +167,13 @@ nav.toc a{flex:none;text-decoration:none;font-size:15px;font-weight:600;padding:
 @keyframes tap{0%,30%{transform:none}35%{transform:scale(.88)}42%,100%{transform:none}}
 .d-fix .zm{margin-top:12px;background:linear-gradient(135deg,#06B6D4,#3B82F6);border-radius:14px;padding:8px 12px;animation:zmin 3.5s infinite}
 @keyframes zmin{0%,40%{opacity:0;transform:translateY(14px)}55%,100%{opacity:1;transform:none}}
+/* 🎭 מצב הדגמה + סיור: טבעת שמאירה + כרטיס */
+.d-tour .bar0{background:linear-gradient(90deg,#7C3AED,#EC4899);border-radius:10px;padding:5px 10px;font-size:12px;font-weight:700}
+.d-tour .spot{margin:14px auto 0;width:70%;height:34px;border:3px solid #EC4899;border-radius:12px;box-shadow:0 0 0 200px rgba(10,6,25,.55);animation:spotmove 5s ease-in-out infinite}
+@keyframes spotmove{0%,30%{transform:translateX(-14%)}40%,70%{transform:translateX(14%)}80%,100%{transform:translateX(-14%)}}
+.d-tour .tc{position:relative;z-index:1;margin-top:14px;background:#15151F;border:1px solid rgba(236,72,153,.6);border-radius:14px;padding:8px 10px;font-size:13px}
+.d-tour .fab{position:absolute;left:10px;bottom:10px;z-index:2;width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,#7C3AED,#EC4899);display:grid;place-items:center;animation:bob 3s ease-in-out infinite}
+@keyframes bob{50%{transform:translateY(-6px)}}
 @media (prefers-reduced-motion: reduce){.demo *{animation:none !important;opacity:1 !important}}
 footer{padding:28px 0;text-align:center;color:#8B82A6;font-size:14px}
 </style>
@@ -194,7 +201,7 @@ footer{padding:28px 0;text-align:center;color:#8B82A6;font-size:14px}
 <section class="dark" id="new">
   <div class="wrap">
     <div class="eyebrow">🆕 חדש באפליקציה</div>
-    <h2>12 דברים חדשים — ככה זה נראה 👇</h2>
+    <h2>13 דברים חדשים — ככה זה נראה 👇</h2>
     <div class="nw">
       <div class="card"><div class="demo d-env">
           <div class="row"><div class="ic" style="background:linear-gradient(135deg,#22C55E,#84CC16)">🛒</div><div><b>מזון וסופר</b><small style="display:block;color:#B9AED6;font-size:12px">מתוך 2,500₪</small></div>
@@ -229,6 +236,9 @@ footer{padding:28px 0;text-align:center;color:#8B82A6;font-size:14px}
       <div class="card"><div class="demo d-fix"><div class="rowf"><span style="font-size:22px">🏠</span><div><b>חשמל</b><small style="display:block;color:#B9AED6;font-size:12px">בערך 450₪ · הבא ב-3.11</small></div><span class="btnf">📅 תזכורת</span></div>
           <div class="zm">⏰ זמן בכיף: "לשלם חשמל" · 2.11 ✓</div></div>
         <h3>📅 תזכורת לפני תשלום קבוע</h3><p>ב-💡 תובנות ← <b>"📅 תשלומים קבועים"</b>: מה עומד לרדת בקרוב ומתי נגמרים תשלומים. לחיצה על <b>"📅 תזכורת"</b> פותחת את <b>זמן בכיף</b> עם תזכורת מוכנה ליום שלפני. ולהפך — משימת תשלום שבוצעה בזמן בכיף ← <b>"💰 לרשום בכסף בכיף"</b>.</p></div>
+      <div class="card"><div class="demo d-tour"><div class="bar0">🎭 מצב הדגמה — הנתונים לא אמיתיים</div><div class="spot"></div>
+          <div class="tc"><b>✉️ מעטפות</b> · שלב 10 מתוך 33<br><span style="color:#B9AED6">→ הקודם · הבא ←</span></div><div class="fab">💬</div></div>
+        <h3>🎭 מצב הדגמה + 🧭 סיור</h3><p>⚙️ ← <b>"🎭 מצב הדגמה"</b> (למנהל): משפחה מדומה שממלאת כל מסך, בנפרד מהנתונים האמיתיים. <b>🧭 סיור</b> מאיר כל תכונה בתורה, ו-<b>💬</b> אוסף הערות לתיקון — ושולח את כולן ביחד.</p></div>
     </div>
   </div>
 </section>

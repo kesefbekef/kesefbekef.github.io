@@ -1,5 +1,7 @@
 // שמירת הנתונים בתוך המכשיר (IndexedDB) — נשמר גם אחרי סגירת האפליקציה
-const DB_NAME = 'kesef-bekef';
+// 🎭 מצב הדגמה: מאגר נפרד לגמרי — הנתונים האמיתיים לא נגעים
+export const DEMO = (() => { try { return localStorage.getItem('kesef-demo') === '1'; } catch { return false; } })();
+const DB_NAME = DEMO ? 'kesef-bekef-demo' : 'kesef-bekef';
 let dbp;
 
 function open() {
