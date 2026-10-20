@@ -1952,7 +1952,7 @@ async function demoStart() {
     for (const [k, v] of Object.entries(kv)) await db.setKV(k, v, true);
   }
   await reloadFromDb(); await postRecurring();
-  $('#gate').classList.remove('on');
+  $('#gate').classList.remove('on'); openStartView();
   document.body.classList.add('demo');
   const bar = document.createElement('div'); bar.className = 'demo-bar';
   bar.innerHTML = `<span>🎭 מצב הדגמה — הנתונים לא אמיתיים</span><button id="dbTour">🧭 סיור</button><button id="dbExit">יציאה ✕</button>`;
@@ -1999,7 +1999,7 @@ const TOUR = [
   { v: 'tx', sel: '#search', t: '🔎 חיפוש', d: 'לפי שם, #תגית — או סכום: "230", או טווח "200-300". מתחת — סינון לפי קטגוריה ובן משפחה.' },
   { v: 'tx', sel: '#sheet', open: () => { const t = S.tx.find(x => x.tags?.length) || S.tx[0]; if (t) openEditSheet(t); }, t: '✏️ עריכת רשומה', d: 'בתוך העריכה: 🏷️ אירוע, 🧾 צילום קבלה, ➗ לחלק עם מישהו, ו"בלי מעשר" להכנסות.' },
   { v: 'chat', sel: '#exportBtn', t: '📊 סיכום לאקסל', d: 'יומי, שבועי, חודשי, שנתי או בין תאריכים — קובץ צבעוני. ב-1 לחודש הוא מגיע גם במייל.' },
-  { v: 'chat', sel: '#viewCard', open: () => openSettings(), t: '🎨 תצוגה', d: 'גודל כתב (רגיל/גדול/ענק), אנימציות פועל/כבוי, וחודש עברי ליד הלועזי.' },
+  { v: 'chat', sel: '#viewCard', open: () => openSettings(), t: '🎨 תצוגה', d: 'גודל כתב (רגיל/גדול/ענק), אנימציות פועל/כבוי, חודש עברי ליד הלועזי, ו📱 המסך שנפתח ראשון (צ\'אט / תקציב / תנועות / תובנות).' },
   { v: 'chat', sel: '#pushCard', open: () => openSettings(), t: '🔔 התראה לפני חריגה', d: 'ההורים מקבלים התראה בטלפון כשקטגוריה מגיעה ל-90% או עוברת 100%. לא בשבת.' },
   { v: 'chat', sel: '#toCats', open: () => openSettings(), t: '🏷️ קטגוריות משלכם', d: 'מוסיפים קטגוריה עם שם, אייקון וצבע, או משנים שם לקיימת. מגיע לכל המשפחה.' },
   { v: 'chat', sel: '#lockCard', open: () => openSettings(), t: '🔒 נעילה', d: 'טביעת אצבע, Face ID או קוד — לכל טלפון בנפרד.' },
@@ -2177,6 +2177,14 @@ async function drawPushCard(el) {
 // ---------- 🔠 גודל כתב + 🎬 אנימציות (נשמר בכל טלפון בנפרד) ----------
 const lsGet = k => { try { return localStorage.getItem(k); } catch { return null; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* */ } };
+// 📱 המסך שנפתח ראשון (בכל טלפון בנפרד). ילד — רק צ'אט או תנועות
+const START_VIEWS = [['chat', "💬 צ'אט"], ['budget', '🎯 תקציב'], ['tx', '📋 תנועות'], ['insights', '💡 תובנות']];
+const startView = () => { const v = lsGet('kesef-start'); return START_VIEWS.some(x => x[0] === v) ? v : 'chat'; };
+function openStartView() {
+  if (new URLSearchParams(location.search).has('v')) return; // נפתח מהתראה — היא קובעת לאן
+  let v = startView(); if (!sync.isParent() && (v === 'budget' || v === 'insights')) v = 'chat';
+  if (v !== S.view) go(v, true); // המסך הראשון — לא נרשם ב"חזור"
+}
 const FONT_SIZES = [['1', 'רגיל'], ['1.12', 'גדול'], ['1.25', 'ענק']];
 function drawViewCard(el) {
   const fs = lsGet('fontScale') || '1', anim = !noAnim();
@@ -2186,11 +2194,14 @@ function drawViewCard(el) {
     <div class="sub" style="margin:12px 0 6px">🎬 אנימציות</div>
     <div class="chips"><button class="chip ${anim ? 'on' : ''}" data-an="on">✨ פועל</button><button class="chip ${anim ? '' : 'on'}" data-an="off">⏸️ כבוי</button></div>
     <div class="sub" style="margin:12px 0 6px">📅 חודש עברי ליד החודש הלועזי</div>
-    <div class="chips"><button class="chip ${hebOn() ? 'on' : ''}" data-hm="on">✅ להראות</button><button class="chip ${hebOn() ? '' : 'on'}" data-hm="off">🚫 בלי</button></div>`;
+    <div class="chips"><button class="chip ${hebOn() ? 'on' : ''}" data-hm="on">✅ להראות</button><button class="chip ${hebOn() ? '' : 'on'}" data-hm="off">🚫 בלי</button></div>
+    <div class="sub" style="margin:12px 0 6px">📱 המסך שנפתח ראשון</div>
+    <div class="chips" style="flex-wrap:wrap">${START_VIEWS.filter(([v]) => sync.isParent() || v === 'chat' || v === 'tx').map(([v, n]) => `<button class="chip ${startView() === v ? 'on' : ''}" data-sv="${v}">${n}</button>`).join('')}</div>`;
   el.querySelectorAll('[data-fs]').forEach(b => b.onclick = () => {
     lsSet('fontScale', b.dataset.fs); document.documentElement.style.zoom = b.dataset.fs === '1' ? '' : b.dataset.fs;
     drawViewCard(el); toast('🔠 גודל הכתב עודכן');
   });
+  el.querySelectorAll('[data-sv]').forEach(b => b.onclick = () => { lsSet('kesef-start', b.dataset.sv); drawViewCard(el); toast(`📱 מעכשיו האפליקציה תיפתח ב${START_VIEWS.find(x => x[0] === b.dataset.sv)[1].replace(/^\S+ /, '')}`); });
   el.querySelectorAll('[data-hm]').forEach(b => b.onclick = () => { lsSet('hebMonths', b.dataset.hm); renderMonthNav(); drawViewCard(el); });
   el.querySelectorAll('[data-an]').forEach(b => b.onclick = () => {
     lsSet('anim', b.dataset.an); document.documentElement.classList.toggle('noanim', b.dataset.an === 'off');
@@ -2810,7 +2821,8 @@ load().then(async () => {
     removedFrom = typeof r.removed === 'string' ? r.removed : ' ';
   }
   await reloadFromDb();
-  showGate();
+  await showGate();
+  if (!$('#gate').classList.contains('on')) openStartView();
   if (RECOVERY && syncUser) newPasswordSheet();
   if (new URLSearchParams(location.search).get('v') === 'budget') go('budget'); // לחיצה על התראת תקציב
   await postRecurring();
