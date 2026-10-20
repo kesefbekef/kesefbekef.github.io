@@ -317,6 +317,16 @@ export async function start({ onRemoteChange, onStatus }) {
   try {
     const u = await user();
     if (!u) return { user: null, household: null };
+    // 🔐 החשבון עוד קיים בשרת? (נמחק / נחסם) — אם לא: מנתקים, מוחקים מהטלפון, וחוזרים למסך ההרשמה
+    if (navigator.onLine) {
+      const { error } = await (await client()).auth.getUser();
+      if (error && (error.status === 401 || error.status === 403 || /not exist|not found|invalid claim/i.test(error.message || ''))) {
+        stop(); hh = null;
+        try { await (await client()).auth.signOut({ scope: 'local' }); } catch { /* */ }
+        await db.clearFamilyData(); await db.setKV('lastUser', null, true);
+        return { user: null, household: null, deleted: true };
+      }
+    }
     await db.setKV('lastUser', { id: u.id, email: u.email }, true);
     track.ping(sb);
     hh = await db.getKV('household', null);
