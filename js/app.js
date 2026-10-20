@@ -648,7 +648,7 @@ function renderInsights() {
 }
 
 // 📅 תשלומים קבועים ותשלומים שנגמרים — עם תזכורת בלחיצה ב"זמן בכיף"
-const ZMAN_URL = 'https://zd0542964361.github.io/zman-bekef/';
+const ZMAN_URL = 'https://zmanbekef.github.io/';
 const zmanLink = (task, date) => `${ZMAN_URL}?task=${encodeURIComponent(task)}&date=${ymd(date)}&from=kesef`;
 function fixedCard() {
   const rows = fixedPayments(S.tx, new Date(), S.recurring).map(f => f.kind === 'fixed'
