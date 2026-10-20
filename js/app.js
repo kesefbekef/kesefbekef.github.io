@@ -1749,7 +1749,12 @@ async function tourGo(i) {
   if (s.end) confetti();
   notesFab();
 }
-addEventListener('resize', () => { if (tourI >= 0) tourGo(tourI); });
+// סיבוב מסך וכו' — מסדרים את הסיור מחדש. אבל לא כשהמקלדת נפתחת (גם היא "משנה גודל"):
+// אחרת חלון ההערות נסגר באמצע הלחיצה, והלחיצה נוחתת על כפתור שמתחתיו (למשל 🗑️ מחיקה)
+addEventListener('resize', () => {
+  if (tourI < 0 || document.body.classList.contains('noting') || /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName)) return;
+  tourGo(tourI);
+});
 
 // ---------- 💬 הערות לתיקון (במצב הדגמה ובזמן הסיור) ----------
 const VIEW_NAMES = { chat: 'צ\'אט', budget: 'תקציב', insights: 'תובנות', tx: 'תנועות' };
