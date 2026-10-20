@@ -7,7 +7,7 @@ import * as sync from './sync.js';
 import * as lock from './lock.js';
 import * as help from './help.js';
 import { demoData } from './demo-data.js';
-import { fixedPayments } from './fixed.js';
+import { fixedPayments, dueMonths } from './fixed.js';
 
 // ---------- עזרים ----------
 const $ = s => document.querySelector(s);
@@ -36,7 +36,7 @@ const timeOf = iso => new Date(iso).toLocaleTimeString('he-IL', { hour: '2-digit
 const thisMonth = () => ym(new Date());
 
 const RECOVERY = /type=recovery/.test(location.hash);
-const S = { tx: [], budgets: {}, learned: {}, cats: {}, goals: {}, maaser: {}, pocket: {}, debts: {}, people: [], me: null, month: thisMonth(), view: 'chat', catFilter: null, whoFilter: null, search: '' };
+const S = { tx: [], budgets: {}, learned: {}, cats: {}, goals: {}, maaser: {}, pocket: {}, debts: {}, recurring: {}, people: [], me: null, month: thisMonth(), view: 'chat', catFilter: null, whoFilter: null, search: '' };
 
 // ---------- בני הבית ----------
 const FACES = ['🧔', '👩', '👦', '👧', '👴', '👵', '🧑', '👶'];
@@ -181,7 +181,7 @@ function botHTML(t) {
   const askPay = !t.pay && !t.paySkip && t.source !== 'file' && Date.now() - new Date(t.created) < 12 * 3600e3
     ? `<div class="paynow"><span>💳 איך שולם?</span>${['credit', 'cash', 'transfer', 'bit'].map(k => `<button data-act="setpay" data-pay="${k}" data-id="${t.id}">${PAY[k].e} ${PAY[k].n.split('/')[0]}</button>`).join('')}<button data-act="skippay" data-id="${t.id}" class="skip">דלג</button></div>` : '';
   return `<div class="cat-ic" style="background:${c.g}">${c.e}</div>
-    <div><b>${title}</b><div class="sub">${sub}${day}</div>${t.tags?.length ? `<div class="tags">${t.tags.map(x => `<span class="tag">#${esc(x)}</span>`).join('')}</div>` : ''}
+    <div><b>${t.rec ? '🔁 ' : ''}${title}</b><div class="sub">${sub}${day}${t.rec ? ' · קבוע' : ''}</div>${t.estimate ? `<div class="est"><span>💡 סכום משוער — כמה יצא החשבון?</span><input type="number" inputmode="decimal" value="${t.amount}" aria-label="הסכום האמיתי"><button data-act="estok" data-id="${t.id}">✅</button></div>` : ''}${t.tags?.length ? `<div class="tags">${t.tags.map(x => `<span class="tag">#${esc(x)}</span>`).join('')}</div>` : ''}
     ${askPay}
     <div class="acts">${t.who && personOf(t.who) ? `<button data-act="who" data-id="${t.id}">${whoLabel(t.who)}</button>` : ''}${pay}<button data-act="fix" data-id="${t.id}">✏️ עריכה</button><button data-act="undo" data-id="${t.id}">🗑️ מחיקה</button></div></div>`;
 }
@@ -258,6 +258,7 @@ async function send(raw, source = 'text') {
     openExportSheet(kind, /אתמול/.test(raw) ? new Date(Date.now() - 864e5) : /שעבר|קודם/.test(raw) ? xp.shiftAnchor(kind, new Date(), -1) : new Date());
     return;
   }
+  if (/\sכל\s.*חודש/.test(raw) && await recurringCommand(raw)) { $('#inp').blur(); return; }
   if (/^(הלוויתי|לוויתי|לקחתי הלוואה|קיבלתי הלוואה|החזרתי ל)|\sהחזיר(ה)?\s/.test(raw) && await debtCommand(raw)) { $('#inp').blur(); return; }
   if (FEEDBACK_RE.test(raw)) { $('#inp').blur(); openFeedback(raw.replace(FEEDBACK_RE, '').trim(), raw); return; }
   if (help.isHelpRequest(raw)) { $('#inp').blur(); openHelp(raw, help.wantsGuide(raw) && !help.answer(raw).length); return; }
@@ -382,11 +383,20 @@ $('#chat').addEventListener('click', e => {
   else if (b.dataset.act === 'setpay') { t.pay = b.dataset.pay; db.putTx(t).then(() => { const el = document.getElementById('b-' + t.id); if (el) el.innerHTML = botHTML(t); toast(`${PAY[t.pay].e} נשמר: ${PAY[t.pay].n}`); }); }
   else if (b.dataset.act === 'skippay') { t.paySkip = true; db.putTx(t).then(() => { const el = document.getElementById('b-' + t.id); if (el) el.innerHTML = botHTML(t); }); }
   else if (b.dataset.act === 'who') openWhoSheet(t);
+  else if (b.dataset.act === 'estok') {
+    const v = num(b.parentElement.querySelector('input')?.value); if (!(v > 0)) return;
+    t.amount = v; t.total = v; delete t.estimate; db.putTx(t).then(async () => {
+      const r = t.rec && S.recurring?.[t.rec]; if (r) await saveRule(t.rec, { ...r, amount: v }); // בפעם הבאה ההערכה תהיה הסכום האחרון
+      renderAll(); toast(`✅ ${t.desc}: ${fmt(v)}`); });
+  }
   else openEditSheet(t);
 });
 
 async function removeTx(t) {
   S.tx = S.tx.filter(x => x.id !== t.id); await db.delTx(t.id);
+  // 🔁 קבוע שנמחק — לא נרשום אותו שוב באותו חודש
+  const rr = t.rec && S.recurring?.[t.rec], rm = ym(new Date(t.date));
+  if (rr && !(rr.skip || []).includes(rm)) await saveRule(t.rec, { ...rr, skip: [...(rr.skip || []), rm].slice(-24) });
   renderAll();
   toastUndo(`🗑️ נמחק: ${t.desc}`, async () => { S.tx.push(t); await db.putTx(t); renderAll(); toast('↩️ הוחזר'); });
 }
@@ -502,7 +512,9 @@ function renderBudget() {
   countUp($('#expSum'), expenseIn(m));
   const hint = !lsGet('kesef-cathint');
   const mode = S.budgets._mode === 'auto' ? '🪄 אוטומטי' : S.budgets._mode === 'manual' ? '✍️ אני קובע' : '';
-  $('#budgetList').innerHTML = `<button class="card newcat ${hint ? 'pulse' : ''}" id="newCatCard"><span class="plus">➕</span><span><b>קטגוריה חדשה</b><small>למשל 🐶 הכלב, 🎓 לימודים — עם אייקון וצבע</small></span>${hint ? '<i class="hint">חדש ✨</i>' : ''}</button>
+  const rl = Object.values(S.recurring || {}).filter(r => !r.paused), rIn = rl.filter(r => r.cat === 'income').reduce((x, r) => x + r.amount, 0), rOut = rl.filter(r => r.cat !== 'income').reduce((x, r) => x + r.amount, 0);
+  $('#budgetList').innerHTML = `<button class="card rec-card" id="recCard"><span class="plus">🔁</span><span><b>הקבועים שלי${rl.length ? ` · ${rl.length}` : ''}</b><small>${rl.length ? `נכנס ${fmt(rIn)} · יוצא ${fmt(rOut)} — כל חודש, לבד` : 'שכירות, ועד בית, משכורת — פעם אחת, ונרשם לבד כל חודש'}</small></span></button>
+    <button class="card newcat ${hint ? 'pulse' : ''}" id="newCatCard"><span class="plus">➕</span><span><b>קטגוריה חדשה</b><small>למשל 🐶 הכלב, 🎓 לימודים — עם אייקון וצבע</small></span>${hint ? '<i class="hint">חדש ✨</i>' : ''}</button>
     ${mode ? `<button class="chip" id="budgetMode" style="align-self:flex-start">תקציב: ${mode} · לשנות</button>` : ''}` + Object.entries(CATS).map(([id, c]) => {
     const s = spentIn(id, m), b = budgetOf(id), p = b ? Math.min(100, s / b * 100) : 0, o = b && s > b, left = b - s;
     // ✉️ מעטפה: כמה נשאר — בגדול. אדום כשנגמר / חרגנו
@@ -513,6 +525,7 @@ function renderBudget() {
   }).join('');
 }
 $('#budgetList').addEventListener('click', e => {
+  if (e.target.closest('#recCard')) { openRecurring(); return; }
   if (e.target.closest('#newCatCard')) { lsSet('kesef-cathint', '1'); openCatEdit(null, () => closeSheet()); return; }
   if (e.target.closest('#budgetMode')) { openBudgetSetup(); return; }
   const ec = e.target.closest('[data-ecat]'); if (ec) { lsSet('kesef-cathint', '1'); openCatEdit(ec.dataset.ecat, () => closeSheet()); return; }
@@ -615,8 +628,8 @@ function renderInsights() {
 const ZMAN_URL = 'https://zd0542964361.github.io/zman-bekef/';
 const zmanLink = (task, date) => `${ZMAN_URL}?task=${encodeURIComponent(task)}&date=${ymd(date)}&from=kesef`;
 function fixedCard() {
-  const rows = fixedPayments(S.tx).map(f => f.kind === 'fixed'
-    ? { e: catOf(f.cat).e, title: esc(f.desc), sub: `בערך ${fmt(f.amount)} · הבא ב-${f.next.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}`, href: zmanLink(`לשלם ${f.desc} (בערך ${Math.round(f.amount)}₪)`, f.remind) }
+  const rows = fixedPayments(S.tx, new Date(), S.recurring).map(f => f.kind === 'fixed'
+    ? { e: catOf(f.cat).e, title: (f.rule ? '🔁 ' : '') + esc(f.desc), sub: `${f.rule && !f.variable ? '' : 'בערך '}${fmt(f.amount)} · הבא ב-${f.next.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}`, href: zmanLink(`לשלם ${f.desc} (בערך ${Math.round(f.amount)}₪)`, f.remind) }
     : { e: '💳', title: esc(f.desc), sub: `התשלום האחרון (${f.inst}/${f.inst}) ב-${f.next.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })} · ${fmt(f.amount)} בחודש מתפנים`, href: zmanLink(`נגמרים התשלומים של ${f.desc} — ${Math.round(f.amount)}₪ בחודש מתפנים`, f.next) });
   if (!rows.length) return '';
   return `<div class="card"><b style="font-size:16px">📅 תשלומים קבועים</b><div class="sub" style="margin:2px 0 8px">מה עומד לרדת בקרוב — תזכורת ב"זמן בכיף" ⏰ או ביומן של הטלפון 📆</div>
@@ -708,7 +721,7 @@ function renderTx() {
   $('#txList').innerHTML = list.length ? list.map(t => {
     const c = catOf(t.cat), inc = t.cat === 'income';
     const extra = t.inst > 1 ? ` · תשלום ${installmentNo(t, m)}/${t.inst}` : '';
-    return `<button class="tx" data-id="${t.id}"><div class="cat-ic" style="background:${c.g}">${c.e}</div><div class="nm"><div>${esc(t.desc)}</div><small>${c.n} · ${new Date(t.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}${extra}${t.pay ? ' · ' + PAY[t.pay].e + ' ' + PAY[t.pay].n : ''}${t.who && personOf(t.who) ? ' · ' + (whoLabel(t.who)) : ''}${t.tags?.length ? ' · ' + t.tags.map(g => '#' + esc(g)).join(' ') : ''}${t.receipt ? ' · 🧾' : ''}</small></div><div class="am ${inc ? 'plus' : ''}">${inc ? '+' : ''}${fmt(t.amount)}</div></button>`;
+    return `<button class="tx" data-id="${t.id}"><div class="cat-ic" style="background:${c.g}">${c.e}</div><div class="nm"><div>${esc(t.desc)}</div><small>${c.n} · ${new Date(t.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}${extra}${t.pay ? ' · ' + PAY[t.pay].e + ' ' + PAY[t.pay].n : ''}${t.who && personOf(t.who) ? ' · ' + (whoLabel(t.who)) : ''}${t.tags?.length ? ' · ' + t.tags.map(g => '#' + esc(g)).join(' ') : ''}${t.receipt ? ' · 🧾' : ''}${t.rec ? ' · 🔁' : ''}</small></div><div class="am ${inc ? 'plus' : ''}">${inc ? '+' : ''}${t.estimate ? '≈' : ''}${fmt(t.amount)}</div></button>`;
   }).join('') : `<div class="empty"><span class="em">🔍</span>אין תנועות ${S.catFilter || q ? 'שמתאימות לחיפוש' : 'בחודש הזה'}</div>`;
 }
 $('#txFilter').addEventListener('click', e => {
@@ -1018,9 +1031,10 @@ function openAddSheet() {
   });
 }
 const ADD_HINT = { income: 'משכורת', food: 'אושר עד', car: 'דלק / טעינה', rest: 'פיצה', home: 'חשמל', kids: 'חוג', health: 'קופת חולים', subs: 'נטפליקס', clothes: 'נעליים', fun: 'סרט', give: 'צדקה', other: 'מתנה' };
+let addRecDefault = false; // נפתח מ"🔁 הקבועים שלי" — הטוגל דלוק מההתחלה
 function openAddForm(cat) {
   const c = catOf(cat), inc = cat === 'income';
-  let pay = null, who = S.me || null;
+  let pay = null, who = S.me || null, rec = addRecDefault; addRecDefault = false;
   openSheet(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
       <div class="cat-ic" style="background:${c.g};width:44px;height:44px">${c.e}</div>
       <h3 style="margin:0;flex:1">${inc ? 'הכנסה חדשה' : c.n}</h3>
@@ -1029,6 +1043,11 @@ function openAddForm(cat) {
       <label class="field"><span>סכום ₪</span><input id="aAmt" type="number" inputmode="decimal" placeholder="0"></label>
       <label class="field"><span>תאריך</span><input id="aDate" type="date" value="${ymd(new Date())}"></label>
     </div>
+    <div class="rec-box ${rec ? 'on' : ''}" id="aRecBox"><button class="chip ${rec ? 'on' : ''}" id="aRec">🔁 קבוע כל חודש</button>
+      <div class="rec-more"><div class="row2"><label class="field"><span>ביום בחודש</span><input id="aRecDay" type="number" inputmode="numeric" min="1" max="28" value="${Math.min(28, new Date().getDate())}"></label>
+        <label class="field"><span>כמה חודשים? (ריק = בלי סוף)</span><input id="aRecN" type="number" inputmode="numeric" placeholder="∞"></label></div>
+        <label class="field"><span>או: עד חודש (לא חובה)</span><input id="aRecEnd" type="month"></label>
+        <label class="chk"><input type="checkbox" id="aRecVar"> 💡 הסכום משתנה (כמו חשמל) — לשאול כל חודש כמה יצא</label></div></div>
     ${inc && S.people.length ? `<div class="who-box"><div class="who-q">👤 של מי ההכנסה?</div><div class="chips" id="aWho" style="flex-wrap:wrap">${whoChips(who)}</div></div>` : ''}
     <label class="field"><span>${inc ? 'מאיפה?' : 'על מה? / איפה?'} (לא חובה)</span><input id="aDesc" placeholder="למשל: ${ADD_HINT[cat] || ''}"></label>
     ${inc ? '' : `<label class="field"><span>מספר תשלומים (לא חובה)</span><input id="aInst" type="number" inputmode="numeric" placeholder="1"></label>`}
@@ -1039,6 +1058,8 @@ function openAddForm(cat) {
     ${tagField('aTag', [])}
     <button class="btn grad full" id="aSave">✅ שמירה</button>`, sh => {
     sh.querySelector('#aBack').onclick = openAddSheet;
+    sh.querySelector('#aRec').onclick = e => { rec = !rec; e.currentTarget.classList.toggle('on', rec); sh.querySelector('#aRecBox').classList.toggle('on', rec); };
+    sh.querySelector('#aDate').onchange = e => { const d = new Date(e.target.value + 'T12:00:00'); if (!isNaN(d)) sh.querySelector('#aRecDay').value = Math.min(28, d.getDate()); };
     sh.querySelectorAll('#aPay [data-p]').forEach(b => b.onclick = () => {
       pay = pay === b.dataset.p ? null : b.dataset.p;
       sh.querySelectorAll('#aPay [data-p]').forEach(x => x.classList.toggle('on', x.dataset.p === pay));
@@ -1055,6 +1076,13 @@ function openAddForm(cat) {
       if (!(total > 0)) { err.textContent = 'צריך להזין סכום גדול מ-0'; amt.focus(); return; }
       if (!d) { err.textContent = 'צריך לבחור תאריך'; return; }
       const desc = sh.querySelector('#aDesc').value.trim() || (inc ? 'הכנסה' : c.n);
+      if (rec) { // 🔁 נשמר ככלל — והרישום עצמו נעשה לבד (גם החודש, אם היום כבר הגיע)
+        const start = ym(new Date(d + 'T12:00:00')), day = Math.min(28, Math.max(1, Math.round(num(sh.querySelector('#aRecDay').value)) || 1));
+        const end = recEnd(start, Math.round(num(sh.querySelector('#aRecN').value)), sh.querySelector('#aRecEnd').value);
+        await saveRule('r_' + Math.random().toString(36).slice(2, 8), { desc: cleanName(desc), amount: total, cat, day, start, end, variable: sh.querySelector('#aRecVar').checked, who, pay });
+        closeSheet(); const added = await postRecurring(); confetti();
+        toast(`🔁 נשמר כקבוע: ${desc} · ${fmt(total)} כל ${day} לחודש${added.length ? '' : ' (יירשם ביום הזה)'}`); return;
+      }
       const n = Math.round(parseFloat(sh.querySelector('#aInst')?.value) || 0), inst = !inc && n > 1 ? n : 0;
       const now = new Date();
       const t = { id: db.newId(), msg: db.newId(), raw: `${desc} ${total}${inst ? ` ב-${inst} תשלומים` : ''}`, desc, cat, source: 'plus',
@@ -1714,7 +1742,7 @@ function openBudgetSetup() {
     <button class="onb-opt" id="obManual"><span class="oe">✍️</span><span><b>אני קובע לכל קטגוריה</b><small>עוברים על הקטגוריות ומחליטים סכום לכל אחת.</small></span></button>
     <button class="btn ghost full" id="obLater" style="margin-top:6px">אחר כך</button></div>`, sh => {
     sh.querySelector('#obAuto').onclick = async () => { const { _mode, ...rest } = S.budgets; void _mode; S.budgets = { ...Object.fromEntries(Object.entries(rest).filter(([, v]) => v != null)), _mode: 'auto' };
-      await db.setKV('budgets', S.budgets); closeSheet(); renderAll(); confetti(); toast('🪄 התקציב האוטומטי מוכן — מתעדכן לבד לפי ההוצאות'); go('budget'); };
+      await db.setKV('budgets', S.budgets); renderAll(); toast('🪄 התקציב האוטומטי מוכן — מתעדכן לבד לפי ההוצאות'); go('budget'); openRecurringSetup(); };
     sh.querySelector('#obManual').onclick = () => openBudgetManual();
     sh.querySelector('#obLater').onclick = () => { lsSet('kesef-onb-later', ymd(new Date())); closeSheet(); };
   });
@@ -1727,13 +1755,137 @@ function openBudgetManual() {
     sh.querySelector('#bmSave').onclick = async () => {
       const b = { _mode: 'manual' };
       sh.querySelectorAll('[data-bm]').forEach(i => { const v = Math.round(num(i.value)); b[i.dataset.bm] = v > 0 ? v : 0; });
-      S.budgets = b; await db.setKV('budgets', b); closeSheet(); renderAll(); confetti(); toast('🎯 התקציב נשמר'); go('budget');
+      S.budgets = b; await db.setKV('budgets', b); renderAll(); toast('🎯 התקציב נשמר'); go('budget'); openRecurringSetup();
     };
   });
 }
 function maybeOnboard() {
   if (db.DEMO || !sync.isParent() || Object.keys(S.budgets || {}).length || lsGet('kesef-onb-later') === ymd(new Date())) return;
   setTimeout(openBudgetSetup, 700);
+}
+
+// ========== 🔁 הכנסות והוצאות קבועות — נרשמות לבד כל חודש ==========
+// S.recurring = { id: { desc, amount, cat, day, start 'YYYY-MM', end 'YYYY-MM'|'', paused, variable, who, pay, skip: ['YYYY-MM'] } }
+// מספר רשומה קבוע לכל (כלל, חודש) → שני טלפונים לא ירשמו פעמיים
+const REC_PRESETS = [
+  ['🏠', 'שכירות', 'home', 4500, 1], ['🏦', 'משכנתא', 'home', 4000, 10], ['🏢', 'ועד בית', 'home', 250, 10], ['🏛️', 'ארנונה', 'home', 650, 1],
+  ['💡', 'חשמל', 'home', 450, 15, true], ['💧', 'מים', 'home', 180, 15, true], ['👶', 'גן / מעון', 'kids', 1800, 1], ['⚽', 'חוגים', 'kids', 200, 1],
+  ['🛡️', 'ביטוחים', 'home', 350, 1], ['💼', 'משכורת', 'income', 12000, 1], ['👨‍👩‍👧', 'קצבת ילדים', 'income', 350, 20], ['🔑', 'שכירות שנכנסת', 'income', 4500, 1],
+];
+const recId = (rid, m) => `rec_${rid}_${m}`;
+const recEnd = (start, months, endM) => endM || (months > 0 ? addMonths(start, months - 1) : '');
+async function saveRule(rid, rule) { await saveKV('recurring', { ...S.recurring, [rid]: rule }); }
+async function postRecurring() {
+  if (!sync.isParent()) return [];
+  const now = new Date(), have = new Set(S.tx.map(t => t.id)), added = [];
+  for (const [rid, r] of Object.entries(S.recurring || {})) {
+    for (const m of dueMonths(r, now)) {
+      const id = recId(rid, m); if (have.has(id) || (r.skip || []).includes(m)) continue;
+      const day = Math.min(28, Math.max(1, r.day || 1)), [y, mo] = m.split('-').map(Number), inc = r.cat === 'income';
+      const t = { id, msg: id, raw: `🔁 ${r.desc} ${r.amount}`, desc: r.desc, cat: r.cat, source: 'recurring', rec: rid,
+        created: now.toISOString(), date: new Date(y, mo - 1, day, 12).toISOString(), amount: r.amount, total: r.amount, inst: 0,
+        pay: r.pay || (inc ? 'transfer' : 'standing'), who: r.who || S.me || null, ...(r.variable ? { estimate: true } : {}) };
+      S.tx.push(t); await db.putTx(t); added.push(t.id); have.add(id);
+    }
+  }
+  if (added.length) { renderAll(added); toast(`🔁 נרשמו ${added.length} קבועים לחודש הזה`); }
+  return added;
+}
+const ruleLine = r => `${r.variable ? '≈ ' : ''}${fmt(r.amount)} · כל ${r.day} לחודש${r.end ? ' · עד ' + monthLabel(r.end) : ''}${r.paused ? ' · ⏸️ מושהה' : ''}`;
+function openRecurring() {
+  const list = Object.entries(S.recurring || {}), act = list.filter(([, r]) => !r.paused);
+  const inSum = act.filter(([, r]) => r.cat === 'income').reduce((s, [, r]) => s + r.amount, 0), outSum = act.filter(([, r]) => r.cat !== 'income').reduce((s, [, r]) => s + r.amount, 0);
+  openSheet(`<h3>🔁 הקבועים שלי</h3><div class="sub" style="margin:-6px 0 12px">נרשמים לבד כל חודש ביום שבחרתם. אפשר לערוך, להשהות או להפסיק.</div>
+    <div class="duo" style="padding:0 0 12px"><div class="stat" style="background:var(--g3)"><small>נכנס כל חודש</small><div>${fmt(inSum)}</div></div><div class="stat" style="background:linear-gradient(135deg,#F43F5E,#F97316)"><small>יוצא כל חודש</small><div>${fmt(outSum)}</div></div></div>
+    ${list.length ? `<div class="card stg" style="padding:4px 12px">${list.sort((a, b) => (a[1].cat === 'income' ? 0 : 1) - (b[1].cat === 'income' ? 0 : 1) || a[1].day - b[1].day).map(([rid, r]) => { const c = catOf(r.cat);
+      return `<button class="tx" data-rule="${rid}" style="${r.paused ? 'opacity:.55' : ''}"><div class="cat-ic" style="background:${c.g}">${c.e}</div><div class="nm"><div>${esc(r.desc)}</div><small>${ruleLine(r)}</small></div><div class="am ${r.cat === 'income' ? 'plus' : ''}">${r.cat === 'income' ? '+' : ''}${fmt(r.amount)}</div></button>`; }).join('')}</div>`
+      : `<div class="empty"><span class="em">🔁</span>עוד אין קבועים. שכירות, ועד בית, משכורת — מכניסים פעם אחת, והם נרשמים לבד כל חודש.</div>`}
+    <div class="row2" style="margin-top:12px"><button class="btn grad" id="rqQuick">⚡ בחירה מהירה</button><button class="btn ghost" id="rqNew">➕ קבוע אחר</button></div>
+    <div class="sub" style="margin-top:10px">💡 גם בצ'אט: "ועד בית 250 כל חודש" או "שכירות 4200 כל 1 לחודש"</div>`, sh => {
+    sh.querySelectorAll('[data-rule]').forEach(b => b.onclick = () => openRuleEdit(b.dataset.rule));
+    sh.querySelector('#rqQuick').onclick = () => openRecurringSetup(openRecurring);
+    sh.querySelector('#rqNew').onclick = () => { addRecDefault = true; openAddSheet(); };
+  });
+}
+function openRuleEdit(rid) {
+  const r = S.recurring?.[rid]; if (!r) return openRecurring();
+  const c = catOf(r.cat); let armed = false;
+  openSheet(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px"><div class="cat-ic" style="background:${c.g};width:48px;height:48px;font-size:24px">${c.e}</div>
+      <h3 style="margin:0;flex:1">🔁 ${esc(r.desc)}</h3><button class="chip" id="reBack">↩️ חזרה</button></div>
+    <div class="row2"><label class="field"><span>סכום ₪</span><input id="reAmt" type="number" inputmode="decimal" value="${r.amount}"></label>
+      <label class="field"><span>ביום בחודש (1-28)</span><input id="reDay" type="number" inputmode="numeric" min="1" max="28" value="${r.day}"></label></div>
+    <label class="field"><span>עד חודש (ריק = בלי סוף)</span><input id="reEnd" type="month" value="${r.end || ''}"></label>
+    <label class="chk"><input type="checkbox" id="reVar" ${r.variable ? 'checked' : ''}> 💡 הסכום משתנה (כמו חשמל) — לשאול כל חודש כמה יצא</label>
+    <button class="btn grad full" id="reSave" style="margin-top:12px">💾 שמירה</button>
+    <div class="row2" style="margin-top:10px"><button class="btn ghost" id="rePause">${r.paused ? '▶️ להמשיך' : '⏸️ להשהות'}</button><button class="btn ghost" id="reDel" style="color:#FB7185">🛑 להפסיק</button></div>
+    <div class="sub" style="margin-top:8px">מה שכבר נרשם בחודשים הקודמים — נשאר.</div>`, sh => {
+    sh.querySelector('#reBack').onclick = openRecurring;
+    sh.querySelector('#reSave').onclick = async () => {
+      const a = num(sh.querySelector('#reAmt').value), d = Math.round(num(sh.querySelector('#reDay').value));
+      if (!(a > 0)) return sh.querySelector('#reAmt').focus();
+      await saveRule(rid, { ...r, amount: a, day: Math.min(28, Math.max(1, d || r.day)), end: sh.querySelector('#reEnd').value || '', variable: sh.querySelector('#reVar').checked });
+      toast('✅ נשמר'); await postRecurring(); openRecurring();
+    };
+    sh.querySelector('#rePause').onclick = async () => { await saveRule(rid, { ...r, paused: !r.paused }); toast(r.paused ? '▶️ ממשיך לרשום כל חודש' : '⏸️ מושהה — לא יירשם עד שתמשיכו'); if (r.paused) await postRecurring(); openRecurring(); };
+    sh.querySelector('#reDel').onclick = async ev => {
+      if (!armed) { armed = true; ev.target.textContent = 'בטוח? לחיצה שנייה'; return; }
+      const { [rid]: _, ...rest } = S.recurring; await saveKV('recurring', rest); toast('🛑 הקבוע הופסק'); openRecurring();
+    };
+  });
+}
+// ⚡ בחירה מהירה (גם בסוף מסך הפתיחה): לוחצים על מה שיש לכם ומקלידים סכום
+function openRecurringSetup(after = null) {
+  const exist = new Set(Object.values(S.recurring || {}).map(r => r.desc));
+  openSheet(`<div class="onb-emo">🔁</div><h3 style="text-align:center">מה הקבועים שלכם?</h3>
+    <div class="sub" style="text-align:center;margin:-4px 0 12px">לוחצים על מה שיש לכם ← סכום ← וזהו. כל חודש זה יירשם לבד.</div>
+    <div class="rq-chips">${REC_PRESETS.map(([e, n, cat], i) => `<button class="chip ${exist.has(n) ? 'done' : ''}" data-rq="${i}" ${exist.has(n) ? 'disabled' : ''}>${e} ${n}${cat === 'income' ? ' 💰' : ''}${exist.has(n) ? ' ✓' : ''}</button>`).join('')}</div>
+    <div id="rqRows"></div>
+    <button class="btn grad full" id="rqSave" style="margin-top:12px">✅ סיום</button>
+    <button class="btn ghost full" id="rqSkip" style="margin-top:8px">אחר כך</button>`, sh => {
+    const rows = sh.querySelector('#rqRows');
+    sh.querySelectorAll('[data-rq]').forEach(b => b.onclick = () => {
+      const i = +b.dataset.rq, [e, n, , amt, day, variable] = REC_PRESETS[i];
+      if (b.classList.toggle('on')) {
+        rows.insertAdjacentHTML('beforeend', `<div class="rq-row" data-row="${i}"><span class="rq-n">${e} ${n}</span>
+          <input type="number" inputmode="decimal" placeholder="${amt}" aria-label="סכום"><span class="sub">₪ · ב-</span><input type="number" inputmode="numeric" value="${day}" min="1" max="28" class="rq-day" aria-label="יום בחודש">${variable ? '<span class="sub">≈</span>' : ''}</div>`);
+        rows.lastElementChild.querySelector('input').focus();
+      } else rows.querySelector(`[data-row="${i}"]`)?.remove();
+      const n2 = rows.children.length; sh.querySelector('#rqSave').textContent = n2 ? `✅ שמירה (${n2})` : '✅ סיום';
+    });
+    sh.querySelector('#rqSkip').onclick = () => after ? after() : closeSheet();
+    sh.querySelector('#rqSave').onclick = async () => {
+      const next = { ...S.recurring }, m = thisMonth(); let n = 0;
+      for (const row of rows.children) {
+        const [, name, cat, , , variable] = REC_PRESETS[+row.dataset.row], ins = row.querySelectorAll('input');
+        const a = num(ins[0].value || ins[0].placeholder), d = Math.min(28, Math.max(1, Math.round(num(ins[1].value)) || 1));
+        if (!(a > 0)) continue;
+        next['r_' + Math.random().toString(36).slice(2, 8)] = { desc: name, amount: a, cat, day: d, start: m, end: '', variable: !!variable, who: S.me || null };
+        n++;
+      }
+      if (n) { await saveKV('recurring', next); await postRecurring(); confetti(); toast(`🔁 ${n} קבועים נשמרו — יירשמו לבד כל חודש`); }
+      after ? after() : closeSheet();
+    };
+  });
+}
+// בצ'אט: "ועד בית 250 כל חודש" · "שכירות 4200 כל 1 לחודש" · "משכורת 12000 כל ה-10 לחודש"
+const REC_RE = /^(.+?)\s+(\d+(?:\.\d+)?)\s*(?:₪|ש"?ח|שקל(?:ים)?)?\s+כל\s+(?:ה-?)?(?:(\d{1,2})\s*)?(?:ב|ל)?חודש/;
+async function recurringCommand(raw) {
+  const m = raw.trim().match(REC_RE); if (!m || !sync.isParent()) return false;
+  const named = detectWho(m[1]), desc = cleanName(named.text) || 'קבוע', a = num(m[2]);
+  if (!(a > 0)) return false;
+  const day = Math.min(28, Math.max(1, m[3] ? +m[3] : new Date().getDate()));
+  const cat = isIncome(desc) ? 'income' : classify(desc, S.learned), rid = 'r_' + Math.random().toString(36).slice(2, 8);
+  const variable = /חשמל|מים|גז/.test(desc);
+  await saveRule(rid, { desc, amount: a, cat, day, start: thisMonth(), end: '', variable, who: named.who || S.me || null });
+  await postRecurring(); // קודם רושמים (זה מרענן את הצ'אט) — ואז מוסיפים את האישור
+  const me = document.createElement('div'); me.className = 'me new'; me.innerHTML = esc(raw); $('#chat').appendChild(me);
+  const b = document.createElement('div'); b.className = 'bot new'; const c = catOf(cat);
+  b.innerHTML = `<div class="cat-ic" style="background:${c.g}">🔁</div><div><b>נשמר כקבוע: ${esc(desc)} · ${fmt(a)}</b><div class="sub">${c.e} ${esc(c.n)} · יירשם לבד כל ${day} לחודש${variable ? ' · 💡 נשאל כל חודש כמה יצא' : ''}</div>
+    <div class="acts"><button data-openrec>🔁 הקבועים שלי</button></div></div>`;
+  b.querySelector('[data-openrec]').onclick = openRecurring;
+  $('#chat').appendChild(b);
+  $('#main').scrollTo({ top: $('#main').scrollHeight, behavior: 'smooth' });
+  return true;
 }
 
 // ========== 🎭 מצב הדגמה · 🧭 סיור מודרך · 💬 הערות ==========
@@ -1746,7 +1898,7 @@ async function demoStart() {
     for (const t of tx) await db.putTx(t, true);
     for (const [k, v] of Object.entries(kv)) await db.setKV(k, v, true);
   }
-  await reloadFromDb();
+  await reloadFromDb(); await postRecurring();
   $('#gate').classList.remove('on');
   document.body.classList.add('demo');
   const bar = document.createElement('div'); bar.className = 'demo-bar';
@@ -1775,6 +1927,8 @@ const TOUR = [
   { v: 'chat', sel: () => [...document.querySelectorAll('#chat .bot .acts')].pop(), t: '✏️ עריכה, מחיקה, של מי', d: 'בכל בועה: לשנות הכל, למחוק (עם ↩️ ביטול), ולבחור על שם מי.' },
   { v: 'chat', sel: () => [...document.querySelectorAll('#chat .tag')].pop() || $('#inp'), t: '🏷️ תגיות אירוע', d: 'מוסיפים #בר_מצווה להודעה — ורואים בתובנות כמה עלה כל אירוע.' },
   { v: 'budget', sel: '#sheet', open: () => openBudgetSetup(), t: '🎯 פתיחה: איך בונים תקציב?', d: 'בפעם הראשונה בוחרים: 🪄 אוטומטי (מתעדכן לבד לפי ההוצאות) או ✍️ אני קובע לכל קטגוריה. אפשר לשנות אחר כך.' },
+  { v: 'budget', sel: '#sheet', open: () => openRecurringSetup(), t: '🔁 מה הקבועים שלכם?', d: 'בסוף מסך הפתיחה: לוחצים על שכירות, ועד בית, משכורת… מקלידים סכום — וזה נרשם לבד כל חודש.' },
+  { v: 'budget', sel: '#sheet', open: () => openRecurring(), t: '🔁 הקבועים שלי', d: 'כל ההכנסות וההוצאות הקבועות: לערוך, ⏸️ להשהות או להפסיק. חשמל עם "סכום משתנה" — שואלים כל חודש כמה יצא. גם בצ\'אט: "ועד בית 250 כל חודש".' },
   { v: 'budget', sel: '#newCatCard', t: '🏷️ קטגוריה חדשה', d: 'ישר ממסך התקציב: שם, אייקון וצבע. וליד כל קטגוריה ✏️ — לשנות שם, אייקון וצבע (גם לקטגוריות המוכנות).' },
   { v: 'budget', sel: '#v-budget .duo', t: '🎯 הכנסות מול הוצאות', d: 'כמה נכנס וכמה יצא בחודש. לחיצה על ההכנסות — פירוט.' },
   { v: 'budget', sel: '#budgetList .card', t: '✉️ מעטפות', d: 'בגדול: כמה נשאר בכל קטגוריה. ירוק, צהוב ב-90%, אדום כשנגמר.' },
@@ -2008,6 +2162,7 @@ function openSettings() { openSheet(`<h3>⚙️ הגדרות</h3>
   <button class="btn ghost full" id="toFeedback" style="margin-bottom:10px">💌 שליחת משוב / הצעה / תקלה</button>
   ${isStandalone() ? '' : '<button class="btn ghost full" id="toInstall" style="margin-bottom:10px">📲 התקנה על המסך (כמו אפליקציה)</button>'}
   <button class="btn grad full kid-only" id="toMyBox" style="margin-bottom:10px">🐷 הקופה שלי</button>
+  <button class="btn ghost full parent-only" id="toRec" style="margin-bottom:10px">🔁 הכנסות והוצאות קבועות</button>
   <button class="btn ghost full parent-only" id="toCats" style="margin-bottom:10px">🏷️ קטגוריות — להוסיף / לשנות שם</button>
   <button class="btn grad full parent-only" id="toExcel" style="margin-bottom:10px">📊 הורדת סיכום לאקסל</button>
   <div class="row2" style="margin-bottom:10px"><button class="btn ghost" id="exp">⬇️ גיבוי</button><button class="btn ghost" id="imp">⬆️ שחזור מגיבוי</button></div>
@@ -2025,6 +2180,7 @@ function openSettings() { openSheet(`<h3>⚙️ הגדרות</h3>
   sh.querySelector('#demoExit')?.addEventListener('click', exitDemo);
   sh.querySelector('#toExcel').onclick = () => openExportSheet();
   sh.querySelector('#toCats').onclick = () => openCatsSheet();
+  sh.querySelector('#toRec').onclick = () => openRecurring();
   sh.querySelector('#toMyBox').onclick = () => S.me ? openKid(S.me, true) : toast('קודם בוחרים "אני ___" במשפחה', true);
   sh.querySelector('#toHelp').onclick = () => openHelp();
   sh.querySelector('#toShare').onclick = () => openHelp('איך משתפים את האפליקציה עם חבר');
@@ -2550,7 +2706,7 @@ async function drawSync(el) {
 async function reloadFromDb() {
   S.tx = await db.allTx();
   S.cats = await db.getKV('cats', {}); applyCustomCats(S.cats);
-  S.goals = await db.getKV('goals', {}); S.maaser = await db.getKV('maaser', {}); S.pocket = await db.getKV('pocket', {}); S.debts = await db.getKV('debts', {});
+  S.goals = await db.getKV('goals', {}); S.maaser = await db.getKV('maaser', {}); S.pocket = await db.getKV('pocket', {}); S.debts = await db.getKV('debts', {}); S.recurring = await db.getKV('recurring', {});
   S.budgets = await db.getKV('budgets', {});
   S.learned = await db.getKV('learned', {});
   S.people = cleanPeople(await db.getKV('people', []));
@@ -2579,6 +2735,7 @@ load().then(async () => {
   showGate();
   if (RECOVERY && syncUser) newPasswordSheet();
   if (new URLSearchParams(location.search).get('v') === 'budget') go('budget'); // לחיצה על התראת תקציב
+  await postRecurring();
   starsLink(); addLink(); if (!$('#sheet').classList.contains('on')) maybeOnboard();
   debtReminder();
 });
