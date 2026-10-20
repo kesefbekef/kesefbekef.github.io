@@ -63,3 +63,11 @@ export async function clearFamilyData() {
 }
 
 export const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+
+// 🎭 איפוס נתוני ההדגמה: מרוקנים את המאגר במקום למחוק אותו (מחיקה נתקעת כשהאפליקציה פתוחה)
+export async function clearAll() {
+  if (!DEMO) throw new Error('only in demo');
+  const db = await open();
+  await done(db.transaction('tx', 'readwrite').objectStore('tx').clear());
+  await done(db.transaction('kv', 'readwrite').objectStore('kv').clear());
+}

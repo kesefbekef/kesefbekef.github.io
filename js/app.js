@@ -7,6 +7,7 @@ import * as sync from './sync.js';
 import * as lock from './lock.js';
 import * as help from './help.js';
 import { demoData } from './demo-data.js';
+import { fixedPayments } from './fixed.js';
 
 // ---------- עזרים ----------
 const $ = s => document.querySelector(s);
@@ -65,8 +66,9 @@ const expenses = () => S.tx.filter(t => t.cat !== 'income');
 const spentIn = (cat, m) => S.tx.filter(t => t.cat === cat).reduce((s, t) => s + amountIn(t, m), 0);
 const incomeIn = m => spentIn('income', m);
 const expenseIn = m => expenses().reduce((s, t) => s + amountIn(t, m), 0);
-const budgetOf = cat => S.budgets[cat] ?? CATS[cat]?.budget ?? 0; // 0 = בלי תקציב
-const totalBudget = () => Object.keys(CATS).reduce((s, c) => s + budgetOf(c), 0);
+// 0 = בלי תקציב. במצב "🪄 אוטומטי" — מה שלא נקבע ידנית מתעדכן לפי ההוצאות בפועל (ממוצע 3 חודשים)
+const budgetOf = cat => S.budgets[cat] ?? (S.budgets._mode === 'auto' ? recommend(cat) : null) ?? CATS[cat]?.budget ?? 0;
+const totalBudget = () => Object.keys(CATS).reduce((s, c) => s + (budgetOf(c) || 0), 0);
 const txInMonth = m => S.tx.filter(t => amountIn(t, m) > 0);
 function daysLeft() { const d = new Date(); return new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate() - d.getDate(); }
 function installmentNo(t, m) { return monthDiff(ym(new Date(t.date)), m) + 1; }
@@ -498,16 +500,22 @@ function renderBudget() {
   const m = S.month;
   countUp($('#incSum'), incomeIn(m));
   countUp($('#expSum'), expenseIn(m));
-  $('#budgetList').innerHTML = Object.entries(CATS).map(([id, c]) => {
+  const hint = !lsGet('kesef-cathint');
+  const mode = S.budgets._mode === 'auto' ? '🪄 אוטומטי' : S.budgets._mode === 'manual' ? '✍️ אני קובע' : '';
+  $('#budgetList').innerHTML = `<button class="card newcat ${hint ? 'pulse' : ''}" id="newCatCard"><span class="plus">➕</span><span><b>קטגוריה חדשה</b><small>למשל 🐶 הכלב, 🎓 לימודים — עם אייקון וצבע</small></span>${hint ? '<i class="hint">חדש ✨</i>' : ''}</button>
+    ${mode ? `<button class="chip" id="budgetMode" style="align-self:flex-start">תקציב: ${mode} · לשנות</button>` : ''}` + Object.entries(CATS).map(([id, c]) => {
     const s = spentIn(id, m), b = budgetOf(id), p = b ? Math.min(100, s / b * 100) : 0, o = b && s > b, left = b - s;
     // ✉️ מעטפה: כמה נשאר — בגדול. אדום כשנגמר / חרגנו
     const env = !b ? `<div class="env"><small>הוצאתם</small><b>${fmt(s)}</b></div>`
       : left > 0 ? `<div class="env ${p >= 90 ? 'warn' : ''}"><small>נשארו</small><b>${fmt(left)}</b></div>`
       : `<div class="env empty-env"><small>${left === 0 ? 'המעטפה ריקה' : 'חריגה'}</small><b>${left === 0 ? '0₪' : '-' + fmt(-left)}</b></div>`;
-    return `<button class="card" data-cat="${id}"><div class="cat-row"><div class="cat-ic" style="background:${c.g}">${c.e}</div><div class="nm">${esc(c.n)}<small class="sub" style="display:block">${b ? `${fmt(s)} מתוך ${fmt(b)}` : 'בלי תקציב'}</small></div>${env}</div><div class="pbar"><i style="width:${p}%;background:${o || (b && left <= 0) ? 'linear-gradient(90deg,#F43F5E,#FB7185)' : c.g}"></i></div></button>`;
+    return `<button class="card" data-cat="${id}"><div class="cat-row"><div class="cat-ic" style="background:${c.g}">${c.e}</div><div class="nm">${esc(c.n)} <span class="cedit2" data-ecat="${id}" role="button" aria-label="עריכת קטגוריה">✏️</span><small class="sub" style="display:block">${b ? `${fmt(s)} מתוך ${fmt(b)}${S.budgets._mode === 'auto' && S.budgets[id] == null ? ' 🪄' : ''}` : 'בלי תקציב'}</small></div>${env}</div><div class="pbar"><i style="width:${p}%;background:${o || (b && left <= 0) ? 'linear-gradient(90deg,#F43F5E,#FB7185)' : c.g}"></i></div></button>`;
   }).join('');
 }
 $('#budgetList').addEventListener('click', e => {
+  if (e.target.closest('#newCatCard')) { lsSet('kesef-cathint', '1'); openCatEdit(null, () => closeSheet()); return; }
+  if (e.target.closest('#budgetMode')) { openBudgetSetup(); return; }
+  const ec = e.target.closest('[data-ecat]'); if (ec) { lsSet('kesef-cathint', '1'); openCatEdit(ec.dataset.ecat, () => closeSheet()); return; }
   const b = e.target.closest('[data-cat]'); if (!b) return;
   openCategory(b.dataset.cat, S.month);
 });
@@ -607,31 +615,31 @@ function renderInsights() {
 const ZMAN_URL = 'https://zd0542964361.github.io/zman-bekef/';
 const zmanLink = (task, date) => `${ZMAN_URL}?task=${encodeURIComponent(task)}&date=${ymd(date)}&from=kesef`;
 function fixedCard() {
-  const now = new Date(), m = thisMonth(), prevM = addMonths(m, -1), rows = [];
-  // קבועות: אותו תיאור בערך באותו סכום — גם בחודש הזה וגם בקודם (או בשני הקודמים)
-  const byDesc = new Map();
-  for (const t of S.tx) if (t.cat !== 'income' && !(t.inst > 1)) { const k = t.desc.trim(); (byDesc.get(k) || byDesc.set(k, []).get(k)).push(t); }
-  for (const [desc, list] of byDesc) {
-    const months = new Set(list.map(t => ym(new Date(t.date))));
-    if (!(months.has(m) || months.has(prevM)) || months.size < 2) continue;
-    const last = list.reduce((a, b) => a.date > b.date ? a : b), lastD = new Date(last.date);
-    const amts = list.slice(-3).map(t => t.amount); if (Math.max(...amts) - Math.min(...amts) > last.amount * .15) continue;
-    const next = new Date(lastD.getFullYear(), lastD.getMonth() + 1, lastD.getDate(), 12);
-    if (next < now) next.setMonth(next.getMonth() + 1);
-    const remind = new Date(next); remind.setDate(remind.getDate() - 1);
-    rows.push({ e: catOf(last.cat).e, title: esc(desc), sub: `בערך ${fmt(last.amount)} · הבא ב-${next.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}`, when: next, href: zmanLink(`לשלם ${desc} (בערך ${Math.round(last.amount)}₪)`, remind) });
-  }
-  // תשלומים שנגמרים בחודשיים הקרובים
-  for (const t of S.tx) if (t.inst > 1) {
-    const st = new Date(t.date), end = new Date(st.getFullYear(), st.getMonth() + t.inst - 1, st.getDate(), 12);
-    if (end < now || end > new Date(now.getFullYear(), now.getMonth() + 2, now.getDate())) continue;
-    rows.push({ e: '💳', title: esc(t.desc), sub: `התשלום האחרון (${t.inst}/${t.inst}) ב-${end.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })} · ${fmt(t.amount)} בחודש מתפנים`, when: end, href: zmanLink(`נגמרים התשלומים של ${t.desc} — ${Math.round(t.amount)}₪ בחודש מתפנים`, end) });
-  }
+  const rows = fixedPayments(S.tx).map(f => f.kind === 'fixed'
+    ? { e: catOf(f.cat).e, title: esc(f.desc), sub: `בערך ${fmt(f.amount)} · הבא ב-${f.next.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}`, href: zmanLink(`לשלם ${f.desc} (בערך ${Math.round(f.amount)}₪)`, f.remind) }
+    : { e: '💳', title: esc(f.desc), sub: `התשלום האחרון (${f.inst}/${f.inst}) ב-${f.next.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })} · ${fmt(f.amount)} בחודש מתפנים`, href: zmanLink(`נגמרים התשלומים של ${f.desc} — ${Math.round(f.amount)}₪ בחודש מתפנים`, f.next) });
   if (!rows.length) return '';
-  rows.sort((a, b) => a.when - b.when);
-  return `<div class="card"><b style="font-size:16px">📅 תשלומים קבועים</b><div class="sub" style="margin:2px 0 8px">מה עומד לרדת בקרוב — ולחיצה אחת מוסיפה תזכורת ב"זמן בכיף" ⏰</div>
+  return `<div class="card"><b style="font-size:16px">📅 תשלומים קבועים</b><div class="sub" style="margin:2px 0 8px">מה עומד לרדת בקרוב — תזכורת ב"זמן בכיף" ⏰ או ביומן של הטלפון 📆</div>
     ${rows.slice(0, 8).map(r => `<div class="tx" style="cursor:default"><div class="cat-ic" style="background:var(--card2)">${r.e}</div><div class="nm"><div>${r.title}</div><small>${r.sub}</small></div>
-      <a class="chip" href="${r.href}" target="_blank" rel="noopener" style="text-decoration:none;flex:none">📅 תזכורת</a></div>`).join('')}</div>`;
+      <a class="chip" href="${r.href}" target="_blank" rel="noopener" style="text-decoration:none;flex:none">📅 תזכורת</a></div>`).join('')}
+    <button class="btn ghost full" data-calsub style="margin-top:10px">📆 להוסיף את כל התשלומים ליומן של הטלפון</button></div>`;
+}
+$('#tips').addEventListener('click', e => { if (e.target.closest('[data-calsub]')) openCalendarSub(); });
+// 📆 מנוי ליומן (Google / אייפון): קישור אישי עם מפתח סודי — מתעדכן לבד
+async function openCalendarSub() {
+  if (db.DEMO) { toast('🎭 במצב הדגמה אין קישור ליומן — בטלפון האמיתי זה עובד', true); return; }
+  openSheet(`<h3>📆 תשלומים קבועים ביומן</h3><div class="sub" style="margin:-6px 0 12px">⏳ מכין קישור אישי…</div>`);
+  try {
+    const url = await sync.calendarURL();
+    const webcal = url.replace(/^https:/, 'webcal:'), g = `https://calendar.google.com/calendar/r?cid=${encodeURIComponent(webcal)}`;
+    openSheet(`<h3>📆 תשלומים קבועים ביומן</h3><div class="sub" style="margin:-6px 0 12px">יומן אחד שמתעדכן לבד: כל תשלום קבוע (יום לפני), תשלומים שנגמרים, והחזרי הלוואות. פרטי — רק עם הקישור הזה.</div>
+      <a class="btn grad full" href="${webcal}" style="display:block;text-align:center;text-decoration:none;margin-bottom:8px">🍏 אייפון / Mac — להוסיף ליומן</a>
+      <a class="btn grad full" href="${g}" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;margin-bottom:8px;background:linear-gradient(135deg,#3B82F6,#22C55E)">📅 Google יומן (גם אנדרואיד)</a>
+      <button class="btn ghost full" id="calCopy">📋 העתקת הקישור</button>
+      <div class="sub" style="margin-top:10px">💡 בגוגל: אחרי ההוספה היומן מופיע גם בטלפון האנדרואיד (אפליקציית Google Calendar). העדכון אצל גוגל לוקח עד כמה שעות.</div>`, sh => {
+      sh.querySelector('#calCopy').onclick = async () => { try { await navigator.clipboard.writeText(url); toast('📋 הקישור הועתק'); } catch { toast(url); } };
+    });
+  } catch (e) { openSheet(`<h3>📆 יומן</h3><div class="err">${esc(e.message)}</div>`); }
 }
 
 // 🏷️ אירועים: כמה עלה כל אירוע (מכל הזמנים, בכל הקטגוריות)
@@ -691,7 +699,11 @@ function renderTx() {
   $('#txFilter').innerHTML = `<button class="chip ${!S.catFilter ? 'on' : ''}" data-f="">הכל</button>` +
     used.map(id => `<button class="chip ${S.catFilter === id ? 'on' : ''}" data-f="${id}">${catOf(id).e} ${catOf(id).n}</button>`).join('');
   if (S.people.length > 1) $('#txFilter').innerHTML += S.people.map(p => `<button class="chip ${S.whoFilter === p.id ? 'on' : ''}" data-wf="${p.id}">${esc(p.e)} ${esc(p.name)}</button>`).join('');
-  const list = txInMonth(m).filter(t => (!S.catFilter || t.cat === S.catFilter) && (!S.whoFilter || t.who === S.whoFilter) && (!q || t.desc.toLowerCase().includes(q) || t.raw.toLowerCase().includes(q) || (t.tags || []).some(g => g.toLowerCase().includes(q.replace(/^#/, '')))))
+  // 🔎 חיפוש לפי סכום: "230" (בערך ±1) או טווח "200-300"
+  const qr = q.replace(/[₪,\s]/g, '').match(/^(\d+(?:\.\d+)?)(?:-(\d+(?:\.\d+)?))?$/);
+  const amtOk = t => { if (!qr) return false; const v = t.inst > 1 ? [t.amount, t.total] : [t.amount], a = +qr[1], b = qr[2] ? +qr[2] : null;
+    return v.some(x => b !== null ? x >= Math.min(a, b) && x <= Math.max(a, b) : Math.abs(x - a) < 1); };
+  const list = txInMonth(m).filter(t => (!S.catFilter || t.cat === S.catFilter) && (!S.whoFilter || t.who === S.whoFilter) && (!q || amtOk(t) || (!qr && (t.desc.toLowerCase().includes(q) || t.raw.toLowerCase().includes(q) || (t.tags || []).some(g => g.toLowerCase().includes(q.replace(/^#/, '')))))))
     .sort((a, b) => b.date.localeCompare(a.date));
   $('#txList').innerHTML = list.length ? list.map(t => {
     const c = catOf(t.cat), inc = t.cat === 'income';
@@ -987,6 +999,7 @@ function openAttachSheet() {
     <button class="pick" data-pick="cam"><span class="pe" style="background:var(--g1)">📷</span><span><b>לצלם עכשיו</b><small>דף חיוב מודפס או קבלה</small></span></button>
     <div class="card" style="margin-top:6px"><b>🤔 מה קורה אחרי שבוחרים?</b>
       <div class="sub" style="margin-top:6px;line-height:1.9">1️⃣ האפליקציה קוראת את כל התנועות לבד<br>2️⃣ מוצגת רשימה לבדיקה — עם קטגוריה לכל שורה<br>3️⃣ מה שכבר נרשם מסומן 🔁 ולא ייכנס פעמיים<br>4️⃣ מתקנים אם צריך ולוחצים <b>"ייבוא"</b> ✅</div></div>
+    <div class="dup-note">✋ מה שכבר רשמתם ידנית (בצ'אט או ב-➕) יזוהה ולא ייספר פעמיים</div>
     <div class="sub" style="margin-top:12px">💡 איפה מוצאים את הקובץ? באתר או באפליקציה של הבנק / חברת האשראי ← "פירוט חיובים" או "תנועות בחשבון" ← "ייצוא לאקסל" / "הורדה". הקובץ נשמר בתיקיית <b>"הורדות"</b>.</div>`, sh => {
     sh.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => { const i = PICK[b.dataset.pick]; i.value = ''; i.click(); });
   });
@@ -1118,6 +1131,7 @@ function openImportSheet(name, { kind, items, files = [name] }) {
       <div class="stat" style="background:var(--g3)"><small>חדשות לייבוא</small><div id="impCount">${count('new')}</div></div>
       ${count('dup-file') + count('dup-manual') + count('cc') + count('atm') ? `<div class="stat" style="background:var(--card2)"><small>דילגתי (כפילויות)</small><div>${count('dup-file') + count('dup-manual') + count('cc') + count('atm')}</div></div>` : ''}
     </div>
+    <div class="dup-note" style="margin-bottom:12px">✋ מה שכבר רשמתם ידנית יזוהה ולא ייספר פעמיים</div>
     ${S.people.length ? `<div class="sub" style="margin-bottom:6px">של מי ${kind === 'bank' ? 'החשבון' : kind === 'multi' ? 'הקבצים' : 'הכרטיס'}?</div><div class="chips" id="impWho" style="flex-wrap:wrap;margin-bottom:12px">${whoChips(fileWho)}</div>` : ''}
     ${count('dup-manual') ? `<div class="card tip" style="margin-bottom:10px"><div class="em">🧠</div><p><b>${count('dup-manual')} תנועות כבר רשמת בצ'אט</b> — סימנתי אותן כדי שלא ייספרו פעמיים.</p></div>` : ''}
     ${count('cc') ? `<div class="card tip" style="margin-bottom:10px"><div class="em">💳</div><p><b>${count('cc')} חיובי כרטיס אשראי</b> לא סומנו. את הפירוט שלהם עדיף להעלות מקובץ חברת האשראי.</p></div>` : ''}
@@ -1169,7 +1183,11 @@ function openImportSheet(name, { kind, items, files = [name] }) {
       }
       if (chosen.some(i => i.catChanged)) await db.setKV('learned', S.learned);
       closeSheet(); go('chat'); renderAll(ids); confetti();
-      toast(`✅ יובאו ${chosen.length} תנועות`);
+      const had = count('dup-manual') + count('dup-file');
+      toast(`✅ ${chosen.length} חדשות${had ? ` · ${had} כבר היו רשומות` : ''}`);
+      const b = document.createElement('div'); b.className = 'bot new';
+      b.innerHTML = `<div class="cat-ic" style="background:var(--g3)">📎</div><div><b>הייבוא הסתיים 🎉</b><div class="sub">✅ <b>${chosen.length}</b> תנועות חדשות נכנסו${had ? ` · 🔁 <b>${had}</b> כבר היו רשומות — לא נספרו פעמיים` : ''}${items.length - chosen.length - had > 0 ? ` · ⏭️ ${items.length - chosen.length - had} דילגת` : ''}</div></div>`;
+      $('#chat').appendChild(b); setTimeout(() => $('#main').scrollTo({ top: $('#main').scrollHeight, behavior: 'smooth' }), 300);
     };
   });
 }
@@ -1327,38 +1345,77 @@ function openGoal(id) {
   });
 }
 
-// ---------- 🤲 מעשר ----------
-// S.maaser = { pct: 10, since: 'YYYY-MM' } · הכנסה עם noMaaser לא נספרת · הוצאות "צדקה ותרומות" מקטינות את החוב
+// ---------- 🤲 מעשר / חומש — גמיש לגמרי ----------
+// S.maaser = { pct, since, incOff: { 'משכורת': false… }, deduct, deductCats: [], giveCounts, dist: [{ id, name, v, unit: 'nis'|'pct', done }] }
+const incKind = t => (t.desc || 'הכנסה').trim().split(/\s+/).slice(0, 2).join(' ');
 function maaserCalc() {
-  const pct = S.maaser?.pct || 10, since = S.maaser?.since || '';
+  const M = S.maaser || {}, pct = M.pct || 10, since = M.since || '', incOff = M.incOff || {}, dCats = M.deduct ? (M.deductCats || []) : [];
   const inRange = t => !since || ym(new Date(t.date)) >= since;
-  let inc = 0, given = 0; const months = {};
+  let inc = 0, ded = 0, giveExp = 0; const kinds = {}, months = {};
   for (const t of S.tx) {
     if (!inRange(t)) continue;
     const m = ym(new Date(t.date)), v = t.inst > 1 ? t.total : t.amount;
     months[m] ??= { inc: 0, given: 0 };
-    if (t.cat === 'income' && !t.noMaaser) { inc += v; months[m].inc += v; }
-    if (t.cat === 'give') { given += v; months[m].given += v; }
+    if (t.cat === 'income') {
+      const k = incKind(t); kinds[k] ??= { v: 0, n: 0 }; kinds[k].v += v; kinds[k].n++;
+      if (!t.noMaaser && incOff[k] !== false) { inc += v; months[m].inc += v; }
+    } else {
+      if (dCats.includes(t.cat)) ded += v;
+      if (t.cat === 'give' && M.giveCounts !== false) { giveExp += v; months[m].given += v; }
+    }
   }
-  const owed = inc * pct / 100;
-  return { pct, since, inc, owed, given, left: owed - given, months };
+  const base = Math.max(0, inc - ded), owed = base * pct / 100;
+  const dist = (M.dist || []).map(d => ({ ...d, nis: d.unit === 'pct' ? owed * (d.v || 0) / 100 : (d.v || 0) }));
+  const planned = dist.reduce((s, d) => s + d.nis, 0), doneSum = dist.filter(d => d.done).reduce((s, d) => s + d.nis, 0);
+  const given = giveExp + doneSum;
+  return { pct, since, inc, ded, base, owed, given, giveExp, left: owed - given, kinds, months, dist, planned, toPlan: owed - planned };
 }
+const saveMaaser = async patch => { await saveKV('maaser', { ...S.maaser, ...patch }); openMaaser(); };
 function openMaaser() {
-  const r = maaserCalc();
-  const rows = Object.entries(r.months).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 6);
-  openSheet(`<h3>🤲 מעשר</h3><div class="sub" style="margin:-6px 0 12px">${r.pct}% מכל הכנסה שנרשמה${r.since ? ' מ' + monthLabel(r.since) : ''}. כל הוצאה בקטגוריה <b>💝 צדקה ותרומות</b> נספרת כמעשר שניתן.</div>
+  const r = maaserCalc(), M = S.maaser || {};
+  const custom = ![10, 20].includes(r.pct);
+  const kinds = Object.entries(r.kinds).sort((a, b) => b[1].v - a[1].v);
+  openSheet(`<h3>🤲 ${r.pct === 20 ? 'חומש' : 'מעשר'}</h3>
     <div class="card" style="text-align:center;margin-bottom:12px">
       <small class="sub">${r.left > 0 ? 'נשאר לתת' : r.left < 0 ? 'נתתם יותר — יתרה לזכותכם' : 'הכל ניתן 👏'}</small>
       <div class="big-num" id="mLeft" style="color:${r.left > 0 ? '#FACC15' : '#4ADE80'}">${fmt(Math.abs(r.left))}</div>
       <div class="pbar" style="margin:8px 0"><i style="width:${r.owed ? Math.min(100, r.given / r.owed * 100) : 0}%;background:linear-gradient(90deg,#E879F9,#A855F7)"></i></div>
-      <div class="sub">חייבים ${fmt(r.owed)} · ניתן ${fmt(r.given)} · מתוך הכנסות ${fmt(r.inc)}</div></div>
-    ${rows.length ? `<div class="card" style="padding:4px 12px;margin-bottom:12px">${rows.map(([m, v]) => `<div class="mv"><span>${monthLabel(m)}</span><span>חייבים ${fmt(v.inc * r.pct / 100)} · ניתן ${fmt(v.given)}</span></div>`).join('')}</div>` : ''}
-    <div class="sub" style="margin-bottom:6px">אחוז</div>
-    <div class="chips" style="margin-bottom:12px">${[10, 20].map(p => `<button class="chip ${p === r.pct ? 'on' : ''}" data-mp="${p}">${p === 10 ? 'מעשר 10%' : 'חומש 20%'}</button>`).join('')}</div>
-    <label class="field"><span>לחשב החל מ (לא חובה)</span><input id="mSince" type="month" value="${r.since}"></label>
-    <div class="sub">💡 הכנסה שלא צריך לתת ממנה מעשר (למשל החזר הוצאות)? פותחים אותה ב-✏️ עריכה ← <b>"בלי מעשר"</b>.</div>`, sh => {
-    sh.querySelectorAll('[data-mp]').forEach(b => b.onclick = async () => { await saveKV('maaser', { ...S.maaser, pct: +b.dataset.mp }); openMaaser(); });
-    sh.querySelector('#mSince').onchange = async e => { await saveKV('maaser', { ...S.maaser, since: e.target.value || '' }); openMaaser(); };
+      <div class="sub">חייבים <b>${fmt(r.owed)}</b> (${r.pct}% מ-${fmt(r.base)}) · ניתן <b>${fmt(r.given)}</b></div></div>
+
+    <div class="msec"><b>🎯 כמה אחוז?</b>
+      <div class="chips" style="flex-wrap:wrap;margin-top:8px"><button class="chip ${r.pct === 10 ? 'on' : ''}" data-mp="10">מעשר 10%</button><button class="chip ${r.pct === 20 ? 'on' : ''}" data-mp="20">חומש 20%</button>
+        <span class="chip ${custom ? 'on' : ''}" style="display:inline-flex;gap:4px;align-items:center">אחר <input id="mCustom" type="number" inputmode="decimal" value="${custom ? r.pct : ''}" placeholder="%" style="width:52px;background:transparent;border:none;border-bottom:1px solid var(--line);color:inherit;font-size:16px;text-align:center">%</span></div></div>
+
+    <div class="msec"><b>💰 מאילו הכנסות?</b><div class="sub" style="margin:2px 0 8px">לוחצים כדי להכליל / להוציא סוג הכנסה. אפשר גם הכנסה בודדת: ✏️ עריכה ← "בלי מעשר".</div>
+      ${kinds.length ? kinds.map(([k, v]) => { const on = (M.incOff || {})[k] !== false; return `<button class="mtog ${on ? 'on' : ''}" data-ik="${esc(k)}"><span>${on ? '✅' : '🚫'} ${esc(k)}</span><small>${fmt(v.v)} · ${v.n} פעמים</small></button>`; }).join('') : '<div class="sub">עוד אין הכנסות</div>'}</div>
+
+    <div class="msec"><div style="display:flex;align-items:center;gap:8px"><b style="flex:1">➖ לנכות הוצאות?</b><button class="chip ${M.deduct ? 'on' : ''}" id="mDed">${M.deduct ? '✅ כן' : 'לא'}</button></div>
+      ${M.deduct ? `<div class="sub" style="margin:6px 0">אילו הוצאות לנכות מההכנסה לפני החישוב? (נוכה: ${fmt(r.ded)})</div>
+        <div class="chips" style="flex-wrap:wrap">${Object.entries(CATS).filter(([id]) => id !== 'give').map(([id, c]) => `<button class="chip ${(M.deductCats || []).includes(id) ? 'on' : ''}" data-dc="${id}">${c.e} ${esc(c.n)}</button>`).join('')}</div>` : ''}</div>
+
+    <div class="msec"><b>🤲 חלוקה — למי נותנים?</b><div class="sub" style="margin:2px 0 8px">${r.toPlan > 0.5 ? `נשאר לחלק: <b style="color:#FACC15">${fmt(r.toPlan)}</b>` : r.toPlan < -0.5 ? `חילקתם יותר ב-${fmt(-r.toPlan)}` : '✅ הכל מחולק'}</div>
+      ${r.dist.length ? `<div class="stg">${r.dist.map(d => `<div class="mdist"><button class="mdone ${d.done ? 'on' : ''}" data-dd="${d.id}">${d.done ? '✅' : '⏳'}</button>
+        <div style="flex:1;min-width:0"><b>${esc(d.name)}</b><small class="sub" style="display:block">${d.unit === 'pct' ? `${d.v}% · ` : ''}${fmt(d.nis)} · ${d.done ? 'בוצע' : 'לא בוצע'}</small></div><button class="chip" data-dx="${d.id}" aria-label="מחיקה">🗑️</button></div>`).join('')}</div>` : ''}
+      <div class="madd"><input id="dN" maxlength="30" placeholder="למי? ישיבה, משפחה, קופה"><input id="dV" type="number" inputmode="decimal" placeholder="סכום">
+        <button class="chip on" id="dU" data-u="nis">₪</button><button class="btn grad" id="dAdd" style="padding:0 14px;height:42px">➕</button></div>
+      <div class="sub" style="margin-top:6px">💡 הוצאה בקטגוריה 💝 צדקה נספרת לבד כ"ניתן" (${fmt(r.giveExp)}). <button class="chip ${M.giveCounts === false ? '' : 'on'}" id="mGive" style="margin-top:4px">${M.giveCounts === false ? 'לא לספור' : '✅ לספור'}</button></div></div>
+
+    <label class="field" style="margin-top:12px"><span>לחשב החל מ (לא חובה)</span><input id="mSince" type="month" value="${r.since}"></label>`, sh => {
+    sh.querySelectorAll('[data-mp]').forEach(b => b.onclick = () => saveMaaser({ pct: +b.dataset.mp }));
+    sh.querySelector('#mCustom').onchange = e => { const v = num(e.target.value); if (v > 0 && v <= 100) saveMaaser({ pct: v }); };
+    sh.querySelectorAll('[data-ik]').forEach(b => b.onclick = () => { const off = { ...(S.maaser?.incOff || {}) }; const k = b.dataset.ik; if (off[k] === false) delete off[k]; else off[k] = false; saveMaaser({ incOff: off }); });
+    sh.querySelector('#mDed').onclick = () => saveMaaser({ deduct: !S.maaser?.deduct });
+    sh.querySelectorAll('[data-dc]').forEach(b => b.onclick = () => { const l = new Set(S.maaser?.deductCats || []); l.has(b.dataset.dc) ? l.delete(b.dataset.dc) : l.add(b.dataset.dc); saveMaaser({ deductCats: [...l] }); });
+    sh.querySelector('#mGive').onclick = () => saveMaaser({ giveCounts: S.maaser?.giveCounts === false });
+    sh.querySelectorAll('[data-dd]').forEach(b => b.onclick = () => { const dist = (S.maaser?.dist || []).map(d => d.id === b.dataset.dd ? { ...d, done: !d.done } : d); if (dist.find(d => d.id === b.dataset.dd)?.done) confetti(); saveMaaser({ dist }); });
+    sh.querySelectorAll('[data-dx]').forEach(b => b.onclick = () => saveMaaser({ dist: (S.maaser?.dist || []).filter(d => d.id !== b.dataset.dx) }));
+    const u = sh.querySelector('#dU'); u.onclick = () => { u.dataset.u = u.dataset.u === 'nis' ? 'pct' : 'nis'; u.textContent = u.dataset.u === 'nis' ? '₪' : '%'; };
+    sh.querySelector('#dAdd').onclick = () => {
+      const name = cleanName(sh.querySelector('#dN').value), v = num(sh.querySelector('#dV').value);
+      if (!name) return sh.querySelector('#dN').focus(); if (!(v > 0)) return sh.querySelector('#dV').focus();
+      saveMaaser({ dist: [...(S.maaser?.dist || []), { id: 'm_' + Math.random().toString(36).slice(2, 7), name, v, unit: u.dataset.u, done: false }] });
+    };
+    sh.querySelector('#mSince').onchange = e => saveMaaser({ since: e.target.value || '' });
   });
 }
 
@@ -1649,6 +1706,36 @@ function hebRange(m) {
   return a === b ? a : `${a}–${b}`;
 }
 
+// ---------- 🎯 פתיחה: איך בונים את התקציב? (כשעוד אין תקציב במשפחה) ----------
+function openBudgetSetup() {
+  openSheet(`<div class="onb"><div class="onb-emo">🎯</div><h3 style="text-align:center">איך נבנה את התקציב?</h3>
+    <div class="sub" style="text-align:center;margin:-4px 0 14px">תקציב = כמה מותר להוציא בחודש על כל דבר. אפשר לשנות בכל רגע.</div>
+    <button class="onb-opt" id="obAuto"><span class="oe">🪄</span><span><b>תקציב אוטומטי</b><small>מתחילים מסכומים רגילים, והם מתעדכנים לבד לפי מה שאתם מוציאים בפועל. הכי קל.</small></span></button>
+    <button class="onb-opt" id="obManual"><span class="oe">✍️</span><span><b>אני קובע לכל קטגוריה</b><small>עוברים על הקטגוריות ומחליטים סכום לכל אחת.</small></span></button>
+    <button class="btn ghost full" id="obLater" style="margin-top:6px">אחר כך</button></div>`, sh => {
+    sh.querySelector('#obAuto').onclick = async () => { const { _mode, ...rest } = S.budgets; void _mode; S.budgets = { ...Object.fromEntries(Object.entries(rest).filter(([, v]) => v != null)), _mode: 'auto' };
+      await db.setKV('budgets', S.budgets); closeSheet(); renderAll(); confetti(); toast('🪄 התקציב האוטומטי מוכן — מתעדכן לבד לפי ההוצאות'); go('budget'); };
+    sh.querySelector('#obManual').onclick = () => openBudgetManual();
+    sh.querySelector('#obLater').onclick = () => { lsSet('kesef-onb-later', ymd(new Date())); closeSheet(); };
+  });
+}
+function openBudgetManual() {
+  openSheet(`<h3>✍️ כמה מותר בחודש?</h3><div class="sub" style="margin:-6px 0 12px">כתבתי סכום מוצע (לפי ההוצאות שלכם, או סכום רגיל). משנים מה שרוצים — ריק = בלי תקציב.</div>
+    <div class="card stg" style="padding:4px 12px">${Object.entries(CATS).map(([id, c]) => `<label class="tx" style="cursor:default"><div class="cat-ic" style="background:${c.g}">${c.e}</div><div class="nm">${esc(c.n)}</div>
+      <input type="number" inputmode="numeric" data-bm="${id}" value="${S.budgets[id] ?? recommend(id) ?? c.budget ?? ''}" style="width:96px;height:40px;border-radius:12px;border:1px solid var(--line);background:var(--card2);padding:0 10px;font-size:16px;text-align:center"></label>`).join('')}</div>
+    <button class="btn grad full" id="bmSave" style="margin-top:12px;position:sticky;bottom:0">💾 שמירת התקציב</button>`, sh => {
+    sh.querySelector('#bmSave').onclick = async () => {
+      const b = { _mode: 'manual' };
+      sh.querySelectorAll('[data-bm]').forEach(i => { const v = Math.round(num(i.value)); b[i.dataset.bm] = v > 0 ? v : 0; });
+      S.budgets = b; await db.setKV('budgets', b); closeSheet(); renderAll(); confetti(); toast('🎯 התקציב נשמר'); go('budget');
+    };
+  });
+}
+function maybeOnboard() {
+  if (db.DEMO || !sync.isParent() || Object.keys(S.budgets || {}).length || lsGet('kesef-onb-later') === ymd(new Date())) return;
+  setTimeout(openBudgetSetup, 700);
+}
+
 // ========== 🎭 מצב הדגמה · 🧭 סיור מודרך · 💬 הערות ==========
 // מצב הדגמה = מאגר נפרד (db.DEMO), בלי סנכרון, בלי התראות ובלי כתיבה לשרת. יציאה מחזירה את הנתונים האמיתיים כמו שהם.
 function enterDemo() { lsSet('kesef-demo', '1'); location.href = location.pathname; }
@@ -1672,7 +1759,7 @@ async function demoStart() {
 }
 // אתחול מחדש של נתוני ההדגמה
 async function demoReset() {
-  indexedDB.deleteDatabase('kesef-bekef-demo'); setTimeout(() => location.reload(), 300);
+  await db.clearAll(); location.reload();
 }
 
 // ---------- 🧭 הסיור: כל התכונות, צעד אחר צעד ----------
@@ -1681,26 +1768,28 @@ const cardWith = txt => () => [...document.querySelectorAll('#tips .card')].find
 const TOUR = [
   { v: 'chat', sel: '#inp', t: '💬 רושמים הוצאה כמו הודעה', d: 'כותבים "אושר עד 500" ושולחים — הקטגוריה נבחרת לבד. אפשר כמה ביחד, תאריך ("אתמול"), ושם ("רחל: …").' },
   { v: 'chat', sel: '#mic', t: '🎤 מדברים במקום להקליד', d: 'לחיצה קצרה — הקלטה עד ⏹️. החזקה — כמו בוואטסאפ: למעלה נועל, הצידה מבטל.' },
-  { v: 'chat', sel: '#attach', t: '📎 פירוט מהבנק / אשראי', d: 'אקסל, PDF או צילום מסך — האפליקציה קוראת את התנועות, ומה שכבר נרשם לא ייספר פעמיים.' },
+  { v: 'chat', sel: '#attach', t: '📎 פירוט מהבנק / אשראי', d: 'אקסל, PDF או צילום מסך. ✋ מה שכבר רשמתם ידנית יזוהה ולא ייספר פעמיים — ובסוף: "12 חדשות · 3 כבר היו רשומות".' },
   { v: 'chat', sel: '#plusBtn', t: '➕ הוספה בלי צ\'אט', d: 'בוחרים קטגוריה (או 💰 הכנסה), סכום — ושמירה. אפשר גם תגית אירוע.' },
   { v: 'chat', sel: '.hero', t: '💜 כמה נשאר החודש', d: 'המספר "רץ" לערך החדש, והפס מראה כמה מהתקציב נוצל.' },
   { v: 'chat', sel: '#stories', t: '⭕ הטבעות של הקטגוריות', d: 'כל טבעת מתמלאת לפי התקציב, ונהיית אדומה כשחורגים. לחיצה — פירוט.' },
   { v: 'chat', sel: () => [...document.querySelectorAll('#chat .bot .acts')].pop(), t: '✏️ עריכה, מחיקה, של מי', d: 'בכל בועה: לשנות הכל, למחוק (עם ↩️ ביטול), ולבחור על שם מי.' },
   { v: 'chat', sel: () => [...document.querySelectorAll('#chat .tag')].pop() || $('#inp'), t: '🏷️ תגיות אירוע', d: 'מוסיפים #בר_מצווה להודעה — ורואים בתובנות כמה עלה כל אירוע.' },
+  { v: 'budget', sel: '#sheet', open: () => openBudgetSetup(), t: '🎯 פתיחה: איך בונים תקציב?', d: 'בפעם הראשונה בוחרים: 🪄 אוטומטי (מתעדכן לבד לפי ההוצאות) או ✍️ אני קובע לכל קטגוריה. אפשר לשנות אחר כך.' },
+  { v: 'budget', sel: '#newCatCard', t: '🏷️ קטגוריה חדשה', d: 'ישר ממסך התקציב: שם, אייקון וצבע. וליד כל קטגוריה ✏️ — לשנות שם, אייקון וצבע (גם לקטגוריות המוכנות).' },
   { v: 'budget', sel: '#v-budget .duo', t: '🎯 הכנסות מול הוצאות', d: 'כמה נכנס וכמה יצא בחודש. לחיצה על ההכנסות — פירוט.' },
   { v: 'budget', sel: '#budgetList .card', t: '✉️ מעטפות', d: 'בגדול: כמה נשאר בכל קטגוריה. ירוק, צהוב ב-90%, אדום כשנגמר.' },
   { v: 'budget', sel: '#recoBtn', t: '🪄 המלצה לתקציב', d: 'מחשבת כמה כדאי להגדיר לכל קטגוריה לפי מה שהוצאתם בפועל.' },
   { v: 'budget', sel: '#sheet', open: () => openGoals(), t: '🐷 קופות חיסכון', d: 'יעד, תאריך — ואומרת כמה לשים בצד כל חודש. מגיעים ליעד? קונפטי.' },
-  { v: 'budget', sel: '#sheet', open: () => openMaaser(), t: '🤲 מעשר', d: '10% (או 20%) מכל הכנסה, פחות מה שניתן בצדקה = כמה נשאר לתת.' },
+  { v: 'budget', sel: '#sheet', open: () => openMaaser(), t: '🤲 מעשר / חומש', d: '10%, חומש 20% או אחוז אחר. בוחרים מאילו הכנסות, אם לנכות הוצאות, ומחלקים למקבלים (₪ או %) עם ✅ בוצע / ⏳ לא בוצע.' },
   { v: 'budget', sel: '#sheet', open: () => openKid('p_kid1'), t: '🧒 קופת דמי כיס', d: 'לכל ילד קופה ויעד. ⭐ כוכבים ממטלות ב"זמן בכיף" הופכים לשקלים.' },
   { v: 'budget', sel: '#sheet', open: () => openDebts(), t: '➗ מי חייב למי + גמ"חים', d: 'הלוואות, גמ"ח וחלוקת הוצאות — עם החזר בתשלומים ותזכורת. גם בצ\'אט: "הלוויתי לדוד 500".' },
   { v: 'insights', sel: '#donut', t: '🍩 לאן הלך הכסף', d: 'חלוקה לפי קטגוריות. הסכום באמצע "רץ" כשנכנסים.' },
-  { v: 'insights', sel: cardWith('תשלומים קבועים'), t: '📅 תשלומים קבועים', d: 'מה יורד כל חודש ומתי נגמרים תשלומים — ולחיצה אחת מוסיפה תזכורת ב"זמן בכיף".' },
+  { v: 'insights', sel: cardWith('תשלומים קבועים'), t: '📅 תשלומים קבועים', d: 'מה יורד כל חודש ומתי נגמרים תשלומים — תזכורת ב"זמן בכיף", או 📆 כל התשלומים ביומן של הטלפון (Google / אייפון), מתעדכן לבד.' },
   { v: 'insights', sel: cardWith('הלוח העברי'), t: '🕎 לפי הלוח העברי', d: 'כמה עלה כל חג (כולל ההכנות) מול שנה שעברה, וכל חודש עברי.' },
   { v: 'insights', sel: cardWith('אירועים'), t: '🏷️ אירועים', d: 'כל התגיות: כמה עלה כל אירוע מכל הקטגוריות ביחד. לחיצה — כל הרשומות.' },
   { v: 'insights', sel: cardWith('מי הכניס'), t: '💰 מי הכניס כמה', d: 'הכנסות לפי בני הבית — גם באקסל ובמייל החודשי.' },
   { v: 'insights', sel: cardWith('תמונה לאורך זמן'), t: '📈 תמונה לאורך זמן', d: 'עד 12 חודשים: הכנסה מול הוצאה, וכמה נחסך בסך הכל.' },
-  { v: 'tx', sel: '#search', t: '🔎 חיפוש', d: 'לפי שם, טקסט או #תגית. מתחת — סינון לפי קטגוריה ולפי בן משפחה.' },
+  { v: 'tx', sel: '#search', t: '🔎 חיפוש', d: 'לפי שם, #תגית — או סכום: "230", או טווח "200-300". מתחת — סינון לפי קטגוריה ובן משפחה.' },
   { v: 'tx', sel: '#sheet', open: () => { const t = S.tx.find(x => x.tags?.length) || S.tx[0]; if (t) openEditSheet(t); }, t: '✏️ עריכת רשומה', d: 'בתוך העריכה: 🏷️ אירוע, 🧾 צילום קבלה, ➗ לחלק עם מישהו, ו"בלי מעשר" להכנסות.' },
   { v: 'chat', sel: '#exportBtn', t: '📊 סיכום לאקסל', d: 'יומי, שבועי, חודשי, שנתי או בין תאריכים — קובץ צבעוני. ב-1 לחודש הוא מגיע גם במייל.' },
   { v: 'chat', sel: '#viewCard', open: () => openSettings(), t: '🎨 תצוגה', d: 'גודל כתב (רגיל/גדול/ענק), אנימציות פועל/כבוי, וחודש עברי ליד הלועזי.' },
@@ -1810,7 +1899,7 @@ function openCatsSheet() {
     sh.querySelector('#catNew').onclick = () => openCatEdit(null);
   });
 }
-function openCatEdit(id) {
+function openCatEdit(id, back = openCatsSheet) {
   const c = id ? CATS[id] : null, isNew = !c;
   let e = c?.e || CAT_EMOJIS[0], col = c?.c || CAT_COLORS[(Object.keys(S.cats).length) % CAT_COLORS.length], armed = false;
   const emojis = [...new Set([...(c && !CAT_EMOJIS.includes(c.e) ? [c.e] : []), ...CAT_EMOJIS])].slice(0, 24);
@@ -1829,7 +1918,7 @@ function openCatEdit(id) {
     ${c?.custom ? '<button class="btn ghost full" id="cDel" style="margin-top:10px;color:#FB7185">🗑️ מחיקת הקטגוריה</button>' : ''}
     ${c && !c.custom ? '<div class="sub" style="margin-top:10px;text-align:center">קטגוריה מוכנה — אפשר לשנות לה שם, אייקון וצבע, אבל לא למחוק</div>' : ''}`, sh => {
     const prev = sh.querySelector('#cPrev');
-    sh.querySelector('#cBack').onclick = openCatsSheet;
+    sh.querySelector('#cBack').onclick = () => back();
     sh.querySelectorAll('#cEmo [data-e]').forEach(b => b.onclick = () => { e = b.dataset.e; prev.textContent = e; sh.querySelectorAll('#cEmo button').forEach(x => x.classList.toggle('on', x === b)); });
     sh.querySelectorAll('#cCol [data-c]').forEach(b => b.onclick = () => { col = b.dataset.c; prev.style.background = col; sh.querySelectorAll('#cCol button').forEach(x => x.classList.toggle('on', x === b)); });
     sh.querySelector('#cSave').onclick = async () => {
@@ -1842,7 +1931,7 @@ function openCatEdit(id) {
       if (isNew && bud > 0) { S.budgets[key] = bud; await db.setKV('budgets', S.budgets); }
       await saveCats();
       toast(isNew ? `🎉 נוספה הקטגוריה ${e} ${n}` : `✅ נשמר: ${e} ${n}`);
-      openCatsSheet();
+      lsSet('kesef-cathint', '1'); back();
     };
     sh.querySelector('#cDel')?.addEventListener('click', async ev => {
       const used = S.tx.filter(t => t.cat === id);
@@ -1852,7 +1941,7 @@ function openCatEdit(id) {
       if (id in S.budgets) { delete S.budgets[id]; await db.setKV('budgets', S.budgets); }
       if (Object.values(S.learned).includes(id)) { for (const k of Object.keys(S.learned)) if (S.learned[k] === id) delete S.learned[k]; await db.setKV('learned', S.learned); }
       await saveCats(); S.tx = await db.allTx(); renderAll();
-      toast('🗑️ הקטגוריה נמחקה'); openCatsSheet();
+      toast('🗑️ הקטגוריה נמחקה'); back();
     });
   });
 }
@@ -2490,7 +2579,7 @@ load().then(async () => {
   showGate();
   if (RECOVERY && syncUser) newPasswordSheet();
   if (new URLSearchParams(location.search).get('v') === 'budget') go('budget'); // לחיצה על התראת תקציב
-  starsLink(); addLink();
+  starsLink(); addLink(); if (!$('#sheet').classList.contains('on')) maybeOnboard();
   debtReminder();
 });
 

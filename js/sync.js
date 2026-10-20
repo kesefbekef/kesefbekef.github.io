@@ -399,3 +399,17 @@ export async function receiptURL(path) {
 export async function deleteReceipt(path) {
   try { await (await client()).storage.from('receipts').remove([path]); } catch { /* */ }
 }
+
+// ---------- 📆 מנוי ליומן: מפתח סודי אישי (אפשר לבטל ולהחליף) ----------
+export async function calendarURL(renew = false) {
+  const u = await user(); if (!u || !hh) throw new Error('צריך להיות מחוברים למשפחה');
+  const c = await client();
+  let { data } = await c.from('kesef_cal_tokens').select('token').eq('user_id', u.id).maybeSingle();
+  if (!data || renew) {
+    const token = [...crypto.getRandomValues(new Uint8Array(18))].map(b => b.toString(16).padStart(2, '0')).join('');
+    const { error } = await c.from('kesef_cal_tokens').upsert({ user_id: u.id, household_id: hh.id, token });
+    if (error) throw new Error(nice(error));
+    data = { token };
+  }
+  return `${CONFIG.url}/functions/v1/kesef-calendar?t=${data.token}`;
+}

@@ -331,3 +331,30 @@ body.touring .notes-fab{bottom:calc(215px + var(--safe-b))} /* בזמן הסיו
 
 /* כשחלון ההערות פתוח בזמן הסיור — בלי טבעת ובלי בועה מעל השדה, כדי שאפשר יהיה לכתוב וללחוץ "שמירה" */
 body.noting .tour-ring,body.noting .notes-fab{display:none!important}
+.dup-note{background:linear-gradient(135deg,rgba(34,197,94,.18),rgba(20,184,166,.18));border:1px solid rgba(74,222,128,.4);border-radius:14px;padding:10px 12px;font-weight:600;font-size:14px;margin-top:10px}
+/* 🏷️ קטגוריה חדשה + ✏️ בכל קטגוריה */
+.newcat{display:flex;align-items:center;gap:12px;text-align:right;background:linear-gradient(135deg,rgba(124,58,237,.35),rgba(236,72,153,.3));border:1.5px dashed rgba(244,114,182,.7);position:relative}
+.newcat .plus{width:44px;height:44px;border-radius:14px;background:var(--g1);display:grid;place-items:center;font-size:20px;flex:none;animation:bob 3s ease-in-out infinite}
+.newcat small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px}
+.newcat.pulse{animation:catpulse 1.6s ease-in-out infinite}
+@keyframes catpulse{50%{box-shadow:0 0 0 6px rgba(236,72,153,.35)}}
+.newcat .hint{position:absolute;top:-9px;left:14px;font-style:normal;font-size:11.5px;font-weight:800;background:#EC4899;border-radius:999px;padding:2px 9px}
+.cedit2{font-size:14px;opacity:.75;padding:2px 4px;border-radius:8px;background:var(--card2);cursor:pointer}
+/* 🎯 מסך פתיחה */
+.onb-emo{font-size:58px;text-align:center;animation:bob 3s ease-in-out infinite}
+.onb-opt{display:flex;gap:12px;align-items:center;width:100%;text-align:right;background:var(--card);border:1.5px solid var(--line);border-radius:20px;padding:14px;margin-bottom:10px;animation:rise .35s var(--ease) both}
+.onb-opt+.onb-opt{animation-delay:.08s}
+.onb-opt .oe{width:52px;height:52px;border-radius:16px;background:var(--g1);display:grid;place-items:center;font-size:26px;flex:none}
+.onb-opt b{font-size:17px}.onb-opt small{display:block;color:var(--muted);font-size:13px;margin-top:3px;line-height:1.4}
+/* 🤲 מעשר גמיש */
+.msec{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:12px;margin-bottom:10px;animation:rise .3s var(--ease) both}
+.mtog{display:flex;justify-content:space-between;align-items:center;width:100%;background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:9px 12px;margin-bottom:6px;opacity:.6}
+.mtog.on{opacity:1;border-color:rgba(74,222,128,.5)}
+.mtog small{color:var(--muted);font-size:12px}
+.mdist{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+.mdone{width:40px;height:40px;border-radius:12px;background:var(--card2);border:1px solid var(--line);font-size:18px;flex:none}
+.mdone.on{background:rgba(34,197,94,.25);border-color:#22C55E}
+.madd{display:flex;gap:6px;margin-top:10px;align-items:center}
+.madd input{min-width:0;height:42px;border-radius:12px;border:1px solid var(--line);background:var(--card2);padding:0 10px;font-size:16px;color:inherit}
+.madd #dN{flex:1.6}.madd #dV{flex:1;width:0}
+.madd .chip{flex:none;height:42px}
