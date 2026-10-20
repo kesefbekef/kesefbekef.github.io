@@ -1767,7 +1767,7 @@ function openBudgetManual() {
   });
 }
 function maybeOnboard() {
-  if (db.DEMO || !sync.isParent() || Object.keys(S.budgets || {}).length || lsGet('kesef-onb-later') === ymd(new Date())) return;
+  if (db.DEMO || $('#gate').classList.contains('on') || !sync.isParent() || Object.keys(S.budgets || {}).length || lsGet('kesef-onb-later') === ymd(new Date())) return;
   setTimeout(openBudgetSetup, 700);
 }
 
@@ -2563,6 +2563,7 @@ function drawMe(el) {
 }
 
 // ---------- סנכרון בין הטלפונים ----------
+let removedFrom = null; // 🔐 שם המשפחה שממנה הוסרת (להודעה במסך הפתיחה)
 let syncUser = null, joinCode = new URLSearchParams(location.search).get('join') || '', joinName = new URLSearchParams(location.search).get('name') || '';
 const inputStyle = 'width:100%;height:44px;border-radius:14px;border:1px solid var(--line);background:var(--card2);padding:0 12px;outline:none;margin-bottom:8px;font-size:16px';
 
@@ -2768,11 +2769,11 @@ load().then(async () => {
     onStatus: st => { const el = document.querySelector('#syncState'); if (el) el.textContent = st === 'ok' ? '· מסונכרן ✓' : '· ממתין לרשת…'; },
   });
   syncUser = r.user;
-  if (r.removed) { // 🔐 הוסרת מהמשפחה — העותק בטלפון נמחק
+  if (r.removed) { // 🔐 הוסרת מהמשפחה — העותק בטלפון נמחק, ומתחילים מההתחלה כמו משתמש חדש (רק החשבון נשאר)
+    S.me = null; S.month = thisMonth(); S.catFilter = null; S.whoFilter = null;
+    for (const k of ['kesef-onb-later', 'kesef-cathint', 'debtRemind', 'kesef-tour-seen']) { try { localStorage.removeItem(k); } catch { /* */ } }
     await reloadFromDb();
-    setTimeout(() => openSheet(`<div class="onb-emo">👋</div><h3 style="text-align:center">הוסרת מהמשפחה</h3>
-      <div class="sub" style="text-align:center;margin:-4px 0 14px">הורה במשפחה "${esc(typeof r.removed === 'string' ? r.removed : '')}" הסיר אותך. הנתונים שלה נמחקו מהטלפון הזה.<br>אפשר לפתוח משפחה חדשה, או להצטרף שוב עם קוד חדש.</div>
-      <button class="btn grad full" id="rmOk">הבנתי</button>`, sh => { sh.querySelector('#rmOk').onclick = () => { closeSheet(); showGate(); }; }), 300);
+    removedFrom = typeof r.removed === 'string' ? r.removed : ' ';
   }
   await reloadFromDb();
   showGate();
@@ -2820,7 +2821,7 @@ async function gateStep() {
 async function showGate() {
   const step = await gateStep();
   const g = $('#gate');
-  if (!step) { g.classList.remove('on'); renderAll(); return; }
+  if (!step) { const was = g.classList.contains('on'); g.classList.remove('on'); renderAll(); if (was) maybeOnboard(); return; }
   g.classList.add('on');
   const body = $('#gateBody');
   const err = msg => { body.querySelector('.err').textContent = msg; };
@@ -2856,7 +2857,7 @@ async function showGate() {
   }
 
   if (step === 'family') {
-    body.innerHTML = `<h2>👨‍👩‍👧 המשפחה</h2>
+    body.innerHTML = `${removedFrom ? `<div class="removed-note">👋 <b>הוסרת מהמשפחה${removedFrom.trim() ? ` "${esc(removedFrom)}"` : ''}</b><br>הורה במשפחה הסיר אותך, והנתונים שלה נמחקו מהטלפון הזה. אפשר לפתוח משפחה חדשה, או להצטרף שוב עם קוד חדש.</div>` : ''}<h2>👨‍👩‍👧 המשפחה</h2>
       <p class="sub" style="margin-bottom:16px">מי שמתחיל — פותח משפחה ושולח קוד לבני הבית. מי שקיבל קוד — מצטרף</p>
       ${joinCode ? '' : `<input id="gName" placeholder="שם המשפחה, למשל: משפחת כהן" style="${inputStyle}">
       <button class="btn grad full" id="gNew" style="margin-bottom:18px">פתיחת משפחה חדשה</button>`}
