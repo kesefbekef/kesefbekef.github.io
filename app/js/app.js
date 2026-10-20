@@ -1815,7 +1815,9 @@ function openRecurring() {
         <div class="rec-acts"><button data-rp="${rid}" aria-label="${r.paused ? 'המשך' : 'השהיה'}">${r.paused ? '▶️' : '⏸️'}</button><button data-rs="${rid}" aria-label="הפסקה">⏹️</button></div></div>`; }).join('')}</div>`
       : `<div class="empty"><span class="em">🔁</span>עוד אין קבועים. שכירות, ועד בית, משכורת — מכניסים פעם אחת, והם נרשמים לבד כל חודש.</div>`}
     <div class="row2" style="margin-top:12px"><button class="btn grad" id="rqNew">➕ קבוע</button><button class="btn ghost" id="rqQuick">⚡ בחירה מהירה</button></div>
+    <button class="btn ghost full" id="rqCal" style="margin-top:8px">📆 להוסיף ליומן של הטלפון (Google / אייפון)</button>
     <div class="sub" style="margin-top:10px">💡 גם בצ'אט: "ועד בית 250 כל חודש" או "שכירות 4200 כל 1 לחודש"</div>`, sh => {
+    sh.querySelector('#rqCal').onclick = () => openCalendarSub();
     sh.querySelectorAll('[data-rule]').forEach(b => b.onclick = e => { if (!e.target.closest('.rec-acts')) openRuleEdit(b.dataset.rule); });
     sh.querySelectorAll('[data-rp]').forEach(b => b.onclick = async () => { const r = S.recurring[b.dataset.rp]; await saveRule(b.dataset.rp, { ...r, paused: !r.paused }); toast(r.paused ? '▶️ ממשיך לרשום כל חודש' : '⏸️ מושהה'); if (r.paused) await postRecurring(); openRecurring(); });
     sh.querySelectorAll('[data-rs]').forEach(b => b.onclick = async () => {
