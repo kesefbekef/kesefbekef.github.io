@@ -7,7 +7,7 @@ import * as sync from './sync.js';
 import * as lock from './lock.js';
 import * as help from './help.js';
 import { demoData } from './demo-data.js';
-import { fixedPayments, dueMonths, nextRuleDate } from './fixed.js';
+import { fixedPayments, dueMonths, nextRuleDate, REMIND_DEFAULT } from './fixed.js';
 import { NEWS } from './whats-new.js';
 import { REVIEW } from './review.js';
 
@@ -640,14 +640,15 @@ function newsFab() {
 // 🪄 / ✍️ — מעבר בין תקציב אוטומטי לידני בכל רגע. הסכומים הידניים נשמרים בצד (_saved) כדי לחזור אליהם
 async function setBudgetMode(mode) {
   if (S.budgets._mode === mode) { toast(mode === 'auto' ? '🪄 התקציב כבר אוטומטי' : '✍️ כבר אתם קובעים — לשינוי סכום לוחצים על קטגוריה'); return; }
-  const { _mode, _saved, ...cur } = S.budgets; void _mode;
-  const own = Object.fromEntries(Object.entries(cur).filter(([, v]) => v != null));
+  const { _mode, _saved, _remind, ...cur } = S.budgets; void _mode;
+  const keep = _remind != null ? { _remind } : {};
+  const own = Object.fromEntries(Object.entries(cur).filter(([k, v]) => v != null && !k.startsWith('_')));
   if (mode === 'auto') {
-    S.budgets = { _mode: 'auto', ...(Object.keys(own).length ? { _saved: own } : {}) };
+    S.budgets = { _mode: 'auto', ...keep, ...(Object.keys(own).length ? { _saved: own } : {}) };
     await saveKV('budgets', S.budgets); renderAll(); confetti();
     toast(Object.keys(own).length ? '🪄 חזרנו לתקציב אוטומטי — הסכומים שקבעתם נשמרו בצד' : '🪄 התקציב אוטומטי — מתעדכן לבד לפי ההוצאות');
   } else if (_saved) {
-    S.budgets = { _mode: 'manual', ..._saved, ...own };
+    S.budgets = { _mode: 'manual', ...keep, ..._saved, ...own };
     await saveKV('budgets', S.budgets); renderAll(); toast('✍️ חזרו הסכומים שקבעתם');
   } else openBudgetManual();
 }
@@ -1722,6 +1723,19 @@ function debtDue(x) {
   const next = new Date(st); next.setMonth(st.getMonth() + k);
   return { per, behind: Math.max(0, num(k * per - debtPaid(x))), next: k < x.plan.n ? next : null };
 }
+// 📅 לוח תשלומים: לכל תשלום — מתי, כמה, ומה מצבו (✅ שולם / ◐ חלקי / ⏰ באיחור / ⏳ עתידי)
+function debtSchedule(x) {
+  if (!x.plan?.n || !x.plan.start) return [];
+  const n = x.plan.n, per = Math.round(x.total / n * 100) / 100, st = new Date(x.plan.start + 'T12:00:00'), today = new Date(ymd(new Date()) + 'T12:00:00');
+  let paid = debtPaid(x), cum = 0;
+  return Array.from({ length: n }, (_, k) => {
+    const amt = k < n - 1 ? per : num(x.total - per * (n - 1)); cum += amt;
+    const due = new Date(st.getFullYear(), st.getMonth() + k, Math.min(st.getDate(), 28), 12);
+    const got = Math.max(0, Math.min(amt, paid - (cum - amt)));
+    const st8 = got >= amt - 0.5 ? 'paid' : got > 0 ? 'part' : due < today ? 'late' : 'wait';
+    return { k: k + 1, due, amt, got, st: st8 };
+  });
+}
 function openDebts() {
   sheetReopen = () => openDebts();
   const list = Object.entries(S.debts || {}).filter(([, x]) => debtLeft(x) > 0 || Date.now() - new Date(x.d) < 30 * 864e5);
@@ -1749,7 +1763,7 @@ function openDebtNew(pre = {}) {
     <div class="row2"><label class="field"><span id="dAmtL">סכום ₪</span><input id="dAmt" type="number" inputmode="decimal" value="${pre.total || ''}"></label>
       <label class="field" id="dPplF"><span>כמה אנשים (כולל אותנו)</span><input id="dPpl" type="number" inputmode="numeric" value="2"></label></div>
     <label class="field"><span>על מה? (לא חובה)</span><input id="dNote" maxlength="40" value="${esc(pre.note || '')}"></label>
-    <div class="sub" style="margin-bottom:6px">📅 החזר בתשלומים? (לא חובה) — נזכיר כשמגיע תשלום</div>
+    <div class="sub" style="margin-bottom:6px">📅 <b>החזר בתשלומים?</b> (לא חובה) — יופיע לוח תשלומים, מסמנים כל החזר ✅ ורואים כמה נשאר</div>
     <div class="row2"><label class="field"><span>כמה תשלומים</span><input id="dN" type="number" inputmode="numeric" placeholder="10"></label><label class="field"><span>תשלום ראשון</span><input id="dStart" type="date" value="${ymd(new Date())}"></label></div>
     <div class="err" id="dErr"></div><button class="btn grad full" id="dSave">💾 שמור</button>`, sh => {
     const paint = () => {
@@ -1774,14 +1788,20 @@ function openDebtNew(pre = {}) {
 }
 function openDebt(id) {
   const x = S.debts?.[id]; if (!x) return openDebts();
-  const left = debtLeft(x), paid = debtPaid(x), due = debtDue(x), [e, kn] = DKIND[x.kind] || DKIND.loan; let armed = false;
+  const left = debtLeft(x), paid = debtPaid(x), due = debtDue(x), [e, kn] = DKIND[x.kind] || DKIND.loan; let armed = false, undoArmed = false;
+  const sched = debtSchedule(x), nextRow = sched.find(r => r.st !== 'paid');
+  sheetReopen = () => openDebt(id);
   openSheet(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px"><div class="cat-ic" style="background:${x.dir === 'lent' ? 'var(--g3)' : 'linear-gradient(135deg,#F43F5E,#F97316)'};width:48px;height:48px;font-size:24px">${e}</div>
       <div style="flex:1;min-width:0"><h3 style="margin:0">${esc(x.name)}</h3><div class="sub">${kn} · ${x.dir === 'lent' ? 'חייב/ת לנו' : 'אנחנו חייבים'}${x.note ? ' · ' + esc(x.note) : ''}</div></div><button class="chip" id="dBack">↩️ חזרה</button></div>
     <div class="card" style="text-align:center;margin-bottom:12px"><small class="sub">${left > 0 ? 'נשאר להחזיר' : '✅ הכל הוחזר'}</small><div class="big-num">${fmt(left)}</div>
       <div class="pbar" style="margin:8px 0"><i style="width:${x.total ? Math.min(100, paid / x.total * 100) : 0}%;background:linear-gradient(90deg,#22C55E,#14B8A6)"></i></div>
       <div class="sub">הוחזרו ${fmt(paid)} מתוך ${fmt(x.total)}${x.plan ? ` · ${x.plan.n} תשלומים של ${fmt(x.total / x.plan.n)}` : ''}${due?.behind > 0 ? ` · <span class="over">⏰ באיחור ${fmt(due.behind)}</span>` : due?.next ? ` · הבא ב-${due.next.toLocaleDateString('he-IL')}` : ''}</div></div>
     ${left > 0 ? `<div class="row2"><label class="field"><span>החזר ₪</span><input id="pA" type="number" inputmode="decimal" value="${due?.behind > 0 ? Math.round(due.behind) : x.plan ? Math.round(x.total / x.plan.n) : ''}"></label><button class="btn grad" id="pAdd" style="align-self:flex-end;margin-bottom:12px">✅ נרשם החזר</button></div>` : ''}
-    ${(x.pay || []).length ? `<div class="card" style="padding:4px 12px">${[...x.pay].reverse().map(p => `<div class="mv"><span>${new Date(p.d).toLocaleDateString('he-IL')}</span><b class="plus">${fmt(p.a)}</b></div>`).join('')}</div>` : ''}
+    ${sched.length ? `<div class="card dsch"><div class="dsch-h"><b>📅 לוח תשלומים</b><span class="sub">${sched.filter(r => r.st === 'paid').length} מתוך ${sched.length} ✅${nextRow ? ` · הבא: ${nextRow.due.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })} · ${fmt(nextRow.amt - nextRow.got)}` : ''}</span></div>
+      <div class="sub" style="margin-bottom:6px">לוחצים על תשלום כדי לסמן ש${x.dir === 'lent' ? 'קיבלנו' : 'החזרנו'} אותו ✅</div>
+      ${sched.map((r, j) => `<button class="dsr ${r.st}" data-sk="${r.k}" style="--d:${j * 40}ms"><span class="dsk">${r.st === 'paid' ? '✅' : r.st === 'part' ? '◐' : r.st === 'late' ? '⏰' : '⏳'}</span><span class="dsn">תשלום ${r.k}</span><span class="dsd">${r.due.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric', year: '2-digit' })}</span><b class="dsa">${fmt(r.amt)}</b>${r.st === 'part' ? `<small>שולם ${fmt(r.got)}</small>` : ''}</button>`).join('')}</div>`
+      : left > 0 && x.kind !== 'split' ? `<button class="btn ghost full" id="dPlan" style="margin-bottom:12px">📅 לחלק לתשלומים</button>` : ''}
+    ${(x.pay || []).length ? `<div class="sub" style="margin:4px 2px">ההחזרים שנרשמו</div><div class="card" style="padding:4px 12px">${[...x.pay].reverse().map((p, j) => `<div class="mv"><span>${new Date(p.d).toLocaleDateString('he-IL')}</span><b class="plus">${fmt(p.a)}</b>${j === 0 ? '<button class="chip" id="pUndo" style="margin-inline-start:8px">↩️ ביטול</button>' : ''}</div>`).join('')}</div>` : ''}
     <button class="btn ghost full" id="dDel" style="margin-top:12px;color:#FB7185">🗑️ מחיקה</button>`, sh => {
     sh.querySelector('#dBack').onclick = openDebts;
     sh.querySelector('#pAdd')?.addEventListener('click', async () => {
@@ -1789,6 +1809,33 @@ function openDebt(id) {
       await saveKV('debts', { ...S.debts, [id]: { ...x, pay: [...(x.pay || []), { d: new Date().toISOString(), a: Math.min(a, left) }] } });
       if (a >= left) { confetti(); toast(`🎉 ${x.name} — הכל הוחזר!`); } else toast(`✅ נרשם החזר של ${fmt(a)}`);
       openDebt(id);
+    });
+    // ✅ לחיצה על תשלום: נרשם ההחזר של מה שחסר בו (ובתשלום ששולם — אפשר לבטל את ההחזר האחרון)
+    sh.querySelectorAll('[data-sk]').forEach(b => b.onclick = async () => {
+      const r = sched.find(z => z.k === +b.dataset.sk); if (!r) return;
+      if (r.st === 'paid') { toast('✅ התשלום הזה כבר סומן. לביטול — "↩️ ביטול" ליד ההחזר האחרון'); return; }
+      // משלמים לפי הסדר: לחיצה על תשלום מאוחר משלימה גם את מה שלפניו
+      const need = num(sched.filter(z => z.k <= r.k).reduce((s2, z) => s2 + (z.amt - z.got), 0));
+      if (!(need > 0)) return;
+      await saveKV('debts', { ...S.debts, [id]: { ...x, pay: [...(x.pay || []), { d: new Date().toISOString(), a: Math.min(need, left), k: r.k }] } });
+      if (need >= left - 0.5) { confetti(); toast(`🎉 ${x.name} — הכל הוחזר!`); } else toast(`✅ תשלום ${r.k} סומן · ${fmt(need)}`);
+      openDebt(id);
+    });
+    sh.querySelector('#pUndo')?.addEventListener('click', async ev => {
+      if (!undoArmed) { undoArmed = true; ev.target.textContent = '⚠️ בטוח?'; return; }
+      await saveKV('debts', { ...S.debts, [id]: { ...x, pay: (x.pay || []).slice(0, -1) } }); toast('↩️ ההחזר האחרון בוטל'); openDebt(id);
+    });
+    sh.querySelector('#dPlan')?.addEventListener('click', () => {
+      openSheet(`<h3>📅 לחלק לתשלומים</h3><div class="sub" style="margin:-6px 0 12px">${esc(x.name)} · נשאר ${fmt(left)} מתוך ${fmt(x.total)}</div>
+        <div class="row2"><label class="field"><span>כמה תשלומים (על כל הסכום)</span><input id="plN" type="number" inputmode="numeric" placeholder="10"></label><label class="field"><span>תשלום ראשון</span><input id="plS" type="date" value="${ymd(new Date())}"></label></div>
+        <div class="sub" id="plHint" style="margin-bottom:10px"></div><div class="err" id="plErr"></div><button class="btn grad full" id="plSave">💾 שמירה</button>`, s2 => {
+        const nIn = s2.querySelector('#plN'), hint = () => { const n = Math.round(num(nIn.value)); s2.querySelector('#plHint').textContent = n > 1 ? `${n} תשלומים של ${fmt(x.total / n)} — ומה שכבר הוחזר נספר בתשלומים הראשונים` : ''; };
+        nIn.oninput = hint;
+        s2.querySelector('#plSave').onclick = async () => {
+          const n = Math.round(num(nIn.value)); if (!(n > 1 && n <= 120)) { s2.querySelector('#plErr').textContent = 'בין 2 ל-120 תשלומים'; return; }
+          await saveKV('debts', { ...S.debts, [id]: { ...x, plan: { n, start: s2.querySelector('#plS').value || ymd(new Date()) } } }); toast(`📅 ${n} תשלומים — מסמנים כל אחד בלחיצה`); openDebt(id);
+        };
+      });
     });
     sh.querySelector('#dDel').onclick = async ev => {
       if (!armed) { armed = true; ev.target.textContent = 'לחיצה שנייה לאישור המחיקה'; return; }
@@ -1832,6 +1879,24 @@ async function debtCommand(raw) {
     return true;
   }
   return false;
+}
+// 🔔 תזכורת לפני תשלום קבוע: בכל קבוע בוחרים כמה ימים לפני (בלי / יום / 3 / שבוע). מה שזוהה לבד — הגדרה אחת (S.budgets._remind)
+const REMIND_OPTS = [[0, '🔕 בלי'], [1, 'יום לפני'], [3, '3 ימים'], [7, 'שבוע']];
+const remindDetected = () => S.budgets?._remind ?? REMIND_DEFAULT;
+const daysTxt = n => n === 1 ? 'מחר' : n === 0 ? 'היום' : `בעוד ${n} ימים`;
+// מה צריך להזכיר עכשיו: הגיע יום התזכורת ועוד לא עבר התשלום
+function remindersDue(now = new Date()) {
+  const today = new Date(ymd(now) + 'T12:00:00');
+  return fixedPayments(S.tx, now, S.recurring, { detected: remindDetected() })
+    .filter(f => f.kind === 'fixed' && f.alert && f.alert <= today && f.next >= today)
+    .map(f => ({ ...f, inDays: Math.round((new Date(ymd(f.next) + 'T12:00:00') - today) / 864e5) }));
+}
+function fixedReminder() {
+  if (!sync.isParent() || lsGet('fixRemind') === ymd(new Date())) return;
+  const due = remindersDue(); if (!due.length) return;
+  lsSet('fixRemind', ymd(new Date()));
+  const t = due.slice(0, 2).map(f => `${daysTxt(f.inDays)}: ${f.desc} ${f.variable ? 'בערך ' : ''}${fmt(f.amount)}`).join(' · ');
+  setTimeout(() => toastAction(`🔔 ${t}`, '🔁 לקבועים', () => { go('budget'); openRecurring(); }), 2600);
 }
 // 📅 תזכורת פעם ביום: תשלומים שהגיע זמנם
 function debtReminder() {
@@ -1922,7 +1987,7 @@ function openBudgetManual() {
       <input type="number" inputmode="numeric" data-bm="${id}" value="${S.budgets[id] ?? recommend(id) ?? c.budget ?? ''}" style="width:96px;height:40px;border-radius:12px;border:1px solid var(--line);background:var(--card2);padding:0 10px;font-size:16px;text-align:center"></label>`).join('')}</div>
     <button class="btn grad full" id="bmSave" style="margin-top:12px;position:sticky;bottom:0">💾 שמירת התקציב</button>`, sh => {
     sh.querySelector('#bmSave').onclick = async () => {
-      const b = { _mode: 'manual' };
+      const b = { _mode: 'manual', ...(S.budgets._remind != null ? { _remind: S.budgets._remind } : {}) };
       sh.querySelectorAll('[data-bm]').forEach(i => { const v = Math.round(num(i.value)); b[i.dataset.bm] = v > 0 ? v : 0; });
       S.budgets = b; await db.setKV('budgets', b); renderAll(); toast('🎯 התקציב נשמר'); go('budget'); openRecurringSetup();
     };
@@ -1966,21 +2031,29 @@ function openRecurring() {
   sheetReopen = () => openRecurring();
   const list = Object.entries(S.recurring || {}), act = list.filter(([, r]) => !r.paused);
   const inSum = act.filter(([, r]) => r.cat === 'income').reduce((s, [, r]) => s + r.amount, 0), outSum = act.filter(([, r]) => r.cat !== 'income').reduce((s, [, r]) => s + r.amount, 0);
+  const due = remindersDue();
   openSheet(`<h3>🔁 הקבועים שלי</h3><div class="sub" style="margin:-6px 0 12px">נרשמים לבד כל חודש ביום שבחרתם. אפשר לערוך, להשהות או להפסיק.</div>
     <div class="duo" style="padding:0 0 12px"><div class="stat" style="background:var(--g3)"><small>נכנס כל חודש</small><div>${fmt(inSum)}</div></div><div class="stat" style="background:linear-gradient(135deg,#F43F5E,#F97316)"><small>יוצא כל חודש</small><div>${fmt(outSum)}</div></div></div>
     ${list.length ? `<div class="stg" style="display:flex;flex-direction:column;gap:8px">${list.sort((a, b) => (a[1].cat === 'income' ? 0 : 1) - (b[1].cat === 'income' ? 0 : 1) || a[1].day - b[1].day).map(([rid, r]) => { const c = catOf(r.cat), nx = nextRuleDate(r);
       const total = r.end ? Math.max(1, monthsBetween(r.start, r.end) + 1) : 0, left = r.end ? Math.max(0, monthsBetween(thisMonth(), r.end) + (nx ? 1 : 0)) : 0, ended = r.end && !nx;
       return `<div class="rec-row ${r.paused ? 'paused' : ''}" data-rule="${rid}"><div class="cat-ic" style="background:${c.g}">${c.e}</div>
         <div class="nm"><div>${esc(r.desc)} <b class="${r.cat === 'income' ? 'plus' : ''}">${r.cat === 'income' ? '+' : ''}${r.variable ? '≈' : ''}${fmt(r.amount)}</b></div>
-          <small>כל ${r.day} לחודש${r.paused ? ' · ⏸️ מושהה' : ended ? ' · 🏁 הסתיים' : nx ? ` · הבא: ${nx.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}` : ''}</small>
+          <small>כל ${r.day} לחודש${r.paused ? ' · ⏸️ מושהה' : ended ? ' · 🏁 הסתיים' : nx ? ` · הבא: ${nx.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}` : ''}${r.cat !== 'income' && !r.paused ? ` · ${(r.remind ?? REMIND_DEFAULT) ? `🔔 ${(r.remind ?? REMIND_DEFAULT) === 7 ? 'שבוע' : (r.remind ?? REMIND_DEFAULT) === 1 ? 'יום' : (r.remind ?? REMIND_DEFAULT) + ' ימים'} לפני` : '🔕'}` : ''}</small>
           <small class="rec-left">${ended ? '🏁 הסתיים' : r.end ? `נשארו ${left} ${left === 1 ? 'חודש' : 'חודשים'}` : '♾️ ללא סוף'}</small>
           ${r.end ? `<div class="rec-bar"><i style="width:${Math.min(100, (total - left) / total * 100)}%"></i></div>` : ''}</div>
         <div class="rec-acts"><button data-rp="${rid}" aria-label="${r.paused ? 'המשך' : 'השהיה'}">${r.paused ? '▶️' : '⏸️'}</button><button data-rs="${rid}" aria-label="הפסקה">⏹️</button></div></div>`; }).join('')}</div>`
       : `<div class="empty"><span class="em">🔁</span>עוד אין קבועים. שכירות, ועד בית, משכורת — מכניסים פעם אחת, והם נרשמים לבד כל חודש.</div>`}
     <div class="row2" style="margin-top:12px"><button class="btn grad" id="rqNew">➕ קבוע</button><button class="btn ghost" id="rqQuick">⚡ בחירה מהירה</button></div>
+    <div class="card rmd-card" style="margin-top:12px"><b>🔔 תזכורת לפני תשלום</b>
+      ${due.length ? `<div class="rmd-now">${due.map(f => `<div>🔔 <b>${daysTxt(f.inDays)}:</b> ${esc(f.desc)} ${f.variable ? 'בערך ' : ''}${fmt(f.amount)}</div>`).join('')}</div>` : ''}
+      <div class="sub" style="margin:6px 0">בכל קבוע בוחרים כמה ימים לפני (לוחצים על הקבוע ✏️). ועל הוצאה קבועה <b>שזיהינו לבד</b> (בלי שהגדרתם):</div>
+      <div class="chips rmd" id="rqDet">${REMIND_OPTS.map(([d, l]) => `<button class="chip ${remindDetected() === d ? 'on' : ''}" data-rd="${d}">${l}</button>`).join('')}</div>
+      <div id="rqPush" style="margin-top:10px"></div></div>
     <button class="btn ghost full" id="rqCal" style="margin-top:8px">📆 להוסיף ליומן של הטלפון (Google / אייפון)</button>
     <div class="sub" style="margin-top:10px">💡 גם בצ'אט: "ועד בית 250 כל חודש" או "שכירות 4200 כל 1 לחודש"</div>`, sh => {
     sh.querySelector('#rqCal').onclick = () => openCalendarSub();
+    drawPushCard(sh.querySelector('#rqPush'));
+    sh.querySelectorAll('[data-rd]').forEach(b => b.onclick = async () => { await saveKV('budgets', { ...S.budgets, _remind: +b.dataset.rd }); toast(+b.dataset.rd ? `🔔 נזכיר ${b.textContent} על הוצאות קבועות שזיהינו` : '🔕 בלי תזכורת על מה שזוהה לבד'); openRecurring(); });
     sh.querySelectorAll('[data-rule]').forEach(b => b.onclick = e => { if (!e.target.closest('.rec-acts')) openRuleEdit(b.dataset.rule); });
     sh.querySelectorAll('[data-rp]').forEach(b => b.onclick = async () => { const r = S.recurring[b.dataset.rp]; await saveRule(b.dataset.rp, { ...r, paused: !r.paused }); toast(r.paused ? '▶️ ממשיך לרשום כל חודש' : '⏸️ מושהה'); if (r.paused) await postRecurring(); openRecurring(); });
     sh.querySelectorAll('[data-rs]').forEach(b => b.onclick = async () => {
@@ -2000,14 +2073,17 @@ function openRuleEdit(rid) {
       <label class="field"><span>ביום בחודש (1-28)</span><input id="reDay" type="number" inputmode="numeric" min="1" max="28" value="${r.day}"></label></div>
     <label class="field"><span>עד חודש (ריק = בלי סוף)</span><input id="reEnd" type="month" value="${r.end || ''}"></label>
     <label class="chk"><input type="checkbox" id="reVar" ${r.variable ? 'checked' : ''}> 💡 הסכום משתנה (כמו חשמל) — לשאול כל חודש כמה יצא</label>
+    ${r.cat !== 'income' ? `<div class="sub" style="margin:12px 0 6px">🔔 תזכורת לפני התשלום</div><div class="chips rmd" id="reRm">${REMIND_OPTS.map(([d, l]) => `<button class="chip ${(r.remind ?? REMIND_DEFAULT) === d ? 'on' : ''}" data-rm="${d}">${l}</button>`).join('')}</div>` : ''}
     <button class="btn grad full" id="reSave" style="margin-top:12px">💾 שמירה</button>
     <div class="row2" style="margin-top:10px"><button class="btn ghost" id="rePause">${r.paused ? '▶️ להמשיך' : '⏸️ להשהות'}</button><button class="btn ghost" id="reDel" style="color:#FB7185">🛑 להפסיק</button></div>
     <div class="sub" style="margin-top:8px">מה שכבר נרשם בחודשים הקודמים — נשאר.</div>`, sh => {
     sh.querySelector('#reBack').onclick = openRecurring;
+    let rm = r.remind ?? REMIND_DEFAULT;
+    sh.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { rm = +b.dataset.rm; sh.querySelectorAll('[data-rm]').forEach(x => x.classList.toggle('on', x === b)); });
     sh.querySelector('#reSave').onclick = async () => {
       const a = num(sh.querySelector('#reAmt').value), d = Math.round(num(sh.querySelector('#reDay').value));
       if (!(a > 0)) return sh.querySelector('#reAmt').focus();
-      await saveRule(rid, { ...r, amount: a, day: Math.min(28, Math.max(1, d || r.day)), end: sh.querySelector('#reEnd').value || '', variable: sh.querySelector('#reVar').checked });
+      await saveRule(rid, { ...r, amount: a, day: Math.min(28, Math.max(1, d || r.day)), end: sh.querySelector('#reEnd').value || '', variable: sh.querySelector('#reVar').checked, ...(r.cat !== 'income' ? { remind: rm } : {}) });
       toast('✅ נשמר'); await postRecurring(); openRecurring();
     };
     sh.querySelector('#rePause').onclick = async () => { await saveRule(rid, { ...r, paused: !r.paused }); toast(r.paused ? '▶️ ממשיך לרשום כל חודש' : '⏸️ מושהה — לא יירשם עד שתמשיכו'); if (r.paused) await postRecurring(); openRecurring(); };
@@ -2125,6 +2201,8 @@ const TOUR = [
   { v: 'budget', sel: '#sheet', open: () => openGoals(), t: '🐷 קופות חיסכון', d: 'יעד, תאריך — ואומרת כמה לשים בצד כל חודש. מגיעים ליעד? קונפטי.' },
   { v: 'budget', sel: '#sheet', open: () => openMaaser(), t: '🤲 מעשר / חומש', d: '10%, חומש 20% או אחוז אחר. בוחרים מאילו הכנסות, אם לנכות הוצאות, ומחלקים למקבלים (₪ או %) עם ✅ בוצע / ⏳ לא בוצע.' },
   { v: 'budget', sel: '#sheet', open: () => openKid('p_kid1'), t: '🧒 קופת דמי כיס', d: 'לכל ילד קופה ויעד. ⭐ כוכבים ממטלות ב"זמן בכיף" הופכים לשקלים.' },
+  { v: 'budget', sel: '#sheet', open: () => { const id = Object.keys(S.debts || {}).find(k => S.debts[k].plan); if (id) openDebt(id); else openDebts(); }, t: '📅 הלוואה בתשלומים', d: 'לוח תשלומים: ✅ שולם, ⏰ באיחור, ⏳ עתידי. לוחצים על תשלום — והוא מסומן. למעלה: כמה נשאר ומתי הבא.' },
+  { v: 'budget', sel: '#sheet', open: () => { openRecurring(); setTimeout(() => $('.rmd-card')?.scrollIntoView({ block: 'center' }), 350); }, t: '🔔 תזכורת לפני תשלום', d: 'בכל קבוע בוחרים כמה ימים לפני: יום, 3 ימים או שבוע. גם על הוצאה קבועה שזיהינו לבד. מגיעה בפתיחת האפליקציה ובהתראה לטלפון.' },
   { v: 'budget', sel: '#sheet', open: () => openDebts(), t: '➗ מי חייב למי + גמ"חים', d: 'הלוואות, גמ"ח וחלוקת הוצאות — עם החזר בתשלומים ותזכורת. גם בצ\'אט: "הלוויתי לדוד 500".' },
   { v: 'insights', sel: '#donut', t: '🍩 לאן הלך הכסף', d: 'חלוקה לפי קטגוריות. הסכום באמצע "רץ" כשנכנסים.' },
   { v: 'insights', sel: cardWith('תשלומים קבועים'), t: '📅 תשלומים קבועים', d: 'מה יורד כל חודש ומתי נגמרים תשלומים — תזכורת ב"זמן בכיף", או 📆 כל התשלומים ביומן של הטלפון (Google / אייפון), מתעדכן לבד.' },
@@ -2210,6 +2288,8 @@ const REVIEW_AT = {
   maaser: { v: 'budget', sel: '#sheet', open: () => openMaaser() },
   maaserInc: { v: 'budget', sel: '#sheet', open: () => { openMaaser(); setTimeout(() => $('#sheet [data-ik]')?.scrollIntoView({ block: 'center' }), 350); } },
   debts: { v: 'budget', sel: '#sheet', open: () => openDebts() },
+  loanplan: { v: 'budget', sel: '#sheet', open: () => { const id = Object.keys(S.debts || {}).find(k => S.debts[k].plan); if (id) openDebt(id); else openDebts(); } },
+  remind: { v: 'budget', sel: '#sheet', open: () => { openRecurring(); setTimeout(() => $('.rmd-card')?.scrollIntoView({ block: 'center' }), 350); } },
   recQuick: { v: 'budget', sel: '#sheet', open: () => openRecurringSetup() },
   onboard: { v: 'budget', sel: '#sheet', open: () => openBudgetSetup() },
   giveEdit: { v: 'chat', sel: '#sheet', open: () => { const t = [...S.tx].reverse().find(x => x.cat === 'give'); if (t) { openEditSheet(t); setTimeout(() => $('#eGive')?.scrollIntoView({ block: 'center' }), 350); } } },
@@ -2406,8 +2486,9 @@ async function drawPushCard(el) {
   if (!el) return;
   if (!syncUser && !UITEST && !db.DEMO) { el.style.display = 'none'; return; }
   const st = UITEST || db.DEMO ? 'off' : await sync.pushState();
-  el.innerHTML = `<b style="font-size:16px">🔔 התראה כשמתקרבים לסוף התקציב</b>
-    <div class="sub" style="margin:4px 0 10px">כשמישהו במשפחה רושם הוצאה והקטגוריה מגיעה ל-<b>90%</b> או עוברת את <b>100%</b> — תקפוץ התראה בטלפון. (לא בשבת — נשלח במוצ"ש)</div>
+  el.innerHTML = `<b style="font-size:16px">🔔 התראות לטלפון</b>
+    <div class="sub" style="margin:4px 0 4px">📅 <b>לפני תשלום קבוע</b> — שכירות, משכנתא… (כמה ימים לפני — בוחרים בכל קבוע).</div>
+    <div class="sub" style="margin:0 0 10px">🎯 כשמישהו במשפחה רושם הוצאה והקטגוריה מגיעה ל-<b>90%</b> או עוברת את <b>100%</b> — תקפוץ התראה בטלפון. (לא בשבת — נשלח במוצ"ש)</div>
     ${st === 'unsupported' ? `<div class="sub">📲 כדי לקבל התראות צריך קודם להתקין את האפליקציה על המסך${/iphone|ipad/i.test(navigator.userAgent) ? ' (באייפון: שיתוף ⬆️ ← "הוסף למסך הבית")' : ''}.</div>`
       : st === 'denied' ? `<div class="sub">🚫 ההתראות חסומות. פותחים את הגדרות הטלפון ← האפליקציה ← התראות ← מאשרים.</div>`
       : `<div class="chips"><button class="chip ${st === 'on' ? 'on' : ''}" data-push="on">🔔 פועל</button><button class="chip ${st === 'on' ? '' : 'on'}" data-push="off">🔕 כבוי</button></div>`}
@@ -3058,7 +3139,7 @@ async function load() {
   renderAll();
 }
 load().then(async () => {
-  if (db.DEMO) { await demoStart(); if (UITEST) maybeNews(); return; } // 🎭 בלי סנכרון, בלי שרת
+  if (db.DEMO) { await demoStart(); fixedReminder(); if (UITEST) maybeNews(); return; } // 🎭 בלי סנכרון, בלי שרת
   const r = await sync.start({
     onRemoteChange: () => reloadFromDb(),
     onStatus: st => { const el = document.querySelector('#syncState'); if (el) el.textContent = st === 'ok' ? '· מסונכרן ✓' : '· ממתין לרשת…'; },
@@ -3077,9 +3158,10 @@ load().then(async () => {
   else if (LINK_ERR) linkErrorSheet();
   if (r.deleted) toast('👋 החשבון הזה כבר לא קיים — אפשר להירשם מחדש', true);
   if (new URLSearchParams(location.search).get('v') === 'budget') go('budget'); // לחיצה על התראת תקציב
+  if (new URLSearchParams(location.search).get('v') === 'rec') { go('budget'); setTimeout(openRecurring, 400); } // לחיצה על תזכורת לפני תשלום
   await postRecurring();
   starsLink(); addLink(); if (!$('#sheet').classList.contains('on')) maybeOnboard();
-  debtReminder(); maybeNews();
+  debtReminder(); fixedReminder(); maybeNews();
 });
 
 // 🔑 הקישור מהמייל לא עבד (פג תוקף / כבר נפתח) — מסבירים ומאפשרים לשלוח שוב

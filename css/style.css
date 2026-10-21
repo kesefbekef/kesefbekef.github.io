@@ -485,3 +485,20 @@ body.over-gate .sheet{z-index:111}
 .rv-li.bad{border-color:rgba(244,63,94,.5)}.rv-li.ok{border-color:rgba(34,197,94,.4)}
 .rv-li p{margin:3px 0 0;color:var(--muted);font-size:13.5px}
 .rv-send{height:56px;font-size:18px}
+
+/* 📅 לוח תשלומים של הלוואה */
+.dsch{padding:10px 12px;margin-bottom:12px}
+.dsch-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:4px}
+.dsr{display:grid;grid-template-columns:28px 1fr auto auto;align-items:center;gap:8px;width:100%;text-align:right;background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:9px 10px;margin-top:6px;color:inherit;font:inherit;animation:rise .35s both;animation-delay:var(--d)}
+.dsr .dsk{font-size:18px;text-align:center}.dsr .dsn{font-weight:700}.dsr .dsd{color:var(--muted);font-size:13px}.dsr .dsa{direction:ltr}
+.dsr small{grid-column:2/-1;color:var(--muted);font-size:12px}
+.dsr.paid{border-color:rgba(34,197,94,.5);background:rgba(34,197,94,.1)}.dsr.paid .dsa{text-decoration:line-through;opacity:.7}
+.dsr.late{border-color:rgba(244,63,94,.6);background:rgba(244,63,94,.1)}.dsr.part{border-color:rgba(250,204,21,.55)}
+.dsr:not(.paid):active{transform:scale(.98)}
+
+/* 🔔 תזכורת לפני תשלום קבוע */
+.rmd-card{border-color:rgba(250,204,21,.4)}
+.rmd-now{margin-top:8px;display:flex;flex-direction:column;gap:6px}
+.rmd-now div{background:rgba(250,204,21,.12);border:1px solid rgba(250,204,21,.4);border-radius:12px;padding:8px 10px;font-size:14px;animation:rise .4s both}
+.chips.rmd{flex-wrap:wrap}
+#rqPush{border-top:1px solid var(--line);padding-top:10px}
