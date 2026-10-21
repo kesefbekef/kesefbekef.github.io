@@ -93,6 +93,18 @@ nav.toc a{flex:none;text-decoration:none;font-size:15px;font-weight:600;padding:
 .divider{text-align:center;padding:40px 18px 0}
 .divider span{display:inline-block;font-weight:800;font-size:22px;padding:12px 26px;border-radius:999px;background:var(--g);color:#fff;box-shadow:0 10px 30px rgba(236,72,153,.35)}
 /* ---- 🆕 חדש: כרטיסים עם דוגמה חיה ---- */
+.d-mode{display:flex;flex-direction:column;gap:12px;justify-content:center}
+.d-mode .cb{background:linear-gradient(135deg,rgba(124,58,237,.45),rgba(236,72,153,.4));border:1.5px dashed rgba(244,114,182,.8);border-radius:16px;padding:12px 14px;font-weight:800}
+.d-mode .cb small{display:block;font-weight:500;font-size:12px;color:#D8CCF0}
+.d-mode .sw{position:relative;display:grid;grid-template-columns:1fr 1fr;background:#2A2240;border-radius:14px;padding:4px;font-weight:800;font-size:14px;text-align:center}
+.d-mode .sw span{position:relative;padding:10px 0;z-index:1}
+.d-mode .sw i{position:absolute;top:4px;bottom:4px;right:4px;width:calc(50% - 4px);border-radius:10px;background:linear-gradient(135deg,#7C3AED,#EC4899);animation:swmove 4s ease-in-out infinite}
+@keyframes swmove{0%,40%{transform:translateX(0)}50%,90%{transform:translateX(-100%)}100%{transform:translateX(0)}}
+.d-xb{display:flex;flex-direction:column;gap:12px;justify-content:center}
+.d-xb .xr{display:grid;grid-template-columns:72px 1fr 64px;align-items:center;gap:8px;font-size:13.5px;font-weight:700}
+.d-xb .xr i{height:10px;border-radius:99px;background:var(--c,#22C55E);width:var(--w);transform-origin:right;animation:xbfill 4s ease-out infinite}
+.d-xb .xr b{direction:ltr;text-align:left}
+@keyframes xbfill{0%{transform:scaleX(0)}30%,100%{transform:scaleX(1)}}
 .nw{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px}
 .nw .card{display:flex;flex-direction:column;gap:10px;overflow:hidden}
 .demo{background:#0E0A1A;border-radius:20px;padding:16px;min-height:150px;color:#FBF8FF;position:relative;overflow:hidden;font-size:15px}
@@ -226,8 +238,18 @@ footer{padding:28px 0;text-align:center;color:#8B82A6;font-size:14px}
 <section class="dark" id="new">
   <div class="wrap">
     <div class="eyebrow">🆕 חדש באפליקציה</div>
-    <h2>17 דברים חדשים — ככה זה נראה 👇</h2>
+    <h2>19 דברים חדשים — ככה זה נראה 👇</h2>
     <div class="nw">
+      <div class="card"><div class="demo d-mode">
+          <div class="cb">🏷️ קטגוריות <small>הוספה ועריכה</small></div>
+          <div class="sw"><i></i><span>🪄 אוטומטי</span><span>✍️ אני קובע</span></div></div>
+        <h3>🪄 אוטומטי ⇄ ✍️ אני קובע</h3><p>בראש מסך <b>🎯 תקציב</b> יש מתג: עוברים לתקציב אוטומטי וחזרה <b>בכל רגע</b>. הסכומים שקבעתם נשמרים בצד. ומעליו כפתור גדול <b>🏷️ קטגוריות</b> — להוסיף ולשנות, וליד כל קטגוריה <b>✏️ עריכה</b>.</p></div>
+      <div class="card"><div class="demo d-xb">
+          <div class="xr"><span>🛒 מזון</span><i style="--w:78%"></i><b>2,340₪</b></div>
+          <div class="xr"><span>🏠 בית</span><i style="--w:55%;--c:#3B82F6"></i><b>1,650₪</b></div>
+          <div class="xr"><span>🚗 רכב</span><i style="--w:30%;--c:#F59E0B"></i><b>900₪</b></div>
+          <div class="xr"><span>🎉 פנאי</span><i style="--w:14%;--c:#EC4899"></i><b>420₪</b></div></div>
+        <h3>🔎 לאן הלך הכסף</h3><p>🎯 תקציב ← לוחצים על <b>"הוצאות 🔎"</b> למעלה: כמה יצא על <b>כל קטגוריה</b> ועל ידי <b>כל אחד בבית</b>, באחוזים. לחיצה על קטגוריה — כל ההוצאות שבה.</p></div>
       <div class="card"><div class="demo d-env">
           <div class="row"><div class="ic" style="background:linear-gradient(135deg,#22C55E,#84CC16)">🛒</div><div><b>מזון וסופר</b><small style="display:block;color:#B9AED6;font-size:12px">מתוך 2,500₪</small></div>
           <div class="left"><small class="lbl"><span>נשארו</span><span>נשארו</span><span>חריגה</span></small><b><span>1,750₪</span><span>200₪</span><span dir="ltr">-120₪</span></b></div></div>
@@ -267,7 +289,7 @@ footer{padding:28px 0;text-align:center;color:#8B82A6;font-size:14px}
       <div class="card"><div class="demo d-onb"><div style="text-align:center;font-weight:800;margin-bottom:8px">🎯 איך נבנה את התקציב?</div>
           <div class="opt"><span style="font-size:24px">🪄</span><div><b>תקציב אוטומטי</b><small style="display:block;color:#B9AED6;font-size:12px">מתעדכן לבד לפי ההוצאות</small></div></div>
           <div class="opt"><span style="font-size:24px">✍️</span><div><b>אני קובע לכל קטגוריה</b><small style="display:block;color:#B9AED6;font-size:12px">סכום לכל אחת</small></div></div></div>
-        <h3>🎯 פתיחה: איך בונים תקציב</h3><p>בכניסה הראשונה בוחרים: <b>🪄 אוטומטי</b> (סכומים שמתעדכנים לבד לפי ההוצאות) או <b>✍️ אני קובע</b>. לשנות בכל רגע: 🎯 תקציב ← "תקציב: … · לשנות". ובראש מסך התקציב: <b>➕ קטגוריה חדשה</b>, ו-✏️ ליד כל קטגוריה.</p></div>
+        <h3>🎯 פתיחה: איך בונים תקציב</h3><p>בכניסה הראשונה בוחרים: <b>🪄 אוטומטי</b> (סכומים שמתעדכנים לבד לפי ההוצאות) או <b>✍️ אני קובע</b>. לשנות בכל רגע: המתג בראש מסך 🎯 תקציב. ושם גם <b>🏷️ קטגוריות</b>, ו-✏️ עריכה ליד כל קטגוריה.</p></div>
       <div class="card"><div class="demo d-rec2"><div class="me2" style="background:linear-gradient(135deg,#7C3AED,#EC4899);padding:8px 14px;border-radius:16px 16px 16px 6px;display:inline-block">ועד בית 250 כל חודש</div>
           <div class="mo"><span>תשרי<b>🔁 250₪</b></span><span>חשוון<b>🔁 250₪</b></span><span>כסלו<b>🔁 250₪</b></span><span>טבת<b>🔁 250₪</b></span></div></div>
         <h3>🔁 קבועים — פעם אחת, וזהו</h3><p>שכירות, ועד בית, משכורת, קצבת ילדים — מכניסים <b>פעם אחת</b> והם <b>נרשמים לבד כל חודש</b>. בצ'אט: <b>"ועד בית 250 כל חודש"</b>, ב-➕ ← "🔁 קבוע כל חודש", או 🎯 תקציב ← <b>"🔁 הקבועים שלי"</b> (עריכה, ⏸️ השהיה, 🛑 הפסקה). חשמל? "💡 סכום משתנה" — ונשאל כמה יצא.</p></div>
