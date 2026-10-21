@@ -583,6 +583,7 @@ const NEWS_GO = {
   debts: () => { go('budget'); openDebts(); },
   rec: () => { go('budget'); openRecurring(); },
   cal: () => openCalendarSub(),
+  insights: () => { go('insights'); spot('#fxCard'); },
   view: () => { openSettings(); setTimeout(() => $('#viewCard')?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 350); },
   news: () => openNews(true),
 };
@@ -792,12 +793,59 @@ function renderInsights() {
   const inst = txInMonth(m).filter(t => t.inst > 1);
   if (inst.length) tips.push(['💳', `<b>${inst.length} תשלומים פעילים</b> בסך ${fmt(inst.reduce((s, t) => s + t.amount, 0))} החודש.`]);
 
-  $('#tips').innerHTML = historyCard(m) + (m === thisMonth() ? fixedCard() : '') + hebCard() + tagsCard() + tips.map(([e, h]) => `<div class="card tip"><div class="em">${e}</div><p>${h}</p></div>`).join('');
+  $('#tips').innerHTML = historyCard(m) + (m === thisMonth() ? '<div class="card fx-card" id="fxCard" hidden></div>' + fixedCard() : '') + hebCard() + tagsCard() + tips.map(([e, h]) => `<div class="card tip"><div class="em">${e}</div><p>${h}</p></div>`).join('');
+  fillExpected();
 }
 
 // 📅 תשלומים קבועים ותשלומים שנגמרים — עם תזכורת בלחיצה ב"זמן בכיף"
 const ZMAN_URL = 'https://zmanbekef.github.io/';
 const zmanLink = (task, date) => `${ZMAN_URL}?task=${encodeURIComponent(task)}&date=${ymd(date)}&from=kesef`;
+// 🔮 הוצאה צפויה: אירועים מהיומן שלך (חתונה, בר מצווה, שכירות, תשלום…) — עם כפתור לרשום סכום
+const FX_RE = /חתונ|בר.?מצו|בת.?מצו|ברית|אירוסי|שבע ברכות|יום הולדת|יומולדת|שכירות|שכר דירה|שכר לימוד|משכנתא|תשלום|לשלם|ארנונה|ביטוח|טסט|קייטנ|טיול|נופש|טיסה|מתנה|הופעה|wedding|birthday|payment|rent/i;
+const fxKey = e => `${e.uid}|${e.starts_at.slice(0, 10)}`;
+const fxDone = () => { try { return JSON.parse(lsGet('kesef-fx') || '[]'); } catch { return []; } };
+function demoEvents() {
+  const d = n => { const x = new Date(); x.setDate(x.getDate() + n); return ymd(x) + 'T00:00:00Z'; };
+  return [['חתונה של יוסי ורחל', 4], ['פגישה עם רואה חשבון', 6], ['בר מצווה של אריאל', 9], ['תשלום שכר לימוד 1,200₪', 12], ['יום הולדת לנועה 🎂', 20]]
+    .map(([t, n], i) => ({ uid: 'demo-ev-' + i, starts_at: d(n), all_day: true, title: t }));
+}
+async function fillExpected() {
+  const el = $('#fxCard'); if (!el || !sync.isParent()) return;
+  let ev = [];
+  if (db.DEMO) ev = demoEvents();
+  else { try { if (!(await sync.myCalendar())) return; ev = await sync.upcomingEvents(45, 40); } catch { return; } }
+  const done = fxDone(), list = ev.filter(e => FX_RE.test(e.title || '') && !done.includes(fxKey(e))).slice(0, 5);
+  if (!list.length) { el.hidden = true; return; }
+  el.hidden = false;
+  el.innerHTML = `<b style="font-size:16px">🔮 הוצאה צפויה</b><div class="sub" style="margin:2px 0 8px">מהיומן שלך — כדאי להתכונן. לוחצים "💰 לרשום סכום" כדי שייכנס לתקציב.</div>
+    ${list.map((e, i) => { const c = catOf(classify(e.title, S.learned)); return `<div class="fx-row" style="--d:${i * 70}ms"><div class="cat-ic" style="background:${c.g}">${c.e}</div>
+      <div class="nm"><b>${esc(e.title)}</b><small>${esc(fmtWhen(e))}</small></div>
+      <div class="fx-acts"><button class="chip on" data-fx="${i}">💰 לרשום סכום</button><button class="chip" data-fxx="${i}" aria-label="לא רלוונטי">✕</button></div></div>`; }).join('')}`;
+  const mark = e => lsSet('kesef-fx', JSON.stringify([...fxDone(), fxKey(e)].slice(-200)));
+  el.querySelectorAll('[data-fxx]').forEach(b => b.onclick = () => { mark(list[+b.dataset.fxx]); fillExpected(); toast('👍 הוסתר'); });
+  el.querySelectorAll('[data-fx]').forEach(b => b.onclick = () => openExpected(list[+b.dataset.fx], () => { mark(list[+b.dataset.fx]); fillExpected(); }));
+}
+function openExpected(e, after) {
+  let cat = classify(e.title, S.learned); if (cat === 'income') cat = 'other';
+  const amt = (e.title.replace(/,(\d{3})/g, '$1').match(/(\d+(?:\.\d+)?)\s*₪|₪\s*(\d+(?:\.\d+)?)/) || []).slice(1).find(Boolean) || '';
+  const date = e.all_day ? e.starts_at.slice(0, 10) : ymd(new Date(e.starts_at));
+  openSheet(`<h3>🔮 ${esc(e.title)}</h3><div class="sub" style="margin:-6px 0 12px">📅 ${esc(fmtWhen(e))} · נרשם כהוצאה בתאריך הזה (אפשר לשנות)</div>
+    <div class="row2"><label class="field"><span>כמה זה יעלה? ₪</span><input id="fxA" type="number" inputmode="decimal" value="${amt}" placeholder="למשל 500"></label>
+      <label class="field"><span>תאריך</span><input id="fxD" type="date" value="${date}"></label></div>
+    <div class="err" id="fxErr"></div>${catGrid(cat)}
+    <button class="btn grad full" id="fxSave" style="margin-top:12px">💾 לרשום</button>`, sh => {
+    sh.querySelectorAll('[data-cat]').forEach(btn => btn.onclick = () => { cat = btn.dataset.cat; sh.querySelectorAll('[data-cat]').forEach(x => x.classList.toggle('sel', x === btn)); });
+    sh.querySelector('#fxA').focus();
+    sh.querySelector('#fxSave').onclick = async () => {
+      const v = num(sh.querySelector('#fxA').value), d = sh.querySelector('#fxD').value || date;
+      if (!(v > 0)) { sh.querySelector('#fxErr').textContent = 'צריך סכום גדול מ-0'; return; }
+      const now = new Date(), tag = cleanTag(e.title.replace(/[\d,.]+\s*₪|₪\s*[\d,.]+/g, '').trim().split(/\s+/).slice(0, 3).join('_'));
+      const t = { id: db.newId(), msg: db.newId(), raw: `🔮 ${e.title} ${v}`, desc: e.title.replace(/[\d,.]+\s*₪|₪\s*[\d,.]+/g, '').trim() || e.title, cat, source: 'calendar',
+        created: now.toISOString(), date: new Date(d + 'T12:00:00').toISOString(), amount: v, total: v, inst: 0, pay: null, who: S.me || null, ...(tag ? { tags: [tag] } : {}) };
+      S.tx.push(t); await db.putTx(t); closeSheet(); renderAll([t.id]); toast(`🔮 נרשם: ${t.desc} · ${fmt(v)}`); after?.();
+    };
+  });
+}
 function fixedCard() {
   const rows = fixedPayments(S.tx, new Date(), S.recurring).map(f => f.kind === 'fixed'
     ? { e: catOf(f.cat).e, title: (f.rule ? '🔁 ' : '') + esc(f.desc), sub: `${f.rule && !f.variable ? '' : 'בערך '}${fmt(f.amount)} · הבא ב-${f.next.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}`, href: zmanLink(`לשלם ${f.desc} (בערך ${Math.round(f.amount)}₪)`, f.remind) }
@@ -2285,6 +2333,7 @@ const TOUR = [
   { v: 'budget', sel: '#sheet', open: () => { openRecurring(); setTimeout(() => $('.rmd-card')?.scrollIntoView({ block: 'center' }), 350); }, t: '🔔 תזכורת לפני תשלום', d: 'בכל קבוע בוחרים כמה ימים לפני: יום, 3 ימים או שבוע. גם על הוצאה קבועה שזיהינו לבד. מגיעה בפתיחת האפליקציה ובהתראה לטלפון.' },
   { v: 'budget', sel: '#sheet', open: () => openDebts(), t: '➗ מי חייב למי + גמ"חים', d: 'הלוואות, גמ"ח וחלוקת הוצאות — עם החזר בתשלומים ותזכורת. גם בצ\'אט: "הלוויתי לדוד 500".' },
   { v: 'insights', sel: '#donut', t: '🍩 לאן הלך הכסף', d: 'חלוקה לפי קטגוריות. הסכום באמצע "רץ" כשנכנסים.' },
+  { v: 'insights', sel: '#fxCard', t: '🔮 הוצאה צפויה', d: 'מהיומן שלך: חתונה, בר מצווה, שכירות, תשלום… — מופיע כאן לפני שזה קורה. "💰 לרשום סכום" — וזה נכנס לתקציב. מחברים את היומן ב-⚙️ ← 📅 חיבור ליומן.' },
   { v: 'insights', sel: cardWith('תשלומים קבועים'), t: '📅 תשלומים קבועים', d: 'מה יורד כל חודש ומתי נגמרים תשלומים — תזכורת ב"זמן בכיף", או 📆 כל התשלומים ביומן של הטלפון (Google / אייפון), מתעדכן לבד.' },
   { v: 'insights', sel: cardWith('הלוח העברי'), t: '🕎 לפי הלוח העברי', d: 'כמה עלה כל חג (כולל ההכנות) מול שנה שעברה, וכל חודש עברי.' },
   { v: 'insights', sel: cardWith('אירועים'), t: '🏷️ אירועים', d: 'כל התגיות: כמה עלה כל אירוע מכל הקטגוריות ביחד. לחיצה — כל הרשומות.' },

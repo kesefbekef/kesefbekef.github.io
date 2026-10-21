@@ -464,7 +464,7 @@ export async function disconnectCalendar() {
 export async function upcomingEvents(days = 14, limit = 8) {
   const u = await user(); if (!u) return [];
   const now = new Date(), to = new Date(now.getTime() + days * 864e5);
-  const { data } = await (await client()).from('external_events').select('starts_at,ends_at,all_day,title,location')
+  const { data } = await (await client()).from('external_events').select('uid,starts_at,ends_at,all_day,title,location')
     .eq('user_id', u.id).gte('starts_at', new Date(now.getTime() - 864e5).toISOString()).lte('starts_at', to.toISOString()).order('starts_at').limit(limit);
   return (data || []).filter(e => e.all_day ? e.starts_at.slice(0, 10) >= new Date().toISOString().slice(0, 10) : new Date(e.ends_at || e.starts_at) >= now);
 }
