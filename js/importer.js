@@ -53,7 +53,36 @@ async function readPdfRows(file) {
     }
   }
   if (!rows.length) throw Object.assign(new Error('scanned'), { scanned: true });
+  // דפי חשבון שבהם כל שורה היא טקסט אחד (בלי עמודות נפרדות) — "תאריך · תיאור · סכום ₪ · יתרה ₪"
+  if (!cols) { const st = statementLines(rows.map(r => r.join(' '))); if (st) return [st]; }
   return [rows];
+}
+
+// 🏦 דף חשבון כשורות טקסט: לכל שורה תאריך, תיאור, סכום אחד (זכות או חובה — העמודה הריקה נעלמת) ויתרה.
+// האם זה זכות או חובה — לפי השינוי ביתרה מהשורה הקודמת / הבאה. מחזיר גיליון עם כותרת "תאריך · תיאור · סכום · יתרה"
+const NUM = '-?\\d{1,3}(?:,\\d{3})*(?:\\.\\d{1,2})?-?';
+const ST_RE = new RegExp(`^(\\d{1,2}[./]\\d{1,2}[./]\\d{2,4})\\s*(.+?)\\s+₪?\\s*(${NUM})\\s*₪?\\s+₪?\\s*(${NUM})\\s*₪?$`);
+export function statementLines(lines) {
+  const num = v => { let x = String(v).replace(/,/g, ''); if (/-$/.test(x)) x = '-' + x.slice(0, -1); return parseFloat(x); };
+  const out = [];
+  for (const l of lines) {
+    const m = norm(l).match(ST_RE); if (!m) continue;
+    const amt = Math.abs(num(m[3])), bal = num(m[4]);
+    if (!(amt > 0) || isNaN(bal)) continue;
+    out.push({ date: m[1], desc: m[2].trim(), amt, bal });
+  }
+  if (out.length < 2) return null;
+  const near = (a, b) => Math.abs(a - b) < 0.015, INC = /משכורת|העברה אלי|זיכוי|החזר|קצבה|מענק|ריבית זכות/;
+  // הכיוון של הקובץ: ישן ← חדש (יתרה = הקודמת ± סכום) או חדש ← ישן (יתרה = הבאה ± סכום) — מה שמתאים ליותר שורות
+  const fit = dir => out.reduce((n, r, i) => { const o = out[i - dir]; return n + (o && (near(r.bal - o.bal, r.amt) || near(r.bal - o.bal, -r.amt)) ? 1 : 0); }, 0);
+  const dir = fit(1) >= fit(-1) ? 1 : -1;
+  for (let i = 0; i < out.length; i++) {
+    const r = out[i], o = out[i - dir];
+    if (o && near(r.bal - o.bal, r.amt)) r.sign = 1;          // היתרה עלתה בסכום = זכות (נכנס)
+    else if (o && near(r.bal - o.bal, -r.amt)) r.sign = -1;   // היתרה ירדה = חובה (יצא)
+    else r.sign = INC.test(r.desc) ? 1 : -1;                  // השורה הראשונה / לא מתאים — לפי המילים
+  }
+  return [['תאריך', 'תיאור', 'סכום', 'יתרה'], ...out.map(r => [r.date, r.desc, r.sign * r.amt, r.bal])];
 }
 
 export async function readSheets(file) {
@@ -82,7 +111,7 @@ function headerMap(row) {
   const m = {
     date: pick(cells, ['תאריך עסקה', 'תאריך רכישה', 'תאריך העסקה', 'תאריך', 'date'], ['ערך', 'חיוב']),
     chargeDate: pick(cells, ['תאריך חיוב', 'מועד חיוב']),
-    desc: pick(cells, ['שם בית העסק', 'שם בית עסק', 'בית העסק', 'בית עסק', 'תיאור התנועה', 'תיאור הפעולה', 'תיאור', 'הפעולה', 'פרטים', 'description']),
+    desc: pick(cells, ['שם בית העסק', 'שם בית עסק', 'בית העסק', 'בית עסק', 'תיאור התנועה', 'תיאור הפעולה', 'תיאור', 'סוג תנועה', 'סוג הפעולה', 'הפעולה', 'פרטים', 'description']),
     amount: pick(cells, ['סכום חיוב', 'סכום החיוב', 'סכום בשח', 'סכום ב-₪', 'סכום', 'amount'], ['מקורי', 'מטבע']),
     debit: pick(cells, ['חובה']),
     credit: pick(cells, ['זכות']),
