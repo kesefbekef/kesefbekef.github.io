@@ -443,3 +443,28 @@ export async function calendarURL(renew = false) {
   }
   return `${CONFIG.url}/functions/v1/kesef-calendar?t=${data.token}`;
 }
+
+// ---------- 📥 מהיומן לאפליקציה: קישור iCal סודי של המשתמש (נשמר מוצפן בשרת; האירועים — רק שלו) ----------
+export async function myCalendar() {
+  const u = await user(); if (!u) return null;
+  const { data } = await (await client()).from('user_calendars').select('host,last_sync,last_error,events').eq('user_id', u.id).maybeSingle();
+  return data || null;
+}
+export async function connectCalendar(url) {
+  const c = await client();
+  const { data: host, error } = await c.rpc('set_my_calendar', { p_url: url });
+  if (error) throw new Error(nice(error));
+  const r = await c.functions.invoke('calendar-import', { body: {} }); // קורא עכשיו (ואחר כך כל 15 דקות)
+  if (r.error) console.warn('calendar-import', r.error);
+  return host;
+}
+export async function disconnectCalendar() {
+  const { error } = await (await client()).rpc('clear_my_calendar'); if (error) throw new Error(nice(error));
+}
+export async function upcomingEvents(days = 14, limit = 8) {
+  const u = await user(); if (!u) return [];
+  const now = new Date(), to = new Date(now.getTime() + days * 864e5);
+  const { data } = await (await client()).from('external_events').select('starts_at,ends_at,all_day,title,location')
+    .eq('user_id', u.id).gte('starts_at', new Date(now.getTime() - 864e5).toISOString()).lte('starts_at', to.toISOString()).order('starts_at').limit(limit);
+  return (data || []).filter(e => e.all_day ? e.starts_at.slice(0, 10) >= new Date().toISOString().slice(0, 10) : new Date(e.ends_at || e.starts_at) >= now);
+}

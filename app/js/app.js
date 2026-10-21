@@ -810,6 +810,36 @@ function fixedCard() {
 }
 $('#tips').addEventListener('click', e => { if (e.target.closest('[data-calsub]')) openCalendarSub(); });
 // 📆 מנוי ליומן (Google / אייפון): קישור אישי עם מפתח סודי — מתעדכן לבד
+// 📥 מהיומן לאפליקציה: מדביקים את "הכתובת הסודית בפורמט iCal" (גוגל) / קישור iCloud ציבורי. נשמר מוצפן בשרת, האירועים — רק שלך
+const fmtWhen = e => { const d = new Date(e.starts_at); const day = (e.all_day ? new Date(e.starts_at.slice(0, 10) + 'T12:00:00') : d).toLocaleDateString('he-IL', { weekday: 'short', day: 'numeric', month: 'numeric' });
+  return e.all_day ? `${day} · כל היום` : `${day} · ${d.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}`; };
+async function drawCalIn(el, demo) {
+  if (!el) return;
+  const head = '<b>📥 ולהפך: היומן שלך — באפליקציה</b>';
+  if (demo && !UITEST) { el.innerHTML = `${head}<div class="sub" style="margin-top:4px">מדביקים כאן את הקישור הסודי של היומן שלך (גוגל / אייפון) — והאירועים הקרובים מופיעים באפליקציה. 🎭 במצב הדגמה — לא מתחברים. <a href="guide/#calin" target="_blank" style="color:#F9A8D4">איך מוצאים את הקישור?</a></div>`; return; }
+  let st = null; try { st = await sync.myCalendar(); } catch { /* */ }
+  if (!st) {
+    el.innerHTML = `${head}<div class="sub" style="margin:4px 0 8px">מדביקים את <b>"הכתובת הסודית בפורמט iCal"</b> של היומן שלך — והאירועים הקרובים (חתונה, טיפול, פגישה…) יופיעו כאן. 🔒 נשמר מוצפן, ורק את/ה רואה.</div>
+      <a class="chip" href="guide/#calin" target="_blank" style="text-decoration:none;display:inline-block;margin-bottom:8px">📖 איך מוצאים את הקישור בגוגל / אייפון?</a>
+      <input id="calUrl" dir="ltr" placeholder="https://calendar.google.com/calendar/ical/…/basic.ics" style="width:100%;height:46px;border-radius:12px;border:1px solid var(--line);background:var(--card2);padding:0 12px;font-size:15px;color:inherit">
+      <div class="err" id="calErr"></div><button class="btn grad full" id="calGo">🔗 חיבור היומן שלי</button>`;
+    el.querySelector('#calGo').onclick = async e => {
+      const v = el.querySelector('#calUrl').value.trim(); if (!v) return el.querySelector('#calUrl').focus();
+      e.target.disabled = true; e.target.textContent = '⏳ מתחבר וקורא את היומן…';
+      try { const h = await sync.connectCalendar(v); toast(`📥 היומן חובר (${h})`); confetti(); drawCalIn(el, false); }
+      catch (err) { el.querySelector('#calErr').textContent = err.message; e.target.disabled = false; e.target.textContent = '🔗 חיבור היומן שלי'; }
+    };
+    return;
+  }
+  const ev = await sync.upcomingEvents().catch(() => []);
+  el.innerHTML = `${head}<div class="sub" style="margin:4px 0 8px">✅ מחובר: <b dir="ltr">${esc(st.host)}</b> · ${st.last_error ? `<span class="over">⚠️ ${esc(st.last_error)}</span>` : st.last_sync ? `עודכן ${new Date(st.last_sync).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })} · ${st.events} אירועים` : '⏳ קורא בפעם הראשונה…'} · מתעדכן כל 15 דקות. 🔒 רק את/ה רואה.</div>
+    ${ev.length ? `<div class="cal-ev">${ev.map(e => `<div><span>${esc(fmtWhen(e))}</span><b>${esc(e.title || '(בלי שם)')}</b></div>`).join('')}</div>` : '<div class="sub">אין אירועים בשבועיים הקרובים.</div>'}
+    <button class="btn ghost full" id="calOff" style="margin-top:10px;color:#FB7185">🔌 ניתוק — מוחק את הקישור ואת כל האירועים</button>`;
+  el.querySelector('#calOff').onclick = async e => {
+    if (!e.target.dataset.armed) { e.target.dataset.armed = '1'; e.target.textContent = '⚠️ בטוח? לחיצה שנייה מנתקת ומוחקת'; return; }
+    try { await sync.disconnectCalendar(); toast('🔌 היומן נותק — הקישור והאירועים נמחקו'); drawCalIn(el, false); } catch (err) { toast(err.message, true); }
+  };
+}
 // 📅 חיבור ליומן של הטלפון — יומן מנוי (ICS) שמתעדכן לבד. זהה בכסף בכיף ובזמן בכיף (כל אחת יומן נפרד בשם משלה)
 async function openCalendarSub(renew = false) {
   const draw = (url, demo) => {
@@ -823,8 +853,10 @@ async function openCalendarSub(renew = false) {
         <div class="cal-step"><b>💻 מחשב / אחר</b><small>מעתיקים את הקישור ← ביומן: "הוספת יומן" ← "מכתובת URL" / "From URL" ← מדביקים.</small>
           <button class="btn ghost full" id="calCopy">📋 העתקת הקישור</button></div>
       </div>
+      <div class="card cal-in" id="calIn" style="margin-top:12px"><b>📥 ולהפך: היומן שלך — באפליקציה</b><div class="sub">⏳ בודק…</div></div>
       <div class="sub" style="margin-top:10px">⏳ <b>חשוב לדעת:</b> גוגל מרענן יומן כזה <b>כל כמה שעות</b> (לא מיד) — אייפון בערך כל שעה. בגוגל ההתראות לפי הגדרות היומן שם.${demo ? '' : '<br>🔒 הקישור אישי ופרטי. מישהו קיבל אותו בטעות? <button class="chip" id="calRenew" style="margin-top:4px">🔄 חידוש קישור (הישן מפסיק לעבוד)</button>'}</div>`, sh => {
       sh.querySelector('#calCopy').onclick = async () => { try { await navigator.clipboard.writeText(url); toast('📋 הקישור הועתק'); } catch { toast(url); } };
+      drawCalIn(sh.querySelector('#calIn'), demo);
       sh.querySelector('#calRenew')?.addEventListener('click', async e => {
         if (!e.target.dataset.armed) { e.target.dataset.armed = '1'; e.target.textContent = '⚠️ בטוח? הקישור הישן יפסיק לעבוד — לחיצה שנייה'; return; }
         openCalendarSub(true);
