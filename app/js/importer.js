@@ -96,7 +96,8 @@ export async function readSheets(file) {
   return wb.SheetNames.map(n => XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: '' }));
 }
 
-const norm = v => String(v ?? '').replace(/["'״׳\n\r]/g, '').replace(/\s+/g, ' ').trim();
+// ניקוי: מירכאות, סימני כיוון נסתרים (לאומי / וואן זירו), וירידת שורה בתוך כותרת ("סכום\nחיוב" בכאל) = רווח
+const norm = v => String(v ?? '').replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '').replace(/["'״׳˝]/g, '').replace(/\s+/g, ' ').trim();
 
 function pick(cells, words, avoid = []) {
   for (const w of words) {
@@ -113,14 +114,20 @@ function headerMap(row) {
     date: pick(cells, ['תאריך עסקה', 'תאריך רכישה', 'תאריך העסקה', 'תאריך', 'date'], ['ערך', 'חיוב']),
     chargeDate: pick(cells, ['תאריך חיוב', 'מועד חיוב']),
     desc: pick(cells, ['שם בית העסק', 'שם בית עסק', 'בית העסק', 'בית עסק', 'תיאור התנועה', 'תיאור הפעולה', 'תיאור', 'סוג תנועה', 'סוג הפעולה', 'הפעולה', 'פרטים', 'description']),
-    amount: pick(cells, ['סכום חיוב', 'סכום החיוב', 'סכום בשח', 'סכום ב-₪', 'סכום', 'amount'], ['מקורי', 'מטבע']),
+    amount: pick(cells, ['סכום חיוב', 'סכום החיוב', 'סכום בשח', 'סכום ב-₪', 'סכום פעולה', 'סכום', 'amount'], ['מקורי', 'מטבע', 'הנחה']),
+    amount2: pick(cells, ['סכום עסקה', 'סכום העסקה'], ['מקורי']), // כשסכום החיוב עוד ריק (עסקה שטרם נקלטה — כאל)
     debit: pick(cells, ['חובה']),
     credit: pick(cells, ['זכות']),
     hint: pick(cells, ['קטגוריה', 'ענף']),
     notes: ['הערות', 'פירוט נוסף', 'סוג עסקה'].map(w => cells.findIndex(c => c.includes(w))).filter(i => i >= 0),
   };
   if (m.date < 0) m.date = pick(cells, ['תאריך']);
+  if (m.desc < 0) m.desc = pick(cells, ['תאור'], ['מורחב']); if (m.desc < 0) m.desc = pick(cells, ['תאור']); // "תאור" בלי י' (לאומי / הבינלאומי)
+  // עמודה אחת "זכות/חובה" (דיסקונט / מרכנתיל) = סכום עם סימן (מינוס = חובה), לא שתי עמודות
+  if (m.debit >= 0 && m.debit === m.credit) { m.amount = m.debit; m.debit = m.credit = -1; }
+  if (m.amount2 === m.amount) m.amount2 = -1;
   if (m.date < 0 || m.desc < 0 || (m.amount < 0 && m.debit < 0 && m.credit < 0)) return null;
+
   m.bank = m.debit >= 0 || m.credit >= 0 || cells.some(c => c.includes('יתרה'));
   return m;
 }
@@ -186,7 +193,8 @@ export function extract(sheets, learned = {}) {
         const d = m.debit >= 0 ? Math.abs(parseNum(row[m.debit])) : NaN, c = m.credit >= 0 ? Math.abs(parseNum(row[m.credit])) : NaN;
         if (d > 0) amount = d; else if (c > 0) { amount = c; income = true; } else continue;
       } else {
-        const v = parseNum(row[m.amount]);
+        let v = parseNum(row[m.amount]);
+        if ((!v || isNaN(v)) && m.amount2 >= 0) v = parseNum(row[m.amount2]);
         if (!v || isNaN(v)) continue;
         if (m.bank) { income = v > 0; amount = Math.abs(v); }
         else amount = v; // באשראי: מספר שלילי = זיכוי/החזר
@@ -272,8 +280,8 @@ export async function readImage(file, onProgress, learned = {}) {
 
 // 🏦 איזה בנק / חברת אשראי — לפי שם הקובץ ו-8 השורות הראשונות (לפני הטבלה). רק השם — בלי תוכן
 const BANKS = [['לאומי קארד|max|מקס', 'מקס'], ['ישראכרט', 'ישראכרט'], ['אמריקן אקספרס|amex', 'אמריקן אקספרס'], ['כאל|cal\\b|visa cal', 'כאל'],
-  ['לאומי|leumi', 'לאומי'], ['הפועלים|poalim', 'הפועלים'], ['דיסקונט|discount', 'דיסקונט'], ['מזרחי|טפחות|mizrahi', 'מזרחי טפחות'],
-  ['הבינלאומי|fibi|beinleumi', 'הבינלאומי'], ['מרכנתיל|mercantile', 'מרכנתיל'], ['בנק ירושלים|jerusalem', 'ירושלים'], ['וואן זירו|one ?zero|onezero', 'וואן זירו'],
+  ['הבינלאומי|fibi|beinleumi', 'הבינלאומי'], ['לאומי|leumi', 'לאומי'], ['הפועלים|poalim', 'הפועלים'], ['מרכנתיל|mercantile', 'מרכנתיל'], ['דיסקונט|discount', 'דיסקונט'],
+  ['מזרחי|טפחות|mizrahi', 'מזרחי טפחות'], ['ירושלים|jerusalem', 'ירושלים'], ['וואן.?זירו|one.?zero', 'וואן זירו'],
   ['יהב|yahav', 'יהב'], ['אוצר החייל|otsar', 'אוצר החייל'], ['מסד|massad', 'מסד'], ['פאגי|pagi', 'פאגי']];
 export function detectBank(sheets, fileName = '') {
   const head = (sheets?.[0] || []).slice(0, 8).map(r => (Array.isArray(r) ? r : [r]).join(' ')).join(' ') + ' ' + fileName;
