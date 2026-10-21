@@ -594,22 +594,42 @@ function maybeNews() {
   if (!items.length) { lsSet(NEWS_KEY, last); return; }
   setTimeout(() => { if ($('#gate').classList.contains('on') || $('#sheet').classList.contains('on')) return; openNews(false, items); }, 900);
 }
-function openNews(all = false, items = null) {
+// newsBack = איפה עצרנו ברשימה — כדי לחזור אליה אחרי "👀 תראו לי"
+let newsBack = null;
+function openNews(all = false, items = null, restore = false) {
   lsSet(NEWS_KEY, NEWS[0]?.v || '');
-  const row = (i, k) => `<button class="nw-row" ${i.go ? `data-ng="${i.go}"` : 'disabled'} style="--d:${k * 90}ms"><span class="nw-e">${i.e}</span><span class="nw-t"><b>${esc(i.t)}</b><small>${esc(i.d)}</small></span>${i.go ? '<i>‹</i>' : ''}</button>`;
+  $('.news-fab')?.remove();
+  const seen = newsBack?.seen || [];
+  const row = (i, k) => `<div class="nw-row ${seen.includes(i.go) ? 'seen' : ''}" ${i.go ? `data-ng="${i.go}" role="button"` : ''} style="--d:${restore ? 0 : k * 90}ms"><span class="nw-e">${i.e}</span><span class="nw-t"><b>${esc(i.t)}</b><small>${esc(i.d)}</small></span>${i.go ? `<button class="nw-go" data-ng="${i.go}">${seen.includes(i.go) ? '✓ ' : ''}👀 תראו לי</button>` : ''}</div>`;
   const dLabel = v => new Date(v + 'T12:00:00').toLocaleDateString('he-IL', { day: 'numeric', month: 'long' });
   const body = all
     ? NEWS.map(n => ({ ...n, items: newsFor(n.items) })).filter(n => n.items.length).map((n, j) => `<div class="nw-day">${j === 0 ? '🆕 ' : ''}${dLabel(n.v)}</div>${n.items.map(row).join('')}`).join('')
     : (items.length > 6 ? items.slice(0, 6) : items).map(row).join('') + (items.length > 6 ? `<button class="chip" id="nwAll" style="margin-top:4px">ועוד ${items.length - 6} — לכל הרשימה</button>` : '');
-  const first = (items || newsFor(NEWS[0].items)).find(i => i.go && i.go !== 'news');
-  openSheet(`<div class="nw-head"><span class="nw-spark">✨</span><h3>מה חדש${all ? '' : ' באפליקציה'}</h3><div class="sub">${all ? 'כל העדכונים — החדש למעלה. לחיצה על שורה — לשם.' : 'עדכנו את האפליקציה. הנה מה שהשתנה 👇'}</div></div>
+  const first = (items || newsFor(NEWS[0].items)).find(i => i.go && i.go !== 'news' && !seen.includes(i.go)) || (items || []).find(i => i.go && i.go !== 'news');
+  openSheet(`<div class="nw-head"><span class="nw-spark">✨</span><h3>מה חדש${all ? '' : ' באפליקציה'}</h3><div class="sub">${all ? 'כל העדכונים — החדש למעלה. "👀 תראו לי" — לשם, ו"✨ חזרה" מחזיר לכאן.' : 'עדכנו את האפליקציה. הנה מה שהשתנה 👇'}</div></div>
     <div class="nw-list">${body}</div>
-    ${all ? '' : `<div class="row2 nw-btns">${first ? '<button class="btn grad" id="nwShow">👀 תראו לי</button>' : ''}<button class="btn ghost" id="nwOk">הבנתי ✓</button></div>`}`, sh => {
-    sh.querySelectorAll('[data-ng]').forEach(b => b.onclick = () => { const f = NEWS_GO[b.dataset.ng]; closeSheet(); if (f) setTimeout(f, 250); });
-    sh.querySelector('#nwShow')?.addEventListener('click', () => { closeSheet(); setTimeout(NEWS_GO[first.go], 250); });
-    sh.querySelector('#nwOk')?.addEventListener('click', () => closeSheet());
+    ${all ? '' : `<div class="row2 nw-btns">${first ? `<button class="btn grad" id="nwShow">👀 ${seen.length ? 'הבא' : 'תראו לי'}</button>` : ''}<button class="btn ghost" id="nwOk">הבנתי ✓</button></div>`}`, sh => {
+    const goTo = key => {
+      const f = NEWS_GO[key]; if (!f) return;
+      newsBack = { all, items, scroll: $('#sheet').scrollTop, seen: [...new Set([...seen, key])] };
+      closeSheet(); setTimeout(() => { f(); if (key !== 'news') newsFab(); }, 250);
+    };
+    sh.querySelectorAll('[data-ng]').forEach(b => b.onclick = e => { e.stopPropagation(); goTo(b.dataset.ng); });
+    sh.querySelector('#nwShow')?.addEventListener('click', () => goTo(first.go));
+    sh.querySelector('#nwOk')?.addEventListener('click', () => { newsBack = null; closeSheet(); });
     sh.querySelector('#nwAll')?.addEventListener('click', () => openNews(true));
+    if (restore && newsBack) requestAnimationFrame(() => { $('#sheet').scrollTop = newsBack.scroll; });
   });
+}
+// ✨ כפתור צף: חזרה לרשימת "מה חדש" אחרי שניסו משהו. נשאר עד "הבנתי ✓" או ✕
+function newsFab() {
+  $('.news-fab')?.remove();
+  if (!newsBack) return;
+  const d = document.createElement('div'); d.className = 'news-fab';
+  d.innerHTML = '<button class="nf-go">✨ חזרה למה חדש</button><button class="nf-x" aria-label="סגירה">✕</button>';
+  d.querySelector('.nf-go').onclick = () => { const b = newsBack; if (b) openNews(b.all, b.items, true); };
+  d.querySelector('.nf-x').onclick = () => { newsBack = null; d.remove(); };
+  $('#app').appendChild(d);
 }
 
 // 🪄 / ✍️ — מעבר בין תקציב אוטומטי לידני בכל רגע. הסכומים הידניים נשמרים בצד (_saved) כדי לחזור אליהם
@@ -2422,7 +2442,7 @@ function openHelp(question = '', showGuide = false) {
       <button class="btn grad" id="hAsk" style="height:46px">שאל</button></div>
     <div id="hAns" style="display:flex;flex-direction:column;gap:10px;margin-bottom:12px"></div>
     <div id="hGuide"></div>
-    <button class="btn ghost full" id="hOpenGuide" style="margin-bottom:12px">📖 המדריך המלא (עם תמונות)</button>
+    <div class="row2" style="margin-bottom:12px"><button class="btn ghost" id="hOpenGuide">📖 המדריך המלא</button><button class="btn ghost news-btn" id="hNews">✨ מה חדש</button></div>
     <div class="sub" style="margin-bottom:6px">שאלות נפוצות:</div>
     <div class="chips" style="flex-wrap:wrap;margin-bottom:12px">${topics.map(t => `<button class="chip" data-topic="${t.id}">${t.t}</button>`).join('')}</div>
     <div class="sub" style="text-align:center">עדיין תקוע? מוישי וינדיש · <a href="tel:0542964361" style="color:#F9A8D4">054-2964361</a> · <a href="mailto:mvindish@gmail.com" style="color:#F9A8D4">mvindish@gmail.com</a></div>`, sh => {
@@ -2453,6 +2473,7 @@ function openHelp(question = '', showGuide = false) {
     sh.querySelector('#hAsk').onclick = () => ask(sh.querySelector('#hQ').value);
     sh.querySelector('#hQ').addEventListener('keydown', e => { if (e.key === 'Enter') ask(e.target.value); });
     sh.querySelector('#hOpenGuide').onclick = showGuideFrame;
+    sh.querySelector('#hNews').onclick = () => openNews(true);
     sh.querySelectorAll('[data-topic]').forEach(c => c.onclick = () => {
       const t = help.TOPICS.find(x => x.id === c.dataset.topic);
       bubble('me', esc(t.t.replace(/^\S+\s/, '')));
