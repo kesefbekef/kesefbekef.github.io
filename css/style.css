@@ -573,3 +573,17 @@ body.over-gate .sheet{z-index:111}
 .cal-li b{display:block;font-size:14.5px}.cal-li small{color:var(--muted);font-size:12px}
 .cal-off{flex:none;color:#FB7185!important}
 .cal-tip{border-color:rgba(250,204,21,.45)}
+
+/* 🏷️ קטגוריות — נגיש ובולט */
+@property --a{syntax:'<angle>';initial-value:0deg;inherits:false}
+@keyframes catspin{to{--a:360deg}}
+.story-new .ring{background:conic-gradient(from var(--a,0deg),#7C3AED,#EC4899,#F97316,#FACC15,#7C3AED)!important;animation:catspin 3s linear infinite}
+.story-new{color:#F9A8D4!important;font-weight:800}
+#catsBtn{position:relative;overflow:hidden;border:2px solid transparent;background:linear-gradient(#1a1427,#1a1427) padding-box,conic-gradient(from var(--a,0deg),#7C3AED,#EC4899,#F97316,#FACC15,#7C3AED) border-box;animation:catspin 4s linear infinite}
+#catsBtn b{font-size:16.5px}
+#catsBtn .plus{animation:bob 2.4s ease-in-out infinite}
+#catsBtn .cats-go{margin-inline-start:auto;font-style:normal;font-size:26px;color:var(--muted)}
+#catsBtn::after{content:'';position:absolute;inset:0;pointer-events:none;background:linear-gradient(110deg,transparent 30%,rgba(255,255,255,.12) 50%,transparent 70%);transform:translateX(100%);animation:catshine 3.5s ease-in-out infinite}
+@keyframes catshine{0%,60%{transform:translateX(100%)}100%{transform:translateX(-100%)}}
+.catbtn.cat-new .cat-ic{background:conic-gradient(from var(--a,0deg),#7C3AED,#EC4899,#F97316,#FACC15,#7C3AED);animation:catspin 3s linear infinite;font-size:22px}
+.catbtn.cat-new{border-style:dashed!important;color:#F9A8D4}
