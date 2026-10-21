@@ -3,3 +3,4 @@
 design-preview.html
 .db-password
 .cron-secret
+app/_private/

@@ -5,6 +5,7 @@ import * as db from './db.js';
 import * as track from './track.js';
 
 // 📊 נתוני שימוש כלליים למפתח (בלי תוכן) — ראו track.js
+export const reportIssue = (m, s) => track.issue(m, s);
 track.init({ app: 'kesef', url: CONFIG.url, key: CONFIG.key });
 
 let sb = null, hh = null, channel = null, onRemote = null, flushing = false;

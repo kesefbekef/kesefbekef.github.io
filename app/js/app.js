@@ -587,6 +587,7 @@ const NEWS_GO = {
   rec: () => { go('budget'); openRecurring(); },
   cal: () => openCalendarSub(),
   catsNew: () => { go('chat'); spot('#stNew'); },
+  attach: () => { go('chat'); spot('#attach'); },
   insights: () => { go('insights'); spot('#fxCard'); },
   view: () => { openSettings(); setTimeout(() => $('#viewCard')?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 350); },
   news: () => openNews(true),
@@ -1406,7 +1407,12 @@ async function readOne(file, label) {
   let res;
   try { res = imp.extract(await imp.readSheets(file), S.learned); }
   catch (err) { console.error(err); throw new Error(err.scanned ? 'PDF סרוק בלי טקסט — נסה כצילום מסך' : 'לא הצלחתי לקרוא את הקובץ'); }
-  if (!res.items.length) throw new Error('לא מצאתי תנועות בקובץ');
+  if (!res.items.length) {
+    // 📊 ללוח הבקרה: רק סוג הקובץ ושם הקובץ בלי מספרים — בלי שום תוכן — כדי שנדע על פורמטים שלא נתמכים
+    const ext = (file.name.match(/\.(\w+)$/) || [])[1] || '?';
+    sync.reportIssue(`ייבוא: לא נמצאו תנועות בקובץ ${ext.toUpperCase()}`, `importer:${file.name.replace(/\d+/g, '#').replace(/[^\w#.\-א-ת ]/g, '').slice(0, 60)}`);
+    throw new Error('לא הצלחתי לקרוא את הפורמט של הקובץ הזה 😕 נסו להוריד מהבנק / האשראי "ייצוא לאקסל" (במקום PDF), או שלחו לנו את הקובץ דרך 💌 משוב — ונוסיף תמיכה');
+  }
   return res;
 }
 
