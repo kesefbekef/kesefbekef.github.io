@@ -93,6 +93,12 @@ nav.toc a{flex:none;text-decoration:none;font-size:15px;font-weight:600;padding:
 .divider{text-align:center;padding:40px 18px 0}
 .divider span{display:inline-block;font-weight:800;font-size:22px;padding:12px 26px;border-radius:999px;background:var(--g);color:#fff;box-shadow:0 10px 30px rgba(236,72,153,.35)}
 /* ---- 🆕 חדש: כרטיסים עם דוגמה חיה ---- */
+.d-loan{display:flex;flex-direction:column;gap:6px;justify-content:center}
+.d-loan .lh{display:flex;justify-content:space-between;font-size:14px}.d-loan .lh span{color:#86EFAC;font-size:12.5px;font-weight:700}
+.d-loan .lr{display:grid;grid-template-columns:24px 1fr auto;gap:8px;align-items:center;background:#2A2240;border-radius:10px;padding:6px 10px;font-size:13.5px;font-weight:700;animation:nln 4.5s ease-out infinite}
+.d-loan .lr i{font-style:normal}.d-loan .lr b{direction:ltr}
+.d-loan .lr.ok{background:rgba(34,197,94,.15)}.d-loan .lr.ok b{text-decoration:line-through;opacity:.7}.d-loan .lr.late{background:rgba(244,63,94,.18)}
+.d-loan .lr:nth-child(3){animation-delay:.3s}.d-loan .lr:nth-child(4){animation-delay:.6s}.d-loan .lr:nth-child(5){animation-delay:.9s}
 .d-rv{display:flex;flex-direction:column;gap:7px;justify-content:center}
 .d-rv .rb{align-self:center;background:linear-gradient(135deg,#22C55E,#14B8A6);border-radius:999px;padding:5px 14px;font-weight:800;font-size:13px;animation:nsp 2.6s ease-in-out infinite}
 .d-rv .rc{background:#2A2240;border-inline-start:3px solid #F59E0B;border-radius:10px;padding:6px 10px;font-size:13px;animation:nln 4.5s ease-out infinite}
@@ -274,8 +280,19 @@ footer{padding:28px 0;text-align:center;color:#8B82A6;font-size:14px}
 <section class="dark" id="new">
   <div class="wrap">
     <div class="eyebrow">🆕 חדש באפליקציה</div>
-    <h2>23 דברים חדשים — ככה זה נראה 👇</h2>
+    <h2>25 דברים חדשים — ככה זה נראה 👇</h2>
     <div class="nw">
+      <div class="card"><div class="demo d-loan">
+          <div class="lh"><b>📅 לוח תשלומים</b><span>3 מתוך 10 ✅</span></div>
+          <div class="lr ok"><i>✅</i>תשלום 1<b>500₪</b></div>
+          <div class="lr ok"><i>✅</i>תשלום 2<b>500₪</b></div>
+          <div class="lr late"><i>⏰</i>תשלום 3<b>500₪</b></div>
+          <div class="lr"><i>⏳</i>תשלום 4<b>500₪</b></div></div>
+        <h3>📅 הלוואה בתשלומים</h3><p>🎯 תקציב ← <b>"➗ מי חייב למי"</b> ← ההלוואה: <b>לוח תשלומים</b> — ✅ שולם, ⏰ באיחור, ⏳ עתידי. <b>לוחצים על תשלום</b> והוא מסומן, ורואים כמה נשאר ומתי הבא. הלוואה בלי תשלומים? "📅 לחלק לתשלומים".</p></div>
+      <div class="card"><div class="demo d-push">
+          <div class="note2"><span style="font-size:26px">🔔</span><div><b>בעוד 3 ימים: שכירות</b><small>🏠 4,200₪ · 1.11</small></div></div>
+          <div class="clock">08:00</div></div>
+        <h3>🔔 תזכורת לפני תשלום קבוע</h3><p>🎯 תקציב ← <b>"🔁 הקבועים שלי"</b> ← לוחצים על קבוע ← <b>"🔔 תזכורת"</b>: יום, 3 ימים או שבוע לפני. גם על הוצאה קבועה שזיהינו לבד. מגיע בפתיחת האפליקציה ו<b>בהתראה לטלפון</b> בבוקר (בשבת לא — בשישי מגיעה גם של שבת).</p></div>
       <div class="card"><div class="demo d-rv">
           <div class="rb">🔁 תיקונים 15</div>
           <div class="rc"><small>📝 ההערה שלך</small>שיהיה דרך לחזור לאוטומטי</div>

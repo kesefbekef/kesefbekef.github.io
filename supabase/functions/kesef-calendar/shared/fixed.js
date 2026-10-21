@@ -1,8 +1,13 @@
 // 📅 זיהוי תשלומים קבועים ותשלומים שנגמרים — משותף לאפליקציה ולשרת (יומן הטלפון)
 const ym = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 
+// 🔔 תזכורת לפני תשלום: days = כמה ימים לפני (0 = בלי). alert = היום שבו מזכירים
+const alertOf = (next, days) => { if (!(days > 0)) return null; const a = new Date(next); a.setDate(a.getDate() - days); return a; };
+export const REMIND_DEFAULT = 3;
 // קבועות: אותו תיאור, בערך אותו סכום, בחודשיים שונים לפחות (ואחד מהם החודש או בחודש שעבר)
-export function fixedPayments(tx, now = new Date(), rules = {}) {
+// opt.detected = כמה ימים לפני להזכיר על מה שזוהה לבד (0 = בלי)
+export function fixedPayments(tx, now = new Date(), rules = {}, opt = {}) {
+  const dDays = opt.detected ?? REMIND_DEFAULT;
   const m = ym(now), prevM = ym(new Date(now.getFullYear(), now.getMonth() - 1, 1)), out = [];
   const byDesc = new Map();
   for (const t of tx) if (t && t.cat !== 'income' && !(t.inst > 1) && t.desc) { const k = t.desc.trim(); (byDesc.get(k) || byDesc.set(k, []).get(k)).push(t); }
@@ -15,7 +20,7 @@ export function fixedPayments(tx, now = new Date(), rules = {}) {
     const next = new Date(lastD.getFullYear(), lastD.getMonth() + 1, lastD.getDate(), 12);
     if (next < now) next.setMonth(next.getMonth() + 1);
     const remind = new Date(next); remind.setDate(remind.getDate() - 1);
-    out.push({ kind: 'fixed', desc, amount: last.amount, cat: last.cat, next, remind });
+    out.push({ kind: 'fixed', desc, amount: last.amount, cat: last.cat, next, remind, days: dDays, alert: alertOf(next, dDays) });
   }
   // 🔁 קבועים שהוגדרו ידנית — עדיפים על מה שזוהה לבד
   for (const [id, r] of Object.entries(rules || {})) {
@@ -23,7 +28,8 @@ export function fixedPayments(tx, now = new Date(), rules = {}) {
     const next = nextRuleDate(r, now); if (!next) continue;
     const i = out.findIndex(o => o.desc === r.desc); if (i >= 0) out.splice(i, 1);
     const remind = new Date(next); remind.setDate(remind.getDate() - 1);
-    out.push({ kind: 'fixed', rule: id, desc: r.desc, amount: r.amount, cat: r.cat, next, remind, variable: !!r.variable });
+    const days = r.remind ?? REMIND_DEFAULT;
+    out.push({ kind: 'fixed', rule: id, desc: r.desc, amount: r.amount, cat: r.cat, next, remind, variable: !!r.variable, days, alert: alertOf(next, days) });
   }
   // תשלומים שנגמרים בחודשיים הקרובים
   for (const t of tx) if (t && t.inst > 1) {
