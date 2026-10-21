@@ -54,6 +54,8 @@ input{width:100%;height:48px;border-radius:14px;border:1px solid var(--line);bac
 .est{font-size:13px;font-weight:800;border-radius:999px;padding:4px 10px}
 .est.open{background:rgba(244,63,94,.22);color:#FDA4AF}
 .est.fixed{background:rgba(34,197,94,.2);color:#86EFAC}
+.kind{font-size:12.5px;font-weight:800;border-radius:999px;padding:4px 10px}
+.kind.fail{background:rgba(250,204,21,.18);color:#FDE68A}.kind.crash{background:rgba(244,63,94,.12);color:#FECDD3}
 .times{font-size:13px;font-weight:800;color:#FDE68A;background:rgba(250,204,21,.14);border-radius:999px;padding:3px 9px}
 .fixnote{margin-top:8px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);border-radius:12px;padding:8px 10px;font-size:14px}
 .fixnote small{display:block;color:var(--soft);font-size:12.5px;margin-top:2px}
@@ -131,6 +133,8 @@ async function load() {
   clearInterval(timer); timer = setInterval(async () => { if (document.hidden) return; const r = await sb.rpc('admin_overview'); if (!r.error) { DATA = r.data; draw(); } }, 60000);
 }
 
+// ⚠️ = משתמש נתקע בלי קריסה (נרשם יזום: ייבוא, כניסה, סנכרון, משוב, שרת) · 💥 = קריסה (שגיאה לא מטופלת)
+const isFail = x => String(x.source || '').startsWith('fail:') || String(x.source || '').startsWith('importer:') || String(x.message || '').startsWith('⚠️');
 // תקלה = אותה אפליקציה + הודעה + מקום בקוד. פתוחה אם יש לה מופע שלא סומן "תוקנה"
 function groupErrs(errs) {
   const g = new Map();
@@ -200,9 +204,9 @@ function drawErrs(users, errs) {
   const head = (x, rows, st) => {
     const devs = new Set(rows.map(e => e.device).filter(Boolean)), mails = [...new Set(rows.map(e => e.email).filter(Boolean))];
     return `<div class="row" style="flex-wrap:wrap"><span class="chip ${APPN[x.app]?.[0] || ''}">${APPN[x.app]?.[1] || esc(x.app)}</span>
-      <span class="est ${st}">${st === 'open' ? '🔴 פתוחה' : '✅ תוקנה'}</span>${rows.length > 1 ? `<span class="times">×${rows.length}</span>` : ''}
+      <span class="est ${st}">${st === 'open' ? '🔴 פתוחה' : '✅ תוקנה'}</span>${isFail(x) ? '<span class="kind fail">⚠️ משתמש נתקע</span>' : '<span class="kind crash">💥 קריסה</span>'}${rows.length > 1 ? `<span class="times">×${rows.length}</span>` : ''}
       <div class="when"><b>${ago(rows[0].at)}</b>${devs.size > 1 ? `${devs.size} מכשירים` : esc([...devs][0] || '')}</div></div>
-      <div class="emsg">${esc(x.message)}${x.source ? '<br>📍 ' + esc(x.source) : ''}</div>
+      <div class="emsg" ${isFail(x) ? 'dir="rtl" style="text-align:right;font-family:inherit"' : ''}>${esc(x.message)}${x.source ? '<br>📍 ' + esc(x.source) : ''}</div>
       <div class="sub" style="margin-top:6px">${rows.length > 1 ? `🕐 ראשונה ${ago(rows[rows.length - 1].at)} · אחרונה ${ago(rows[0].at)}` : `🕐 ${ago(rows[0].at)}`}</div>
       ${mails.length ? `<div class="sub ltr">👤 ${esc(mails.join(' · '))}</div>` : ''}${rows[0].version ? `<div class="sub ltr">🏷️ ${esc(rows[0].version)}</div>` : ''}`;
   };
@@ -267,6 +271,7 @@ if (location.hostname === 'localhost' && location.search.includes('demo')) {
       { id: 2, app: 'kesef', message: "TypeError: Cannot read properties of undefined (reading 'amount')", source: 'app.js:412', device: 'Android · Chrome', version: 'kesef-20261019132348', at: h(9), email: 'a.very.long.address.for.testing@example.com' },
       { id: 3, app: 'kesef', message: "TypeError: Cannot read properties of undefined (reading 'amount')", source: 'app.js:412', device: 'iPhone · Safari', version: 'kesef-20261019132348', at: h(30), email: 'p@example.com' },
       { id: 4, app: 'zman', message: "ReferenceError: tasks is not defined", source: 'app.js:3958', device: 'Android · Chrome', version: 'zman-20261020', at: h(5), email: null },
+      { id: 6, app: 'kesef', message: "⚠️ import: PDF · לאומי · לא נמצאו תנועות · 7 עמ'", source: 'fail:import', device: 'Android · Samsung', version: 'kesef-20261022', at: h(1), email: null },
       { id: 5, app: 'zman', message: "TypeError: x.map is not a function", source: 'app.js:1451', device: 'Mac · Chrome', version: 'zman-20261020', at: h(50), email: null, fixed_at: h(20), fixed_version: 'zman-20261020183000', fixed_note: 'רשימת המשימות כבר לא נתקעת כשהקבוצה ריקה' }] };
   draw();
 } else start();

@@ -6,6 +6,7 @@ import * as track from './track.js';
 
 // 📊 נתוני שימוש כלליים למפתח (בלי תוכן) — ראו track.js
 export const reportIssue = (m, s) => track.issue(m, s);
+export const trackFail = (kind, details) => track.fail(kind, details);
 track.init({ app: 'kesef', url: CONFIG.url, key: CONFIG.key });
 
 let sb = null, hh = null, channel = null, onRemote = null, flushing = false;
@@ -51,11 +52,11 @@ export async function user() {
 }
 export async function signIn(email, password) {
   const { error } = await (await client()).auth.signInWithPassword({ email, password });
-  if (error) throw new Error(nice(error));
+  if (error) { track.fail('auth', `signIn ${error.status || ''} ${error.code || error.message}`); throw new Error(nice(error)); }
 }
 export async function signUp(email, password) {
   const { data, error } = await (await client()).auth.signUp({ email, password });
-  if (error) throw new Error(nice(error));
+  if (error) { track.fail('auth', `signUp ${error.status || ''} ${error.code || error.message}`); throw new Error(nice(error)); }
   if (!data.session) throw new Error(HEB_ERR['Email not confirmed']);
 }
 export async function signOut() {
@@ -230,7 +231,7 @@ export async function flush() {
       await db.setKV('outbox', box, true);
     }
     status('ok');
-  } catch (e) { console.warn('sync flush', e); status('wait'); }
+  } catch (e) { console.warn('sync flush', e); track.fail('sync', 'flush ' + (e?.code || e?.message || e)); status('wait'); }
   finally { flushing = false; }
 }
 
@@ -339,7 +340,7 @@ export async function start({ onRemoteChange, onStatus }) {
     if (hh && !(await db.getKV('dataHousehold', null))) await db.setKV('dataHousehold', hh.id, true);
     if (hh) {
       // לא מחכים לרשת — האפליקציה כבר עובדת עם מה ששמור בטלפון
-      refresh().then(() => subscribe()).catch(e => { console.warn('sync start', e); status('wait'); });
+      refresh().then(() => subscribe()).catch(e => { console.warn('sync start', e); track.fail('sync', 'start ' + (e?.code || e?.message || e)); status('wait'); });
       listen();
     }
     return { user: u, household: hh };
@@ -410,7 +411,7 @@ export async function disablePush() {
   if (sub) { try { await (await client()).from('kesef_push_subs').delete().eq('endpoint', sub.endpoint); } catch { /* */ } await sub.unsubscribe(); }
 }
 async function budgetAlert(cats) {
-  try { await (await client()).functions.invoke('kesef-alert', { body: { cats } }); } catch (e) { console.warn('alert', e); }
+  try { await (await client()).functions.invoke('kesef-alert', { body: { cats } }); } catch (e) { console.warn('alert', e); track.fail('server', 'kesef-alert ' + (e?.message || e)); }
 }
 
 // ---------- 🧾 צילום קבלה (Supabase Storage, תיקייה פרטית לכל משפחה) ----------
