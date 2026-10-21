@@ -497,12 +497,14 @@ function renderHero() {
 
 function renderStories() {
   const m = thisMonth();
-  $('#stories').innerHTML = Object.entries(CATS).map(([id, c]) => {
+  // ➕ חדשה — ראשון בשורה (שיהיה אי אפשר לפספס)
+  $('#stories').innerHTML = (sync.isParent() ? '<button class="story story-new" id="stNew" aria-label="קטגוריה חדשה"><div class="ring"><span>➕</span></div>חדשה</button>' : '') + Object.entries(CATS).map(([id, c]) => {
     const b = budgetOf(id), sp = spentIn(id, m), p = b ? Math.min(100, sp / b * 100) : sp ? 100 : 0, over = b && sp > b;
     return `<button class="story" id="st-${id}" data-cat="${id}"><div class="ring" style="background:conic-gradient(${over ? '#F43F5E' : c.c} ${p}%, rgba(255,255,255,.12) 0)"><span>${c.e}</span></div>${c.n.split(' ')[0]}</button>`;
   }).join('');
 }
 $('#stories').addEventListener('click', e => {
+  if (e.target.closest('#stNew')) { lsSet('kesef-cathint', '1'); openCatEdit(null, () => closeSheet()); return; }
   const b = e.target.closest('[data-cat]'); if (!b) return;
   openCategory(b.dataset.cat, thisMonth());
 });
@@ -515,7 +517,7 @@ function openCategory(id, m = S.month) {
   const b = isInc ? 0 : budgetOf(id), p = b ? Math.min(100, total / b * 100) : 0, over = b && total > b;
   openSheet(`<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
       <div class="cat-ic" style="background:${c.g};width:52px;height:52px;font-size:26px">${c.e}</div>
-      <div style="flex:1;min-width:0"><h3 style="margin:0">${c.n}</h3><div class="sub">${list.length} ${isInc ? 'הכנסות' : 'הוצאות'}</div></div></div>
+      <div style="flex:1;min-width:0"><h3 style="margin:0">${c.n}</h3><div class="sub">${list.length} ${isInc ? 'הכנסות' : 'הוצאות'}</div></div>${!isInc && sync.isParent() ? '<button class="chip" id="cEditCat" style="flex:none">✏️ שם, אייקון וצבע</button>' : ''}</div>
     <div class="monthnav" style="justify-content:space-between;margin-bottom:12px"><button data-cm="-1" aria-label="חודש קודם">›</button><span>${monthLabel(m)}</span><button data-cm="1" aria-label="חודש הבא">‹</button></div>
     <div class="card" style="margin-bottom:12px">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px"><span class="sub">${isInc ? 'נכנס החודש' : 'יצא החודש'}</span>
@@ -533,6 +535,7 @@ function openCategory(id, m = S.month) {
     sh.querySelectorAll('[data-cm]').forEach(x => x.onclick = () => openCategory(id, addMonths(m, Number(x.dataset.cm))));
     sh.querySelectorAll('[data-ct]').forEach(x => x.onclick = () => { const t = S.tx.find(y => y.id === x.dataset.ct); if (t) openEditSheet(t); });
     sh.querySelector('#cBudget')?.addEventListener('click', () => openBudgetEdit(id));
+    sh.querySelector('#cEditCat')?.addEventListener('click', () => openCatEdit(id, () => openCategory(id, m)));
   });
 }
 
@@ -544,7 +547,7 @@ function renderBudget() {
   const hint = !lsGet('kesef-cathint');
   const mode = S.budgets._mode || '';
   const rl = Object.values(S.recurring || {}).filter(r => !r.paused), rIn = rl.filter(r => r.cat === 'income').reduce((x, r) => x + r.amount, 0), rOut = rl.filter(r => r.cat !== 'income').reduce((x, r) => x + r.amount, 0);
-  $('#budgetList').innerHTML = `<div class="bud-top"><button class="card newcat ${hint ? 'pulse' : ''}" id="catsBtn"><span class="plus">🏷️</span><span><b>קטגוריות</b><small>הוספה, שינוי שם, אייקון וצבע</small></span>${hint ? '<i class="hint">חדש ✨</i>' : ''}</button>
+  $('#budgetList').innerHTML = `<div class="bud-top"><button class="card newcat ${hint ? 'pulse' : ''}" id="catsBtn"><span class="plus">🏷️</span><span><b>הקטגוריות שלכם — להוסיף / לשנות</b><small>➕ קטגוריה חדשה · ✏️ שם, אייקון וצבע</small></span><i class="cats-go">›</i>${hint ? '<i class="hint">חדש ✨</i>' : ''}</button>
     <div class="bmode" role="group" aria-label="סוג התקציב"><button data-bmode="auto" class="${mode === 'auto' ? 'on' : ''}">🪄 אוטומטי</button><button data-bmode="manual" class="${mode === 'manual' ? 'on' : ''}">✍️ אני קובע</button></div></div>
     <button class="card rec-card" id="recCard"><span class="plus">🔁</span><span><b>הקבועים שלי${rl.length ? ` · ${rl.length}` : ''}</b><small>${rl.length ? `נכנס ${fmt(rIn)} · יוצא ${fmt(rOut)} — כל חודש, לבד` : 'שכירות, ועד בית, משכורת — פעם אחת, ונרשם לבד כל חודש'}</small></span></button>` + Object.entries(CATS).map(([id, c]) => {
     const s = spentIn(id, m), b = budgetOf(id), p = b ? Math.min(100, s / b * 100) : 0, o = b && s > b, left = b - s;
@@ -583,6 +586,7 @@ const NEWS_GO = {
   debts: () => { go('budget'); openDebts(); },
   rec: () => { go('budget'); openRecurring(); },
   cal: () => openCalendarSub(),
+  catsNew: () => { go('chat'); spot('#stNew'); },
   insights: () => { go('insights'); spot('#fxCard'); },
   view: () => { openSettings(); setTimeout(() => $('#viewCard')?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 350); },
   news: () => openNews(true),
@@ -1299,9 +1303,10 @@ function openAddSheet() {
   const ids = ['income', ...Object.keys(CATS)];
   openSheet(`<h3>➕ מה מוסיפים?</h3>
     <div class="catgrid">${ids.map(id => { const c = catOf(id);
-      return `<button class="catbtn${id === 'income' ? ' inc' : ''}" data-cat="${id}"><div class="cat-ic" style="background:${c.g}">${c.e}</div>${id === 'income' ? 'הכנסה' : c.n}</button>`; }).join('')}</div>
+      return `<button class="catbtn${id === 'income' ? ' inc' : ''}" data-cat="${id}"><div class="cat-ic" style="background:${c.g}">${c.e}</div>${id === 'income' ? 'הכנסה' : c.n}</button>`; }).join('')}${sync.isParent() ? '<button class="catbtn cat-new" id="addNewCat"><div class="cat-ic">➕</div>קטגוריה חדשה</button>' : ''}</div>
     <button class="btn ghost full" id="addFile">📎 או: העלאת פירוט מהבנק / אשראי</button>`, sh => {
     sh.querySelectorAll('[data-cat]').forEach(b => b.onclick = () => openAddForm(b.dataset.cat));
+    sh.querySelector('#addNewCat')?.addEventListener('click', () => openCatEdit(null, openAddSheet));
     sh.querySelector('#addFile').onclick = openAttachSheet;
   });
 }
@@ -2408,6 +2413,7 @@ const rvSet = (k, v) => lsSet(k, JSON.stringify(v));
 const RV_ST = { fixed: ['✅', 'תוקן'], answered: ['💬', 'נענה'], todo: ['⏳', 'עוד לא'] };
 const REVIEW_AT = {
   chat: { v: 'chat', sel: '#inp' },
+  stNew: { v: 'chat', sel: '#stNew' },
   attach: { v: 'chat', sel: '#attach' },
   excel: { v: 'chat', sel: '#exportBtn' },
   bmode: { v: 'budget', sel: '.bmode' },
@@ -2682,7 +2688,7 @@ function openSettings() {
     <button class="btn grad full" id="demoTour" style="margin-bottom:8px">🧭 סיור מודרך בכל התכונות</button>
     <div class="row2"><button class="btn ghost" id="demoReset">🔄 נתונים מחדש</button><button class="btn ghost" id="demoExit">🚪 יציאה</button></div></div>`
     : '<button class="btn ghost full" id="toDemo" hidden style="margin-bottom:10px">🎭 מצב הדגמה (נתונים מדומים) + סיור</button>'}
-  <a class="btn grad full" id="toAdmin" href="admin/" hidden style="margin-bottom:10px;display:block;text-align:center;text-decoration:none">📊 לוח בקרה — רק לך</a>
+  <a class="btn grad full" id="toAdmin" href="admin/" hidden style="margin-bottom:10px;display:block;text-align:center;text-decoration:none;color:#fff">📊 לוח בקרה — רק לך</a>
   <button class="btn ghost full" id="toHelp" style="margin-bottom:10px">❓ עזרה ואיך משתמשים</button>
   <button class="btn ghost full" id="toShare" style="margin-bottom:10px">📤 שתף את האפליקציה עם חבר</button>
   <button class="btn ghost full news-btn" id="toNews" style="margin-bottom:10px">✨ מה חדש</button>
