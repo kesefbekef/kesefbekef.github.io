@@ -9,6 +9,7 @@ import * as help from './help.js';
 import { demoData } from './demo-data.js';
 import { fixedPayments, dueMonths, nextRuleDate } from './fixed.js';
 import { NEWS } from './whats-new.js';
+import { REVIEW } from './review.js';
 
 // ---------- עזרים ----------
 const $ = s => document.querySelector(s);
@@ -2085,9 +2086,11 @@ async function demoStart() {
   $('#gate').classList.remove('on'); openStartView();
   document.body.classList.add('demo');
   const bar = document.createElement('div'); bar.className = 'demo-bar';
-  bar.innerHTML = `<span>🎭 מצב הדגמה — הנתונים לא אמיתיים</span><button id="dbTour">🧭 סיור</button><button id="dbExit">יציאה ✕</button>`;
+  bar.innerHTML = `<span>🎭 מצב הדגמה — הנתונים לא אמיתיים</span><button id="dbReview" class="rv-btn" hidden></button><button id="dbTour">🧭 סיור</button><button id="dbExit">יציאה ✕</button>`;
   $('#app').prepend(bar);
   bar.querySelector('#dbTour').onclick = () => tourStart(0);
+  bar.querySelector('#dbReview').onclick = () => reviewStart();
+  reviewBadge();
   bar.querySelector('#dbExit').onclick = exitDemo;
   notesFab();
   if (!lsGet('kesef-tour-seen')) setTimeout(() => toastAction('🧭 רוצה סיור מודרך בכל התכונות?', '▶️ להתחיל', () => tourStart(0)), 900);
@@ -2142,12 +2145,12 @@ const TOUR = [
   { v: 'chat', sel: '.notes-fab', t: '💬 ההערות שלך', d: 'בכל מסך: לוחצים, כותבים מה לתקן — וכשמסיימים שולחים את כל ההערות ביחד.' },
   { v: 'chat', sel: null, t: '🎉 סיימנו!', d: 'זה כל מה שכסף בכיף יודע לעשות. שלח את ההערות שלך ב-💬, ואפשר לצאת ממצב הדגמה למעלה.', end: true },
 ];
-let tourI = -1;
-function tourStart(i = 0) { lsSet('kesef-tour-seen', '1'); document.body.classList.add('touring'); notesFab(); tourGo(i); }
+let tourI = -1, STEPS = TOUR;
+function tourStart(i = 0) { STEPS = TOUR; lsSet('kesef-tour-seen', '1'); document.body.classList.add('touring'); notesFab(); tourGo(i); }
 function tourStop() { tourI = -1; document.body.classList.remove('touring'); $('.tour-ring')?.remove(); $('.tour-card')?.remove(); closeSheet(); notesFab(); }
 async function tourGo(i) {
-  if (i < 0 || i >= TOUR.length) return tourStop();
-  tourI = i; const s = TOUR[i];
+  if (i < 0 || i >= STEPS.length) { const rv = STEPS !== TOUR; tourStop(); if (rv && i >= STEPS.length) reviewSummary(); return; }
+  tourI = i; const s = STEPS[i];
   if ($('#sheet').classList.contains('on') && !s.open) closeSheet();
   if (s.v && S.view !== s.v) go(s.v, true);
   if (s.open) s.open();
@@ -2166,6 +2169,8 @@ async function tourGo(i) {
   } else ring.style.display = 'none';
   let card = $('.tour-card'); if (!card) { card = document.createElement('div'); card.className = 'tour-card'; document.body.appendChild(card); }
   card.classList.toggle('top', low); card.classList.toggle('mid', !el);
+  if (s.review) { reviewCard(card, s, i); notesFab(); return; }
+  card.classList.remove('rv');
   card.innerHTML = `<div class="tbar"><i style="width:${(i + 1) / TOUR.length * 100}%"></i></div>
     <div class="sub">שלב ${i + 1} מתוך ${TOUR.length}</div><b>${s.t}</b><p>${s.d}</p>
     <div class="tbtns"><button id="tPrev" ${i ? '' : 'disabled'}>→ הקודם</button><button class="go" id="tNext">${s.end ? '✅ סיום' : 'הבא ←'}</button><button id="tList" aria-label="כל השלבים">☰</button><button id="tX" aria-label="סגירה">✕</button></div>
@@ -2185,6 +2190,88 @@ addEventListener('resize', () => {
   tourGo(tourI);
 });
 
+// ---------- 🔁 סיור תיקונים: עובר רק על המסכים שבהם נכתבו הערות, ומראה מה השתנה ----------
+// kesef-review = { [id]: 'ok' | 'seen' | 'note' } — מה כבר נסקר בטלפון הזה. kesef-review-sent = ids שהאישור שלהם כבר נשלח
+const RV_KEY = 'kesef-review', RV_SENT = 'kesef-review-sent';
+const rvGet = k => { try { return JSON.parse(lsGet(k) || (k === RV_SENT ? '[]' : '{}')); } catch { return k === RV_SENT ? [] : {}; } };
+const RV_ST = { fixed: ['✅', 'תוקן'], answered: ['💬', 'נענה'], todo: ['⏳', 'עוד לא'] };
+const REVIEW_AT = {
+  chat: { v: 'chat', sel: '#inp' },
+  attach: { v: 'chat', sel: '#attach' },
+  excel: { v: 'chat', sel: '#exportBtn' },
+  bmode: { v: 'budget', sel: '.bmode' },
+  catsBtn: { v: 'budget', sel: '#catsBtn' },
+  recCard: { v: 'budget', sel: '#recCard' },
+  insCard: { v: 'budget', sel: '#budgetList [data-cat="ins"]' },
+  expenses: { v: 'budget', sel: '#sheet', open: () => openExpenses() },
+  maaser: { v: 'budget', sel: '#sheet', open: () => openMaaser() },
+  maaserInc: { v: 'budget', sel: '#sheet', open: () => { openMaaser(); setTimeout(() => $('#sheet [data-ik]')?.scrollIntoView({ block: 'center' }), 350); } },
+  debts: { v: 'budget', sel: '#sheet', open: () => openDebts() },
+  recQuick: { v: 'budget', sel: '#sheet', open: () => openRecurringSetup() },
+  onboard: { v: 'budget', sel: '#sheet', open: () => openBudgetSetup() },
+  giveEdit: { v: 'chat', sel: '#sheet', open: () => { const t = [...S.tx].reverse().find(x => x.cat === 'give'); if (t) { openEditSheet(t); setTimeout(() => $('#eGive')?.scrollIntoView({ block: 'center' }), 350); } } },
+  fixedCard: { v: 'insights', sel: cardWith('תשלומים קבועים') },
+  search: { v: 'tx', sel: '#search' },
+  view: { v: 'chat', sel: '#sheet', open: () => { openSettings(); setTimeout(() => $('#viewCard')?.scrollIntoView({ block: 'center' }), 350); } },
+};
+const rvPending = () => { const done = rvGet(RV_KEY); return REVIEW.filter(r => r.st !== 'todo' && !done[r.id]); };
+function reviewBadge() {
+  const b = $('#dbReview'); if (!b) return;
+  const n = rvPending().length; b.hidden = !n; b.textContent = `🔁 תיקונים ${n}`;
+}
+function reviewStart() {
+  if (!REVIEW.length) return;
+  const done = rvGet(RV_KEY), order = [...REVIEW.filter(r => r.st !== 'todo'), ...REVIEW.filter(r => r.st === 'todo')];
+  STEPS = order.map(r => ({ ...(REVIEW_AT[r.at] || REVIEW_AT.chat), t: r.where, review: r }));
+  const first = Math.max(0, STEPS.findIndex(x => x.review.st !== 'todo' && !done[x.review.id]));
+  document.body.classList.add('touring'); notesFab(); tourGo(first);
+}
+function reviewMark(id, v) { const d = rvGet(RV_KEY); d[id] = v; lsSet(RV_KEY, JSON.stringify(d)); reviewBadge(); }
+function reviewCard(card, s, i) {
+  const r = s.review, [se, sl] = RV_ST[r.st] || RV_ST.fixed, mine = rvGet(RV_KEY)[r.id], n = STEPS.length;
+  const dd = new Date(r.date + 'T12:00:00').toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' });
+  card.classList.add('rv');
+  card.innerHTML = `<div class="tbar"><i style="width:${(i + 1) / n * 100}%"></i></div>
+    <div class="sub">🔁 סיור תיקונים · ${i + 1} מתוך ${n} · הערה מ-${dd}${mine ? ` · ${mine === 'ok' ? '✅ אישרת' : mine === 'note' ? '💬 הוספת הערה' : '👍 ראית'}` : ''}</div>
+    <div class="rv-h"><span class="rv-st ${r.st}">${se} ${sl}</span><b>${esc(r.where)}</b></div>
+    <div class="rv-note" title="לחיצה — לקרוא הכל"><small>📝 ההערה שלך</small>${esc(r.note)}</div>
+    <div class="rv-did ${r.st}"><small>${r.st === 'todo' ? '⏳ מה מתוכנן' : r.st === 'answered' ? '💬 התשובה' : '✨ מה שינינו'}</small>${esc(r.did)}</div>
+    ${r.before ? '<button class="chip" id="rBefore">👀 איך זה היה לפני</button>' : ''}
+    <div class="tbtns rv-btns"><button id="tPrev" ${i ? '' : 'disabled'} aria-label="הקודם">→</button><button class="ok" id="rOk">${r.st === 'todo' ? '👍 ראיתי' : '✅ מאשר'}</button><button id="rMore">💬 עוד הערה</button><button class="go" id="tNext">${i === n - 1 ? 'סיום' : 'הבא ←'}</button><button id="tX" aria-label="סגירה">✕</button></div>`;
+  card.querySelector('.rv-note').onclick = e => e.currentTarget.classList.toggle('open');
+  card.querySelector('#tPrev').onclick = () => tourGo(i - 1);
+  card.querySelector('#tNext').onclick = () => tourGo(i + 1);
+  card.querySelector('#tX').onclick = tourStop;
+  card.querySelector('#rOk').onclick = () => { reviewMark(r.id, r.st === 'todo' ? 'seen' : 'ok'); if (r.st !== 'todo') confetti(); tourGo(i + 1); };
+  card.querySelector('#rMore').onclick = () => { reviewMark(r.id, 'note'); openNotes(); };
+  card.querySelector('#rBefore')?.addEventListener('click', () => {
+    const ov = document.createElement('div'); ov.className = 'qr-zoom';
+    ov.innerHTML = `<div class="qr-card" style="padding:10px"><div class="sub" style="margin-bottom:6px">👀 לפני התיקון</div><img src="${esc(r.before)}" alt="לפני" style="width:100%;max-height:70vh;object-fit:contain;border-radius:14px"><button class="btn grad full" style="margin-top:10px">סגירה</button></div>`;
+    ov.onclick = ev => { if (ev.target === ov || ev.target.closest('button')) ov.remove(); }; document.body.appendChild(ov);
+  });
+}
+function reviewSummary() {
+  const done = rvGet(RV_KEY), sent = rvGet(RV_SENT);
+  const ok = REVIEW.filter(r => done[r.id] === 'ok'), more = REVIEW.filter(r => done[r.id] === 'note'), todo = REVIEW.filter(r => r.st === 'todo');
+  const left = rvPending(), fresh = [...ok, ...more].filter(r => !sent.includes(r.id)), notes = getNotes().length;
+  openSheet(`<div class="nw-head"><span class="nw-spark">🔁</span><h3>סיור התיקונים הסתיים</h3></div>
+    <div class="rv-sum"><div><b>${ok.length}</b><span>✅ אישרת</span></div><div><b>${more.length}</b><span>💬 עם הערה</span></div><div><b>${left.length}</b><span>⏭️ דילגת</span></div><div><b>${todo.length}</b><span>⏳ בעבודה</span></div></div>
+    ${notes ? `<button class="btn grad full" id="rvNotes" style="margin-bottom:10px">📤 יש ${notes} הערות חדשות — לשליחה</button>` : ''}
+    ${fresh.length ? `<button class="btn grad full" id="rvSend" style="margin-bottom:10px">✅ שליחת האישורים (${fresh.length})</button>` : '<div class="sub" style="text-align:center;margin-bottom:10px">כל האישורים כבר נשלחו 👍</div>'}
+    <button class="btn ghost full" id="rvAgain">🔁 לעבור שוב</button><div class="err" id="rvErr"></div>`, sh => {
+    sh.querySelector('#rvNotes')?.addEventListener('click', () => openNotes());
+    sh.querySelector('#rvAgain').onclick = () => { closeSheet(); setTimeout(reviewStart, 250); };
+    sh.querySelector('#rvSend')?.addEventListener('click', async e => {
+      e.target.disabled = true; e.target.textContent = 'שולח…';
+      const line = r => `${done[r.id] === 'ok' ? '✅ אושר' : '💬 אושר עם הערה נוספת'} · ${r.id} · ${r.where}\n   ההערה: ${r.note.slice(0, 120)}${r.note.length > 120 ? '…' : ''}`;
+      const okSent = await sendFeedback({ kind: 'approval', message: fresh.map(line).join('\n\n'), subject: `✅ אישור תיקונים — כסף בכיף (${fresh.length})`, tag: 'אישור תיקונים' });
+      if (okSent) { lsSet(RV_SENT, JSON.stringify([...new Set([...sent, ...fresh.map(r => r.id)])])); confetti(); toast('✅ האישורים נשלחו — תודה!'); reviewSummary(); return; }
+      e.target.disabled = false; e.target.textContent = `✅ שליחת האישורים (${fresh.length})`;
+      sh.querySelector('#rvErr').textContent = 'לא הצלחתי לשלוח (אין אינטרנט?). אפשר לנסות שוב.';
+    });
+  });
+}
+
 // ---------- 💬 הערות לתיקון (במצב הדגמה ובזמן הסיור) ----------
 const VIEW_NAMES = { chat: 'צ\'אט', budget: 'תקציב', insights: 'תובנות', tx: 'תנועות' };
 const getNotes = () => { try { return JSON.parse(lsGet('kesef-demoNotes') || '[]'); } catch { return []; } };
@@ -2199,7 +2286,7 @@ function notesFab() {
 }
 function noteContext() {
   const sheet = $('#sheet').classList.contains('on') ? $('#sheet h3')?.innerText : '';
-  return `📍 מסך: ${VIEW_NAMES[S.view] || S.view}${sheet ? ' · חלון: ' + sheet : ''}${tourI >= 0 ? ` · שלב ${tourI + 1}: ${TOUR[tourI].t}` : ''}`;
+  return `📍 מסך: ${VIEW_NAMES[S.view] || S.view}${sheet ? ' · חלון: ' + sheet : ''}${tourI >= 0 ? (STEPS[tourI]?.review ? ` · 🔁 סיור תיקונים: ${STEPS[tourI].t}` : ` · שלב ${tourI + 1}: ${STEPS[tourI].t}`) : ''}`;
 }
 const notesText = l => l.map((x, k) => `${k + 1}. ${x.ctx}\n${x.text}`).join('\n\n');
 function openNotes() {
@@ -2404,7 +2491,7 @@ function openSettings() {
 const FEEDBACK_TO = 'mvindish@gmail.com';
 const FEEDBACK_KEY = 'afe845b5ff6d0c2cd899d08390663e7c'; // הכינוי של FormSubmit — כדי שהמייל לא יופיע בקוד
 const FEEDBACK_RE = /^(משוב|פידבק|הערה|הערות|הצעה|הצעת שיפור|רעיון|יש לי רעיון|יש לי הערה|יש לי הצעה|באג|תקלה|בעיה|דיווח|feedback)(?=[\s:,-]|$)[\s:,-]*/i;
-const KINDS = { idea: '💡 רעיון', bug: '🐞 משהו לא עובד', love: '❤️ מחמאה', other: '💬 אחר' };
+const KINDS = { idea: '💡 רעיון', bug: '🐞 משהו לא עובד', love: '❤️ מחמאה', other: '💬 אחר', approval: '✅ אישור תיקונים' };
 
 // שליחת משוב: גם לטבלה בענן וגם למייל (FormSubmit). מחזיר true אם לפחות אחד הצליח
 async function sendFeedback({ kind = 'other', message, contact = '', device = '', subject = '', tag = '' }) {

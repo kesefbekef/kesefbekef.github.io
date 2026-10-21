@@ -93,6 +93,15 @@ nav.toc a{flex:none;text-decoration:none;font-size:15px;font-weight:600;padding:
 .divider{text-align:center;padding:40px 18px 0}
 .divider span{display:inline-block;font-weight:800;font-size:22px;padding:12px 26px;border-radius:999px;background:var(--g);color:#fff;box-shadow:0 10px 30px rgba(236,72,153,.35)}
 /* ---- 🆕 חדש: כרטיסים עם דוגמה חיה ---- */
+.d-rv{display:flex;flex-direction:column;gap:7px;justify-content:center}
+.d-rv .rb{align-self:center;background:linear-gradient(135deg,#22C55E,#14B8A6);border-radius:999px;padding:5px 14px;font-weight:800;font-size:13px;animation:nsp 2.6s ease-in-out infinite}
+.d-rv .rc{background:#2A2240;border-inline-start:3px solid #F59E0B;border-radius:10px;padding:6px 10px;font-size:13px;animation:nln 4.5s ease-out infinite}
+.d-rv .rc.ok{border-color:#22C55E;background:rgba(34,197,94,.15);animation-delay:.5s}
+.d-rv .rc small{display:block;font-size:11px;color:#B9AED6;font-weight:800}
+.d-rv .rbt{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;font-size:12px;font-weight:800;text-align:center}
+.d-rv .rbt i{font-style:normal;background:#2A2240;border-radius:9px;padding:6px 0}
+.d-rv .rbt i:first-child{background:linear-gradient(135deg,#22C55E,#14B8A6)}
+.d-rv .rbt i:last-child{background:linear-gradient(135deg,#F59E0B,#F97316);color:#1F1300}
 .d-give{display:flex;flex-direction:column;gap:10px;justify-content:center}
 .d-give .gb{display:flex;gap:10px;align-items:center;background:#2A2240;border-radius:14px;padding:9px 12px}
 .d-give .gb span{font-size:24px}.d-give .gb small{display:block;color:#B9AED6;font-size:12px}
@@ -263,8 +272,14 @@ footer{padding:28px 0;text-align:center;color:#8B82A6;font-size:14px}
 <section class="dark" id="new">
   <div class="wrap">
     <div class="eyebrow">🆕 חדש באפליקציה</div>
-    <h2>22 דברים חדשים — ככה זה נראה 👇</h2>
+    <h2>23 דברים חדשים — ככה זה נראה 👇</h2>
     <div class="nw">
+      <div class="card"><div class="demo d-rv">
+          <div class="rb">🔁 תיקונים 15</div>
+          <div class="rc"><small>📝 ההערה שלך</small>שיהיה דרך לחזור לאוטומטי</div>
+          <div class="rc ok"><small>✨ מה שינינו</small>מתג 🪄 אוטומטי | ✍️ אני קובע</div>
+          <div class="rbt"><i>✅ מאשר</i><i>💬 עוד הערה</i><i>הבא ←</i></div></div>
+        <h3>🔁 סיור תיקונים</h3><p>במצב הדגמה, אחרי שתיקנו את ההערות שלכם — <b>"🔁 תיקונים"</b> בפס העליון עובר <b>רק</b> על המסכים שבהם כתבתם הערה, ומראה בכל אחד: 📝 מה כתבתם ו-✨ מה שינינו. <b>✅ מאשר</b>, <b>💬 עוד הערה</b> או <b>הבא</b> — ובסוף שולחים את האישורים.</p></div>
       <div class="card"><div class="demo d-give">
           <div class="gb"><span>💝</span><div><b>תרומה לישיבה · 300₪</b><small>תרומות וצדקה</small></div></div>
           <div class="gs"><i></i><span>🤲 מתוך המעשר</span><span>➕ בנוסף למעשר</span></div>
