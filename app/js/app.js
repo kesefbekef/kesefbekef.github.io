@@ -10,6 +10,7 @@ import { demoData } from './demo-data.js';
 import { fixedPayments, dueMonths, nextRuleDate, REMIND_DEFAULT } from './fixed.js';
 import { NEWS } from './whats-new.js';
 import { REVIEW } from './review.js';
+import { CONFIG } from './config.js';
 
 // ---------- עזרים ----------
 const $ = s => document.querySelector(s);
@@ -581,6 +582,7 @@ const NEWS_GO = {
   goals: () => { go('budget'); openGoals(); },
   debts: () => { go('budget'); openDebts(); },
   rec: () => { go('budget'); openRecurring(); },
+  cal: () => openCalendarSub(),
   view: () => { openSettings(); setTimeout(() => $('#viewCard')?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 350); },
   news: () => openNews(true),
 };
@@ -808,20 +810,31 @@ function fixedCard() {
 }
 $('#tips').addEventListener('click', e => { if (e.target.closest('[data-calsub]')) openCalendarSub(); });
 // 📆 מנוי ליומן (Google / אייפון): קישור אישי עם מפתח סודי — מתעדכן לבד
-async function openCalendarSub() {
-  if (db.DEMO) { toast('🎭 במצב הדגמה אין קישור ליומן — בטלפון האמיתי זה עובד', true); return; }
-  openSheet(`<h3>📆 תשלומים קבועים ביומן</h3><div class="sub" style="margin:-6px 0 12px">⏳ מכין קישור אישי…</div>`);
-  try {
-    const url = await sync.calendarURL();
+// 📅 חיבור ליומן של הטלפון — יומן מנוי (ICS) שמתעדכן לבד. זהה בכסף בכיף ובזמן בכיף (כל אחת יומן נפרד בשם משלה)
+async function openCalendarSub(renew = false) {
+  const draw = (url, demo) => {
     const webcal = url.replace(/^https:/, 'webcal:'), g = `https://calendar.google.com/calendar/r?cid=${encodeURIComponent(webcal)}`;
-    openSheet(`<h3>📆 תשלומים קבועים ביומן</h3><div class="sub" style="margin:-6px 0 12px">יומן אחד שמתעדכן לבד: כל תשלום קבוע (יום לפני), תשלומים שנגמרים, והחזרי הלוואות. פרטי — רק עם הקישור הזה.</div>
-      <a class="btn grad full" href="${webcal}" style="display:block;text-align:center;text-decoration:none;margin-bottom:8px">🍏 אייפון / Mac — להוסיף ליומן</a>
-      <a class="btn grad full" href="${g}" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;margin-bottom:8px;background:linear-gradient(135deg,#3B82F6,#22C55E)">📅 Google יומן (גם אנדרואיד)</a>
-      <button class="btn ghost full" id="calCopy">📋 העתקת הקישור</button>
-      <div class="sub" style="margin-top:10px">💡 בגוגל: אחרי ההוספה היומן מופיע גם בטלפון האנדרואיד (אפליקציית Google Calendar). העדכון אצל גוגל לוקח עד כמה שעות.</div>`, sh => {
+    openSheet(`<h3>📅 חיבור ליומן של הטלפון</h3><div class="sub" style="margin:-6px 0 12px">${demo ? '🎭 <b>יומן לדוגמה</b> (המשפחה המדומה) — כדי לנסות. בטלפון האמיתי מקבלים יומן אישי של המשפחה.<br>' : ''}יומן <b>"💰 כסף בכיף"</b> שמתעדכן לבד: כל תשלום קבוע (עם תזכורת לפי מה שבחרתם — יום / 3 ימים / שבוע לפני), תשלומים שנגמרים, והחזרי הלוואות.</div>
+      <div class="cal-steps">
+        <div class="cal-step"><b>🍏 אייפון / Mac</b><small>לוחצים ← "הירשם" (Subscribe) ← "הוסף". וזהו.</small>
+          <a class="btn grad full" href="${webcal}" style="display:block;text-align:center;text-decoration:none">🍏 להוסיף ליומן של אייפון</a></div>
+        <div class="cal-step"><b>📅 Google / אנדרואיד</b><small>נפתח Google Calendar ← "הוספה" (Add). אחרי כמה דקות היומן מופיע גם באפליקציית Google Calendar בטלפון.</small>
+          <a class="btn grad full" href="${g}" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;background:linear-gradient(135deg,#3B82F6,#22C55E)">📅 להוסיף ל-Google יומן</a></div>
+        <div class="cal-step"><b>💻 מחשב / אחר</b><small>מעתיקים את הקישור ← ביומן: "הוספת יומן" ← "מכתובת URL" / "From URL" ← מדביקים.</small>
+          <button class="btn ghost full" id="calCopy">📋 העתקת הקישור</button></div>
+      </div>
+      <div class="sub" style="margin-top:10px">⏳ <b>חשוב לדעת:</b> גוגל מרענן יומן כזה <b>כל כמה שעות</b> (לא מיד) — אייפון בערך כל שעה. בגוגל ההתראות לפי הגדרות היומן שם.${demo ? '' : '<br>🔒 הקישור אישי ופרטי. מישהו קיבל אותו בטעות? <button class="chip" id="calRenew" style="margin-top:4px">🔄 חידוש קישור (הישן מפסיק לעבוד)</button>'}</div>`, sh => {
       sh.querySelector('#calCopy').onclick = async () => { try { await navigator.clipboard.writeText(url); toast('📋 הקישור הועתק'); } catch { toast(url); } };
+      sh.querySelector('#calRenew')?.addEventListener('click', async e => {
+        if (!e.target.dataset.armed) { e.target.dataset.armed = '1'; e.target.textContent = '⚠️ בטוח? הקישור הישן יפסיק לעבוד — לחיצה שנייה'; return; }
+        openCalendarSub(true);
+      });
     });
-  } catch (e) { openSheet(`<h3>📆 יומן</h3><div class="err">${esc(e.message)}</div>`); }
+  };
+  if (db.DEMO || UITEST) return draw(`${CONFIG.url}/functions/v1/kesef-calendar?t=demo`, true);
+  openSheet(`<h3>📅 חיבור ליומן של הטלפון</h3><div class="sub" style="margin:-6px 0 12px">⏳ ${renew ? 'מחדש' : 'מכין'} קישור אישי…</div>`);
+  try { const url = await sync.calendarURL(renew); if (renew) toast('🔄 קישור חדש — צריך להוסיף אותו שוב ליומן'); draw(url, false); }
+  catch (e) { openSheet(`<h3>📅 חיבור ליומן</h3><div class="err">${esc(e.message)}</div>`); }
 }
 
 // 🏷️ אירועים: כמה עלה כל אירוע (מכל הזמנים, בכל הקטגוריות)
@@ -2084,7 +2097,7 @@ function openRecurring() {
       <div class="sub" style="margin:6px 0">בכל קבוע בוחרים כמה ימים לפני (לוחצים על הקבוע ✏️). ועל הוצאה קבועה <b>שזיהינו לבד</b> (בלי שהגדרתם):</div>
       <div class="chips rmd" id="rqDet">${REMIND_OPTS.map(([d, l]) => `<button class="chip ${remindDetected() === d ? 'on' : ''}" data-rd="${d}">${l}</button>`).join('')}</div>
       <div id="rqPush" style="margin-top:10px"></div></div>
-    <button class="btn ghost full" id="rqCal" style="margin-top:8px">📆 להוסיף ליומן של הטלפון (Google / אייפון)</button>
+    <button class="btn ghost full" id="rqCal" style="margin-top:8px">📅 חיבור ליומן של הטלפון (אייפון / Google)</button>
     <div class="sub" style="margin-top:10px">💡 גם בצ'אט: "ועד בית 250 כל חודש" או "שכירות 4200 כל 1 לחודש"</div>`, sh => {
     sh.querySelector('#rqCal').onclick = () => openCalendarSub();
     drawPushCard(sh.querySelector('#rqPush'));
@@ -2329,6 +2342,7 @@ const REVIEW_AT = {
   onboard: { v: 'budget', sel: '#sheet', open: () => openBudgetSetup() },
   giveEdit: { v: 'chat', sel: '#sheet', open: () => { const t = [...S.tx].reverse().find(x => x.cat === 'give'); if (t) { openEditSheet(t); setTimeout(() => $('#eGive')?.scrollIntoView({ block: 'center' }), 350); } } },
   fixedCard: { v: 'insights', sel: cardWith('תשלומים קבועים') },
+  cal: { v: 'chat', sel: '#sheet', open: () => openCalendarSub() },
   search: { v: 'tx', sel: '#search' },
   view: { v: 'chat', sel: '#sheet', open: () => { openSettings(); setTimeout(() => $('#viewCard')?.scrollIntoView({ block: 'center' }), 350); } },
 };
@@ -2594,6 +2608,7 @@ function openSettings() {
   ${isStandalone() ? '' : '<button class="btn ghost full" id="toInstall" style="margin-bottom:10px">📲 התקנה על המסך (כמו אפליקציה)</button>'}
   <button class="btn grad full kid-only" id="toMyBox" style="margin-bottom:10px">🐷 הקופה שלי</button>
   <button class="btn ghost full parent-only" id="toRec" style="margin-bottom:10px">🔁 הכנסות והוצאות קבועות</button>
+  <button class="btn ghost full parent-only" id="toCal" style="margin-bottom:10px">📅 חיבור ליומן של הטלפון</button>
   <button class="btn ghost full parent-only" id="toCats" style="margin-bottom:10px">🏷️ קטגוריות — להוסיף / לשנות שם</button>
   <button class="btn grad full parent-only" id="toExcel" style="margin-bottom:10px">📊 הורדת סיכום לאקסל</button>
   <div class="row2" style="margin-bottom:10px"><button class="btn ghost" id="exp">⬇️ גיבוי</button><button class="btn ghost" id="imp">⬆️ שחזור מגיבוי</button></div>
@@ -2612,6 +2627,7 @@ function openSettings() {
   sh.querySelector('#toExcel').onclick = () => openExportSheet();
   sh.querySelector('#toCats').onclick = () => openCatsSheet();
   sh.querySelector('#toNews').onclick = () => openNews(true);
+  sh.querySelector('#toCal').onclick = () => openCalendarSub();
   sh.querySelector('#toRec').onclick = () => openRecurring();
   sh.querySelector('#toMyBox').onclick = () => S.me ? openKid(S.me, true) : toast('קודם בוחרים "אני ___" במשפחה', true);
   sh.querySelector('#toHelp').onclick = () => openHelp();

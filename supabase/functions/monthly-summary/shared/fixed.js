@@ -16,6 +16,8 @@ export function fixedPayments(tx, now = new Date(), rules = {}, opt = {}) {
     if (!(months.has(m) || months.has(prevM)) || months.size < 2) continue;
     list.sort((a, b) => a.date.localeCompare(b.date));
     const last = list[list.length - 1], lastD = new Date(last.date);
+    // קבוע = חודש אחרי חודש: שתי הפעמים האחרונות בהפרש של בערך חודש (לא קנייה שנתית כמו "סוכה")
+    const gap = (lastD - new Date(list[list.length - 2].date)) / 864e5; if (gap < 20 || gap > 45) continue;
     const amts = list.slice(-3).map(t => t.amount); if (Math.max(...amts) - Math.min(...amts) > last.amount * .15) continue;
     const next = new Date(lastD.getFullYear(), lastD.getMonth() + 1, lastD.getDate(), 12);
     if (next < now) next.setMonth(next.getMonth() + 1);
