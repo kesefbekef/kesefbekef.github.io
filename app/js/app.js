@@ -570,6 +570,7 @@ document.querySelector('#v-budget .duo').addEventListener('click', e => {
 // ---------- ✨ מה חדש ----------
 // קופץ פעם אחת אחרי עדכון. 'kesef-news' = הגרסה האחרונה שראו בטלפון הזה. משתמש חדש — לא מקבל (יש לו את המדריך)
 const NEWS_KEY = 'kesef-news';
+const nKey = n => n ? n.v + (n.rev ? '.' + n.rev : '') : ''; // תאריך + מהדורה באותו יום
 const newsFor = items => items.filter(i => sync.isParent() || i.kids);
 const NEWS_GO = {
   budget: () => go('budget'),
@@ -589,13 +590,13 @@ function spot(sel) {
 }
 function maybeNews() {
   if (!NEWS.length || (db.DEMO && !UITEST)) return;
-  const last = NEWS[0].v, seen = lsGet(NEWS_KEY);
+  const last = nKey(NEWS[0]), seen = lsGet(NEWS_KEY);
   if (seen === last) return;
   if (!seen) {
     // אין סימון: משתמש ותיק (יש נתונים) — רואה רק את העדכון האחרון. חדש — לא מקבל כלום
     if (!S.tx.length) { lsSet(NEWS_KEY, last); return; }
   }
-  const fresh = NEWS.filter(n => !seen ? n.v === last : n.v > seen);
+  const fresh = NEWS.filter(n => !seen ? nKey(n) === last : nKey(n) > seen);
   const items = newsFor(fresh.flatMap(n => n.items));
   if (!items.length) { lsSet(NEWS_KEY, last); return; }
   setTimeout(() => { if ($('#gate').classList.contains('on') || $('#sheet').classList.contains('on')) return; openNews(false, items); }, 900);
@@ -607,7 +608,7 @@ let nxTimer = 0;
 const NX_MS = 6500;
 const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches || document.documentElement.classList.contains('noanim');
 function openNews(all = false, items = null, restore = false) {
-  lsSet(NEWS_KEY, NEWS[0]?.v || '');
+  lsSet(NEWS_KEY, nKey(NEWS[0]));
   $('.news-fab')?.remove(); clearTimeout(nxTimer);
   const seen = newsBack?.seen || [];
   const dLabel = v => new Date(v + 'T12:00:00').toLocaleDateString('he-IL', { day: 'numeric', month: 'long' });
