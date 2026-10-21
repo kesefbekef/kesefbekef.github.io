@@ -50,6 +50,28 @@ input{width:100%;height:48px;border-radius:14px;border:1px solid var(--line);bac
 .emsg{font-family:ui-monospace,Menlo,monospace;font-size:13px;direction:ltr;text-align:left;background:var(--card2);border-radius:10px;padding:8px;margin-top:8px;word-break:break-word}
 .empty{text-align:center;color:var(--soft);padding:30px 10px}
 .foot{margin-top:18px;text-align:center}
+/* 🐞 תקלות: פתוחה / תוקנה */
+.est{font-size:13px;font-weight:800;border-radius:999px;padding:4px 10px}
+.est.open{background:rgba(244,63,94,.22);color:#FDA4AF}
+.est.fixed{background:rgba(34,197,94,.2);color:#86EFAC}
+.times{font-size:13px;font-weight:800;color:#FDE68A;background:rgba(250,204,21,.14);border-radius:999px;padding:3px 9px}
+.fixnote{margin-top:8px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);border-radius:12px;padding:8px 10px;font-size:14px}
+.fixnote small{display:block;color:var(--soft);font-size:12.5px;margin-top:2px}
+.fixbox{margin-top:10px;display:grid;gap:8px}
+.fixbox textarea{width:100%;min-height:64px;border-radius:12px;border:1px solid var(--line);background:var(--card2);color:var(--ink);padding:10px;font:inherit;font-size:15px;resize:vertical;outline:none}
+.fixbox input{margin:0;height:44px}
+.acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.acts[hidden]{display:none}
+.btn.ok{background:linear-gradient(135deg,#22C55E,#14B8A6);color:#fff}
+.again{font-size:12.5px;color:#FDBA74;margin-top:6px}
+details.fixed-sec{margin-top:6px}
+details.fixed-sec>summary{list-style:none;cursor:pointer;font-weight:800;font-size:16px;background:var(--card);border:1px solid rgba(34,197,94,.35);border-radius:16px;padding:12px 14px}
+details.fixed-sec>summary::-webkit-details-marker{display:none}
+details.fixed-sec>summary::after{content:'▾';float:left;color:var(--soft);transition:transform .25s}
+details.fixed-sec[open]>summary::after{transform:rotate(180deg)}
+details.fixed-sec .list{margin-top:10px}
+.card.done{opacity:.85}
+.sub.ltr{direction:ltr;text-align:right;word-break:break-all;font-size:12.5px}
 @media(max-width:380px){.stat b{font-size:24px}.mail{max-width:52vw}}
 </style>
 </head>
@@ -75,6 +97,7 @@ function ago(t) {
 const fresh = t => t && Date.now() - new Date(t) < 15 * 60 * 1000;
 const APPN = { kesef: ['k', '💰 כסף'], zman: ['z', '⏰ זמן'], lomdim: ['l', '🎮 לומדים'] };
 let DATA = null, tab = 'people', timer = null;
+const DEMO = location.hostname === 'localhost' && location.search.includes('demo');
 
 async function start() {
   const { data } = await sb.auth.getSession();
@@ -108,6 +131,17 @@ async function load() {
   clearInterval(timer); timer = setInterval(async () => { if (document.hidden) return; const r = await sb.rpc('admin_overview'); if (!r.error) { DATA = r.data; draw(); } }, 60000);
 }
 
+// תקלה = אותה אפליקציה + הודעה + מקום בקוד. פתוחה אם יש לה מופע שלא סומן "תוקנה"
+function groupErrs(errs) {
+  const g = new Map();
+  for (const e of errs) {
+    const k = `${e.app}|${e.message}|${e.source}`;
+    if (!g.has(k)) g.set(k, { k, app: e.app, message: e.message, source: e.source, open: [], fixed: [] });
+    g.get(k)[e.fixed_at ? 'fixed' : 'open'].push(e);
+  }
+  return [...g.values()].map(x => ({ ...x, last: [...x.open, ...x.fixed].reduce((m, e) => (e.at > m ? e.at : m), '') }))
+    .sort((a, b) => b.last.localeCompare(a.last));
+}
 function lastSeen(u) { return (u.devices || []).reduce((m, d) => (!m || d.last_seen > m ? d.last_seen : m), null) || u.last_sign_in_at; }
 
 function draw() {
@@ -115,7 +149,7 @@ function draw() {
   const devs = [...users.flatMap(u => u.devices || []), ...(DATA.anon_devices || [])];
   const installed = users.filter(u => (u.devices || []).some(d => d.standalone)).length;
   const active = users.filter(u => { const t = lastSeen(u); return t && new Date(t) > week; }).length;
-  const errWeek = errs.filter(e => new Date(e.at) > week).length;
+  const openErrs = groupErrs(errs).filter(x => x.open.length).length;
   $('#root').innerHTML = `<div class="top"><a class="btn" href="../" style="text-decoration:none">→ לאפליקציה</a><h1>📊 לוח בקרה</h1></div>
     <div class="stats">
       <div class="stat"><b>${users.length}</b><span>👥 משתמשים</span></div>
@@ -123,9 +157,9 @@ function draw() {
       <div class="stat"><b>${installed}</b><span>📲 התקינו</span></div>
       <div class="stat"><b>${(DATA.households || []).length}</b><span>💰 משפחות</span></div>
       <div class="stat"><b>${(DATA.groups || []).length}</b><span>⏰ קבוצות</span></div>
-      <div class="stat"><b style="color:${errWeek ? '#FDA4AF' : '#86EFAC'}">${errWeek}</b><span>🐞 תקלות השבוע</span></div>
+      <div class="stat"><b style="color:${openErrs ? '#FDA4AF' : '#86EFAC'}">${openErrs}</b><span>🐞 תקלות פתוחות</span></div>
     </div>
-    <div class="tabs">${[['people', '👥 אנשים'], ['fam', '🏠 משפחות וקבוצות'], ['errs', `🐞 תקלות (${errs.length})`], ['devs', `📱 מכשירים (${devs.length})`]].map(([k, l]) => `<button data-t="${k}" class="${tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+    <div class="tabs">${[['people', '👥 אנשים'], ['fam', '🏠 משפחות וקבוצות'], ['errs', `🐞 תקלות (${openErrs})`], ['devs', `📱 מכשירים (${devs.length})`]].map(([k, l]) => `<button data-t="${k}" class="${tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
     <div class="list" id="list"></div>
     <div class="foot sub">עודכן ${ago(DATA.now)} · מתעדכן לבד כל דקה <button class="btn" id="rf" style="margin-inline-start:8px">🔄</button></div>`;
   $('#rf').onclick = load;
@@ -161,11 +195,51 @@ function drawFam(users) {
   $('#list').innerHTML = [...hh, ...gr].join('') || '<div class="empty">עוד אין משפחות</div>';
 }
 function drawErrs(users, errs) {
-  $('#list').innerHTML = errs.length ? errs.map(e => `<div class="card"><div class="row"><span class="chip ${APPN[e.app]?.[0] || ''}">${APPN[e.app]?.[1] || esc(e.app)}</span>
-      <span class="chip">${esc(e.device || '')}</span><div class="when"><b>${ago(e.at)}</b>${e.email ? esc(e.email) : ''}</div></div>
-      <div class="emsg">${esc(e.message)}${e.source ? '<br>📍 ' + esc(e.source) : ''}</div>
-      ${e.version ? `<div class="sub" style="margin-top:6px;direction:ltr;text-align:right">${esc(e.version)}</div>` : ''}</div>`).join('')
-    : '<div class="empty">🎉 אין תקלות</div>';
+  const groups = groupErrs(errs), open = groups.filter(x => x.open.length), done = groups.filter(x => !x.open.length);
+  const day = t => new Date(t).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric', year: '2-digit' });
+  const head = (x, rows, st) => {
+    const devs = new Set(rows.map(e => e.device).filter(Boolean)), mails = [...new Set(rows.map(e => e.email).filter(Boolean))];
+    return `<div class="row" style="flex-wrap:wrap"><span class="chip ${APPN[x.app]?.[0] || ''}">${APPN[x.app]?.[1] || esc(x.app)}</span>
+      <span class="est ${st}">${st === 'open' ? '🔴 פתוחה' : '✅ תוקנה'}</span>${rows.length > 1 ? `<span class="times">×${rows.length}</span>` : ''}
+      <div class="when"><b>${ago(rows[0].at)}</b>${devs.size > 1 ? `${devs.size} מכשירים` : esc([...devs][0] || '')}</div></div>
+      <div class="emsg">${esc(x.message)}${x.source ? '<br>📍 ' + esc(x.source) : ''}</div>
+      <div class="sub" style="margin-top:6px">${rows.length > 1 ? `🕐 ראשונה ${ago(rows[rows.length - 1].at)} · אחרונה ${ago(rows[0].at)}` : `🕐 ${ago(rows[0].at)}`}</div>
+      ${mails.length ? `<div class="sub ltr">👤 ${esc(mails.join(' · '))}</div>` : ''}${rows[0].version ? `<div class="sub ltr">🏷️ ${esc(rows[0].version)}</div>` : ''}`;
+  };
+  const fixInfo = f => `<div class="fixnote">✅ ${esc(f.fixed_note || '')}<small>תוקנה ${day(f.fixed_at)}${f.fixed_version ? ` · גרסה <span style="direction:ltr;unicode-bidi:isolate">${esc(f.fixed_version)}</span>` : ''}</small></div>`;
+  const openCard = x => `<div class="card" data-g="${esc(x.k)}">${head(x, x.open, 'open')}
+      ${x.fixed.length ? `<div class="again">⚠️ חזרה אחרי תיקון (${day(x.fixed[0].fixed_at)}: ${esc(x.fixed[0].fixed_note || '')})</div>` : ''}
+      <div class="acts"><button class="btn ok" data-fix="${x.open[0].id}">✅ סמן כמתוקנת</button></div></div>`;
+  const doneCard = x => `<div class="card done">${head(x, x.fixed, 'fixed')}${fixInfo(x.fixed[0])}
+      <div class="acts"><button class="btn" data-reopen="${x.fixed[0].id}">↩️ לפתוח מחדש</button></div></div>`;
+  $('#list').innerHTML = (open.length ? open.map(openCard).join('') : '<div class="empty">🎉 אין תקלות פתוחות</div>')
+    + (done.length ? `<details class="fixed-sec"><summary>✅ תוקנו (${done.length})</summary><div class="list">${done.map(doneCard).join('')}</div></details>` : '');
+  document.querySelectorAll('[data-fix]').forEach(b => b.onclick = () => {
+    const acts = b.parentElement; if (acts.nextElementSibling?.classList.contains('fixbox')) return;
+    const box = document.createElement('div'); box.className = 'fixbox';
+    box.innerHTML = `<textarea placeholder="מה תוקן? משפט קצר בעברית פשוטה, למשל: הכפתור 'שמור' כבר לא נתקע"></textarea>
+      <input placeholder="גרסה (לא חובה), למשל kesef-20261021…" dir="ltr"><div class="err"></div>
+      <div class="acts" style="margin:0"><button class="btn ok">💾 שמירה — תוקנה</button><button class="btn">ביטול</button></div>`;
+    acts.after(box); acts.hidden = true; box.querySelector('textarea').focus();
+    const [save, cancel] = box.querySelectorAll('.acts .btn');
+    cancel.onclick = () => { box.remove(); acts.hidden = false; };
+    save.onclick = async () => {
+      const note = box.querySelector('textarea').value.trim(), ver = box.querySelector('input').value.trim();
+      if (note.length < 3) { box.querySelector('.err').textContent = 'צריך משפט קצר שמסביר מה תוקן'; return; }
+      save.disabled = true;
+      if (DEMO) { for (const e of DATA.errors) if (`${e.app}|${e.message}|${e.source}` === b.closest('[data-g]').dataset.g && !e.fixed_at) Object.assign(e, { fixed_at: new Date().toISOString(), fixed_version: ver, fixed_note: note }); draw(); return; }
+      const { error } = await sb.rpc('admin_fix_error', { p_id: Number(b.dataset.fix), p_version: ver, p_note: note });
+      if (error) { box.querySelector('.err').textContent = error.message; save.disabled = false; return; }
+      const r = await sb.rpc('admin_overview'); if (!r.error) { DATA = r.data; draw(); }
+    };
+  });
+  document.querySelectorAll('[data-reopen]').forEach(b => b.onclick = async () => {
+    if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = '⚠️ בטוח? לחץ שוב'; return; }
+    if (DEMO) { const t = DATA.errors.find(e => String(e.id) === b.dataset.reopen); for (const e of DATA.errors) if (e.app === t.app && e.message === t.message && e.source === t.source) Object.assign(e, { fixed_at: null, fixed_version: null, fixed_note: null }); draw(); return; }
+    const { error } = await sb.rpc('admin_reopen_error', { p_id: Number(b.dataset.reopen) });
+    if (error) { alert(error.message); return; }
+    const r = await sb.rpc('admin_overview'); if (!r.error) { DATA = r.data; draw(); }
+  });
 }
 function drawDevs(users, errs, devs) {
   const owner = new Map(users.flatMap(u => (u.devices || []).map(d => [d, u])));
@@ -188,7 +262,12 @@ if (location.hostname === 'localhost' && location.search.includes('demo')) {
     households: [{ id: 'h', name: 'משפחת וינדיש', created_at: h(40), members: [{ user_id: 'a', role: 'parent' }, { user_id: 'b', role: 'parent' }] }],
     groups: [{ id: 'g', name: 'הבית', kind: 'family', created_at: h(30), members: [{ user_id: 'a', nickname: 'אבא', role: 'admin' }, { user_id: null, nickname: 'יוסי', role: 'child' }] }],
     anon_devices: [{ app: 'zman', standalone: false, device: 'Windows · Chrome', last_seen: h(50), opens: 1 }],
-    errors: [{ app: 'kesef', message: "TypeError: Cannot read properties of undefined (reading 'amount')", source: 'app.js:412', device: 'iPhone · Safari', version: 'kesef-20261019132348', at: h(3), email: 'p@example.com' }] };
+    errors: [
+      { id: 1, app: 'kesef', message: "TypeError: Cannot read properties of undefined (reading 'amount')", source: 'app.js:412', device: 'iPhone · Safari', version: 'kesef-20261019132348', at: h(3), email: 'p@example.com' },
+      { id: 2, app: 'kesef', message: "TypeError: Cannot read properties of undefined (reading 'amount')", source: 'app.js:412', device: 'Android · Chrome', version: 'kesef-20261019132348', at: h(9), email: 'a.very.long.address.for.testing@example.com' },
+      { id: 3, app: 'kesef', message: "TypeError: Cannot read properties of undefined (reading 'amount')", source: 'app.js:412', device: 'iPhone · Safari', version: 'kesef-20261019132348', at: h(30), email: 'p@example.com' },
+      { id: 4, app: 'zman', message: "ReferenceError: tasks is not defined", source: 'app.js:3958', device: 'Android · Chrome', version: 'zman-20261020', at: h(5), email: null },
+      { id: 5, app: 'zman', message: "TypeError: x.map is not a function", source: 'app.js:1451', device: 'Mac · Chrome', version: 'zman-20261020', at: h(50), email: null, fixed_at: h(20), fixed_version: 'zman-20261020183000', fixed_note: 'רשימת המשימות כבר לא נתקעת כשהקבוצה ריקה' }] };
   draw();
 } else start();
 </script>
