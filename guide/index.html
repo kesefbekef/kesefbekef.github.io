@@ -639,7 +639,11 @@ footer{padding:28px 0;text-align:center;color:#8B82A6;font-size:14px}
     document.body.prepend(bar);
   }
   var fab = document.getElementById('enterFab');
-  function fabTick() { var y = scrollY, h = document.documentElement.scrollHeight - innerHeight; fab.classList.toggle('show', y > 350 && y < h - 250); }
+  var bigs = document.querySelectorAll('a.enter');
+  function fabTick() {
+    var near = Array.prototype.some.call(bigs, function (b) { var r = b.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; });
+    fab.classList.toggle('show', scrollY > 350 && !near);
+  }
   addEventListener('scroll', fabTick, { passive: true }); fabTick();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('../sw.js').catch(function () {});
 })();
