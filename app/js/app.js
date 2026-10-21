@@ -145,13 +145,14 @@ function openSheet(html, mount, fromBack = false) {
     } // אותו חלון בדיוק (רענון אחרי שמירה) — לא נרשם צעד חדש
   }
   curSheet = next;
+  $('#sheet').classList.toggle('full', html.startsWith('<!--full-->')); // מסך מלא (✨ מה חדש)
   $('#sheet').innerHTML = '<div class="grip"></div>' + html;
   $('#sheet').scrollTop = 0;
   $('#overlay').classList.add('on'); $('#sheet').classList.add('on');
   mount?.($('#sheet'));
 }
 function closeSheet(fromPop) {
-  $('#overlay').classList.remove('on'); $('#sheet').classList.remove('on');
+  $('#overlay').classList.remove('on'); $('#sheet').classList.remove('on', 'full'); clearTimeout(nxTimer);
   document.querySelector('.tour-card')?.classList.remove('hide'); // כרטיס הסיור חוזר
   document.body.classList.remove('noting', 'over-gate');
   if (fromPop !== true) { let k = 0; for (let i = nav.length - 1; i >= 0 && nav[i].t === 'sheet'; i--) k++; hDrop(k); }
@@ -601,29 +602,62 @@ function maybeNews() {
 }
 // newsBack = איפה עצרנו ברשימה — כדי לחזור אליה אחרי "👀 תראו לי"
 let newsBack = null;
+// ✨ מה חדש — מסך מלא נוצץ בסגנון סטוריז: כרטיס לכל חידוש, פסי התקדמות למעלה, מעבר אוטומטי, ובסוף "🎉 זהו!"
+let nxTimer = 0;
+const NX_MS = 6500;
+const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches || document.documentElement.classList.contains('noanim');
 function openNews(all = false, items = null, restore = false) {
   lsSet(NEWS_KEY, NEWS[0]?.v || '');
-  $('.news-fab')?.remove();
+  $('.news-fab')?.remove(); clearTimeout(nxTimer);
   const seen = newsBack?.seen || [];
-  const row = (i, k) => `<div class="nw-row ${seen.includes(i.go) ? 'seen' : ''}" ${i.go ? `data-ng="${i.go}" role="button"` : ''} style="--d:${restore ? 0 : k * 90}ms"><span class="nw-e">${i.e}</span><span class="nw-t"><b>${esc(i.t)}</b><small>${esc(i.d)}</small></span>${i.go ? `<button class="nw-go" data-ng="${i.go}">${seen.includes(i.go) ? '✓ ' : ''}👀 תראו לי</button>` : ''}</div>`;
   const dLabel = v => new Date(v + 'T12:00:00').toLocaleDateString('he-IL', { day: 'numeric', month: 'long' });
-  const body = all
-    ? NEWS.map(n => ({ ...n, items: newsFor(n.items) })).filter(n => n.items.length).map((n, j) => `<div class="nw-day">${j === 0 ? '🆕 ' : ''}${dLabel(n.v)}</div>${n.items.map(row).join('')}`).join('')
-    : (items.length > 6 ? items.slice(0, 6) : items).map(row).join('') + (items.length > 6 ? `<button class="chip" id="nwAll" style="margin-top:4px">ועוד ${items.length - 6} — לכל הרשימה</button>` : '');
-  const first = (items || newsFor(NEWS[0].items)).find(i => i.go && i.go !== 'news' && !seen.includes(i.go)) || (items || []).find(i => i.go && i.go !== 'news');
-  openSheet(`<div class="nw-head"><span class="nw-spark">✨</span><h3>מה חדש${all ? '' : ' באפליקציה'}</h3><div class="sub">${all ? 'כל העדכונים — החדש למעלה. "👀 תראו לי" — לשם, ו"✨ חזרה" מחזיר לכאן.' : 'עדכנו את האפליקציה. הנה מה שהשתנה 👇'}</div></div>
-    <div class="nw-list">${body}</div>
-    ${all ? '' : `<div class="row2 nw-btns">${first ? `<button class="btn grad" id="nwShow">👀 ${seen.length ? 'הבא' : 'תראו לי'}</button>` : ''}<button class="btn ghost" id="nwOk">הבנתי ✓</button></div>`}`, sh => {
+  // כל חידוש = כרטיס. בהיסטוריה — מכל הימים (החדש קודם), עם התאריך על הכרטיס
+  const list = all ? NEWS.flatMap(n => newsFor(n.items).map(it => ({ ...it, v: n.v }))) : (items || newsFor(NEWS[0].items)).map(it => ({ ...it, v: it.v || NEWS[0].v }));
+  const n = list.length, many = n > 20;
+  const stars = Array.from({ length: 16 }, (_, k) => `<i style="--x:${(k * 37) % 100}%;--y:${(k * 53) % 100}%;--s:${.6 + (k % 4) * .25};--t:${2 + (k % 5) * .6}s;--dl:${(k % 7) * .4}s">${k % 3 ? '✦' : '✧'}</i>`).join('');
+  const card = (it, k) => `<section class="nx-card" data-k="${k}">
+      <div class="nx-emo">${it.e}</div><h2>${esc(it.t)}</h2><p>${esc(it.d)}</p>
+      ${it.go ? `<button class="nx-go ${seen.includes(it.go) ? 'seen' : ''}" data-ng="${it.go}">${seen.includes(it.go) ? '✓ ' : ''}👀 תראו לי</button>` : ''}
+      <small class="nx-day">${all ? '📅 ' + dLabel(it.v) : `${k + 1} מתוך ${n}`}</small></section>`;
+  const end = `<section class="nx-card nx-end" data-k="${n}"><div class="nx-emo">🎉</div><h2>זהו! תיהנו</h2><p>${all ? 'זו כל ההיסטוריה.' : 'אפשר לראות הכל שוב ב-⚙️ ← "✨ מה חדש".'}</p>
+      <button class="nx-done" id="nxDone">יאללה, להמשיך ✨</button></section>`;
+  openSheet(`<!--full--><div class="nx ${reducedMotion() ? 'calm' : ''}">
+    <div class="nx-bg">${stars}</div>
+    ${many ? `<div class="nx-count"><span id="nxCnt">1</span> / ${n + 1}</div>` : `<div class="nx-bars">${[...list, 0].map(() => '<i><b></b></i>').join('')}</div>`}
+    <div class="nx-top"><div><b class="nx-title">✨ ${all ? 'כל מה שחדש' : 'יש חדש!'}</b><small>${all ? `${n} חידושים` : `${dLabel(NEWS[0].v)} · <span class="nx-pill">${n} חידושים</span>`}</small></div><button class="nx-x" id="nxX" aria-label="סגירה">✕</button></div>
+    <div class="nx-track" id="nxTrack">${list.map(card).join('')}${end}</div>
+    <div class="nx-hint">${reducedMotion() ? 'מחליקים ←' : 'מחליקים או נוגעים בצד ←'}</div></div>`, sh => {
+    const track = sh.querySelector('#nxTrack'), cards = [...track.children], bars = [...sh.querySelectorAll('.nx-bars i')];
+    let idx = -1, paused = false;
+    const auto = !all && !reducedMotion();
+    const show = k => { k = Math.max(0, Math.min(cards.length - 1, k)); cards[k].scrollIntoView({ inline: 'start', block: 'nearest', behavior: reducedMotion() ? 'auto' : 'smooth' }); };
+    const setIdx = k => {
+      if (k === idx) return; idx = k; clearTimeout(nxTimer);
+      cards.forEach((c, j) => c.classList.toggle('on', j === k));
+      bars.forEach((b, j) => { b.className = j < k ? 'done' : j === k ? (auto ? 'run' : 'done') : ''; });
+      const cnt = sh.querySelector('#nxCnt'); if (cnt) cnt.textContent = k + 1;
+      if (newsBack) newsBack.idx = k;
+      if (k === cards.length - 1 && !all && !reducedMotion()) confetti();
+      if (auto && k < cards.length - 1) nxTimer = setTimeout(() => { if (!paused && $('#sheet').classList.contains('full')) show(k + 1); }, NX_MS);
+    };
+    const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting && e.intersectionRatio > .6) setIdx(+e.target.dataset.k); }), { root: track, threshold: [.6] });
+    cards.forEach(c => io.observe(c));
+    // נגיעה בצד: שמאל = הבא, ימין = הקודם (עברית). אצבע על המסך — עוצר את המעבר האוטומטי
+    track.addEventListener('click', e => { if (e.target.closest('button')) return; const r = track.getBoundingClientRect(); show(idx + (e.clientX < r.left + r.width / 2 ? 1 : -1)); });
+    track.addEventListener('pointerdown', () => { paused = true; sh.querySelector('.nx').classList.add('paused'); });
+    const resume = () => { if (!paused) return; paused = false; sh.querySelector('.nx').classList.remove('paused'); if (auto && idx < cards.length - 1) { clearTimeout(nxTimer); nxTimer = setTimeout(() => show(idx + 1), NX_MS / 2); } };
+    track.addEventListener('pointerup', resume); track.addEventListener('pointercancel', resume);
     const goTo = key => {
       const f = NEWS_GO[key]; if (!f) return;
-      newsBack = { all, items, scroll: $('#sheet').scrollTop, seen: [...new Set([...seen, key])] };
+      newsBack = { all, items, idx, seen: [...new Set([...seen, key])] };
       closeSheet(); setTimeout(() => { f(); if (key !== 'news') newsFab(); }, 250);
     };
     sh.querySelectorAll('[data-ng]').forEach(b => b.onclick = e => { e.stopPropagation(); goTo(b.dataset.ng); });
-    sh.querySelector('#nwShow')?.addEventListener('click', () => goTo(first.go));
-    sh.querySelector('#nwOk')?.addEventListener('click', () => { newsBack = null; closeSheet(); });
-    sh.querySelector('#nwAll')?.addEventListener('click', () => openNews(true));
-    if (restore && newsBack) requestAnimationFrame(() => { $('#sheet').scrollTop = newsBack.scroll; });
+    const done = () => { newsBack = null; closeSheet(); };
+    sh.querySelector('#nxX').onclick = done; sh.querySelector('#nxDone').onclick = done;
+    const start = restore && newsBack?.idx != null ? newsBack.idx : 0;
+    setTimeout(() => { if (start) cards[start].scrollIntoView({ inline: 'start', block: 'nearest' }); setIdx(start); }, 30);
+    if (!restore && !all && !reducedMotion()) setTimeout(confetti, 250);
   });
 }
 // ✨ כפתור צף: חזרה לרשימת "מה חדש" אחרי שניסו משהו. נשאר עד "הבנתי ✓" או ✕
