@@ -534,23 +534,23 @@ function renderBudget() {
   countUp($('#incSum'), incomeIn(m));
   countUp($('#expSum'), expenseIn(m));
   const hint = !lsGet('kesef-cathint');
-  const mode = S.budgets._mode === 'auto' ? '🪄 אוטומטי' : S.budgets._mode === 'manual' ? '✍️ אני קובע' : '';
+  const mode = S.budgets._mode || '';
   const rl = Object.values(S.recurring || {}).filter(r => !r.paused), rIn = rl.filter(r => r.cat === 'income').reduce((x, r) => x + r.amount, 0), rOut = rl.filter(r => r.cat !== 'income').reduce((x, r) => x + r.amount, 0);
-  $('#budgetList').innerHTML = `<button class="card rec-card" id="recCard"><span class="plus">🔁</span><span><b>הקבועים שלי${rl.length ? ` · ${rl.length}` : ''}</b><small>${rl.length ? `נכנס ${fmt(rIn)} · יוצא ${fmt(rOut)} — כל חודש, לבד` : 'שכירות, ועד בית, משכורת — פעם אחת, ונרשם לבד כל חודש'}</small></span></button>
-    <button class="card newcat ${hint ? 'pulse' : ''}" id="newCatCard"><span class="plus">➕</span><span><b>קטגוריה חדשה</b><small>למשל 🐶 הכלב, 🎓 לימודים — עם אייקון וצבע</small></span>${hint ? '<i class="hint">חדש ✨</i>' : ''}</button>
-    ${mode ? `<button class="chip" id="budgetMode" style="align-self:flex-start">תקציב: ${mode} · לשנות</button>` : ''}` + Object.entries(CATS).map(([id, c]) => {
+  $('#budgetList').innerHTML = `<div class="bud-top"><button class="card newcat ${hint ? 'pulse' : ''}" id="catsBtn"><span class="plus">🏷️</span><span><b>קטגוריות</b><small>הוספה, שינוי שם, אייקון וצבע</small></span>${hint ? '<i class="hint">חדש ✨</i>' : ''}</button>
+    <div class="bmode" role="group" aria-label="סוג התקציב"><button data-bmode="auto" class="${mode === 'auto' ? 'on' : ''}">🪄 אוטומטי</button><button data-bmode="manual" class="${mode === 'manual' ? 'on' : ''}">✍️ אני קובע</button></div></div>
+    <button class="card rec-card" id="recCard"><span class="plus">🔁</span><span><b>הקבועים שלי${rl.length ? ` · ${rl.length}` : ''}</b><small>${rl.length ? `נכנס ${fmt(rIn)} · יוצא ${fmt(rOut)} — כל חודש, לבד` : 'שכירות, ועד בית, משכורת — פעם אחת, ונרשם לבד כל חודש'}</small></span></button>` + Object.entries(CATS).map(([id, c]) => {
     const s = spentIn(id, m), b = budgetOf(id), p = b ? Math.min(100, s / b * 100) : 0, o = b && s > b, left = b - s;
     // ✉️ מעטפה: כמה נשאר — בגדול. אדום כשנגמר / חרגנו
     const env = !b ? `<div class="env"><small>הוצאתם</small><b>${fmt(s)}</b></div>`
       : left > 0 ? `<div class="env ${p >= 90 ? 'warn' : ''}"><small>נשארו</small><b>${fmt(left)}</b></div>`
       : `<div class="env empty-env"><small>${left === 0 ? 'המעטפה ריקה' : 'חריגה'}</small><b>${left === 0 ? '0₪' : '-' + fmt(-left)}</b></div>`;
-    return `<button class="card" data-cat="${id}"><div class="cat-row"><div class="cat-ic" style="background:${c.g}">${c.e}</div><div class="nm">${esc(c.n)} <span class="cedit2" data-ecat="${id}" role="button" aria-label="עריכת קטגוריה">✏️</span><small class="sub" style="display:block">${b ? `${fmt(s)} מתוך ${fmt(b)}${S.budgets._mode === 'auto' && S.budgets[id] == null ? ' 🪄' : ''}` : 'בלי תקציב'}</small></div>${env}</div><div class="pbar"><i style="width:${p}%;background:${o || (b && left <= 0) ? 'linear-gradient(90deg,#F43F5E,#FB7185)' : c.g}"></i></div></button>`;
+    return `<button class="card" data-cat="${id}"><div class="cat-row"><div class="cat-ic" style="background:${c.g}">${c.e}</div><div class="nm">${esc(c.n)} <span class="cedit2" data-ecat="${id}" role="button" aria-label="עריכת קטגוריה">✏️ עריכה</span><small class="sub" style="display:block">${b ? `${fmt(s)} מתוך ${fmt(b)}${S.budgets._mode === 'auto' && S.budgets[id] == null ? ' 🪄' : ''}` : 'בלי תקציב'}</small></div>${env}</div><div class="pbar"><i style="width:${p}%;background:${o || (b && left <= 0) ? 'linear-gradient(90deg,#F43F5E,#FB7185)' : c.g}"></i></div></button>`;
   }).join('');
 }
 $('#budgetList').addEventListener('click', e => {
   if (e.target.closest('#recCard')) { openRecurring(); return; }
-  if (e.target.closest('#newCatCard')) { lsSet('kesef-cathint', '1'); openCatEdit(null, () => closeSheet()); return; }
-  if (e.target.closest('#budgetMode')) { openBudgetSetup(); return; }
+  if (e.target.closest('#catsBtn')) { lsSet('kesef-cathint', '1'); openCatsSheet(); return; }
+  const bm = e.target.closest('[data-bmode]'); if (bm) { setBudgetMode(bm.dataset.bmode); return; }
   const ec = e.target.closest('[data-ecat]'); if (ec) { lsSet('kesef-cathint', '1'); openCatEdit(ec.dataset.ecat, () => closeSheet()); return; }
   const b = e.target.closest('[data-cat]'); if (!b) return;
   openCategory(b.dataset.cat, S.month);
@@ -558,7 +558,40 @@ $('#budgetList').addEventListener('click', e => {
 document.querySelector('#v-budget .duo').addEventListener('click', e => {
   const st = e.target.closest('.stat'); if (!st) return;
   if (st.querySelector('#incSum')) openCategory('income', S.month);
+  else openExpenses(S.month);
 });
+// 🪄 / ✍️ — מעבר בין תקציב אוטומטי לידני בכל רגע. הסכומים הידניים נשמרים בצד (_saved) כדי לחזור אליהם
+async function setBudgetMode(mode) {
+  if (S.budgets._mode === mode) { toast(mode === 'auto' ? '🪄 התקציב כבר אוטומטי' : '✍️ כבר אתם קובעים — לשינוי סכום לוחצים על קטגוריה'); return; }
+  const { _mode, _saved, ...cur } = S.budgets; void _mode;
+  const own = Object.fromEntries(Object.entries(cur).filter(([, v]) => v != null));
+  if (mode === 'auto') {
+    S.budgets = { _mode: 'auto', ...(Object.keys(own).length ? { _saved: own } : {}) };
+    await saveKV('budgets', S.budgets); renderAll(); confetti();
+    toast(Object.keys(own).length ? '🪄 חזרנו לתקציב אוטומטי — הסכומים שקבעתם נשמרו בצד' : '🪄 התקציב אוטומטי — מתעדכן לבד לפי ההוצאות');
+  } else if (_saved) {
+    S.budgets = { _mode: 'manual', ..._saved, ...own };
+    await saveKV('budgets', S.budgets); renderAll(); toast('✍️ חזרו הסכומים שקבעתם');
+  } else openBudgetManual();
+}
+// 🔎 פירוט ההוצאות: לפי קטגוריה ולפי מי שהוציא
+function openExpenses(m = S.month) {
+  const list = txInMonth(m).filter(t => t.cat !== 'income'), total = list.reduce((s, t) => s + amountIn(t, m), 0);
+  const byCat = {}, byWho = {};
+  for (const t of list) { const v = amountIn(t, m); byCat[t.cat] = (byCat[t.cat] || 0) + v; const w = t.who && personOf(t.who) ? t.who : ''; byWho[w] = (byWho[w] || 0) + v; }
+  const cats = Object.entries(byCat).sort((a, b) => b[1] - a[1]), who = Object.entries(byWho).sort((a, b) => b[1] - a[1]);
+  const pct = v => total ? Math.round(v / total * 100) : 0;
+  openSheet(`<h3>🔎 לאן הלך הכסף</h3>
+    <div class="monthnav" style="justify-content:space-between;margin-bottom:12px"><button data-em="-1" aria-label="חודש קודם">›</button><span>${monthLabel(m)}</span><button data-em="1" aria-label="חודש הבא">‹</button></div>
+    <div class="card" style="text-align:center;margin-bottom:12px"><small class="sub">יצא החודש</small><div class="big-num">${fmt(total)}</div><small class="sub">${list.length} הוצאות</small></div>
+    ${cats.length ? `<b>🏷️ לפי קטגוריה</b><div class="card xb-list" style="padding:4px 12px;margin:6px 0 14px">${cats.map(([id, v], i) => { const c = catOf(id); return `<button class="xb" data-xc="${id}" style="--d:${i * 50}ms"><div class="cat-ic" style="background:${c.g}">${c.e}</div><div class="nm"><div class="xb-h"><span>${esc(c.n)}</span><b>${fmt(v)}</b></div><div class="pbar"><i style="width:${pct(v)}%;background:${c.g}"></i></div><small class="sub">${pct(v)}% מההוצאות</small></div></button>`; }).join('')}</div>
+    <b>👪 לפי מי</b><div class="card xb-list" style="padding:4px 12px;margin-top:6px">${who.map(([w, v], i) => `<div class="xb" style="--d:${i * 50}ms"><div class="cat-ic" style="background:var(--g1)">${w ? esc(personOf(w).e) : '👥'}</div><div class="nm"><div class="xb-h"><span>${w ? esc(personOf(w).name) : 'בלי שם / כולם'}</span><b>${fmt(v)}</b></div><div class="pbar"><i style="width:${pct(v)}%;background:var(--g1)"></i></div><small class="sub">${pct(v)}%</small></div></div>`).join('')}</div>
+    <div class="sub" style="text-align:center;margin-top:10px">לחיצה על קטגוריה — כל ההוצאות שבה</div>`
+    : '<div class="empty"><span class="em">🌱</span>אין הוצאות בחודש הזה</div>'}`, sh => {
+    sh.querySelectorAll('[data-em]').forEach(x => x.onclick = () => openExpenses(addMonths(m, Number(x.dataset.em))));
+    sh.querySelectorAll('[data-xc]').forEach(x => x.onclick = () => openCategory(x.dataset.xc, m));
+  });
+}
 function openBudgetEdit(id) {
   const c = CATS[id], r = recommend(id);
   openSheet(`<h3>${c.e} תקציב ל${c.n}</h3>
@@ -1453,7 +1486,7 @@ function openMaaser() {
         <span class="chip ${custom ? 'on' : ''}" style="display:inline-flex;gap:4px;align-items:center">אחר <input id="mCustom" type="number" inputmode="decimal" value="${custom ? r.pct : ''}" placeholder="%" style="width:52px;background:transparent;border:none;border-bottom:1px solid var(--line);color:inherit;font-size:16px;text-align:center">%</span></div></div>
 
     <div class="msec"><b>💰 מאילו הכנסות?</b><div class="sub" style="margin:2px 0 8px">לוחצים כדי להכליל / להוציא סוג הכנסה. אפשר גם הכנסה בודדת: ✏️ עריכה ← "בלי מעשר".</div>
-      ${kinds.length ? kinds.map(([k, v]) => { const on = (M.incOff || {})[k] !== false; return `<button class="mtog ${on ? 'on' : ''}" data-ik="${esc(k)}"><span>${on ? '✅' : '🚫'} ${esc(k)}</span><small>${fmt(v.v)} · ${v.n} פעמים</small></button>`; }).join('') : '<div class="sub">עוד אין הכנסות</div>'}</div>
+      ${kinds.length ? kinds.map(([k, v]) => { const on = (M.incOff || {})[k] !== false; return `<button class="mtog ${on ? 'on' : ''}" data-ik="${esc(k)}"><span>${on ? '✅' : '⬜'} ${esc(k)}</span><small>${fmt(v.v)} · ${v.n} פעמים</small></button>`; }).join('') : '<div class="sub">עוד אין הכנסות</div>'}</div>
 
     <div class="msec"><div style="display:flex;align-items:center;gap:8px"><b style="flex:1">➖ לנכות הוצאות?</b><button class="chip ${M.deduct ? 'on' : ''}" id="mDed">${M.deduct ? '✅ כן' : 'לא'}</button></div>
       ${M.deduct ? `<div class="sub" style="margin:6px 0">אילו הוצאות לנכות מההכנסה לפני החישוב? (נוכה: ${fmt(r.ded)})</div>
@@ -1984,8 +2017,9 @@ const TOUR = [
   { v: 'budget', sel: '#sheet', open: () => openBudgetSetup(), t: '🎯 פתיחה: איך בונים תקציב?', d: 'בפעם הראשונה בוחרים: 🪄 אוטומטי (מתעדכן לבד לפי ההוצאות) או ✍️ אני קובע לכל קטגוריה. אפשר לשנות אחר כך.' },
   { v: 'budget', sel: '#sheet', open: () => openRecurringSetup(), t: '🔁 מה הקבועים שלכם?', d: 'בסוף מסך הפתיחה: לוחצים על שכירות, ועד בית, משכורת… מקלידים סכום — וזה נרשם לבד כל חודש.' },
   { v: 'budget', sel: '#sheet', open: () => openRecurring(), t: '🔁 הקבועים שלי', d: 'כל ההכנסות וההוצאות הקבועות: לערוך, ⏸️ להשהות או להפסיק. חשמל עם "סכום משתנה" — שואלים כל חודש כמה יצא. גם בצ\'אט: "ועד בית 250 כל חודש".' },
-  { v: 'budget', sel: '#newCatCard', t: '🏷️ קטגוריה חדשה', d: 'ישר ממסך התקציב: שם, אייקון וצבע. וליד כל קטגוריה ✏️ — לשנות שם, אייקון וצבע (גם לקטגוריות המוכנות).' },
-  { v: 'budget', sel: '#v-budget .duo', t: '🎯 הכנסות מול הוצאות', d: 'כמה נכנס וכמה יצא בחודש. לחיצה על ההכנסות — פירוט.' },
+  { v: 'budget', sel: '#catsBtn', t: '🏷️ קטגוריות', d: 'כפתור גדול בראש מסך התקציב: מוסיפים קטגוריה משלכם (🐶 הכלב, 🎓 לימודים) או משנים שם, אייקון וצבע. וליד כל קטגוריה יש ✏️ עריכה.' },
+  { v: 'budget', sel: '.bmode', t: '🪄 אוטומטי או ✍️ אני קובע', d: 'בכל רגע אפשר לעבור: אוטומטי = הסכומים מתעדכנים לבד לפי ההוצאות. אני קובע = אתם מחליטים. הסכומים שקבעתם נשמרים בצד ואפשר לחזור אליהם.' },
+  { v: 'budget', sel: '#v-budget .duo', t: '🎯 הכנסות מול הוצאות', d: 'כמה נכנס וכמה יצא בחודש. לחיצה על ההוצאות 🔎 — לאן הלך הכסף: לפי קטגוריה ולפי מי. לחיצה על ההכנסות — מי הכניס.' },
   { v: 'budget', sel: '#budgetList .card', t: '✉️ מעטפות', d: 'בגדול: כמה נשאר בכל קטגוריה. ירוק, צהוב ב-90%, אדום כשנגמר.' },
   { v: 'budget', sel: '#recoBtn', t: '🪄 המלצה לתקציב', d: 'מחשבת כמה כדאי להגדיר לכל קטגוריה לפי מה שהוצאתם בפועל.' },
   { v: 'budget', sel: '#sheet', open: () => openGoals(), t: '🐷 קופות חיסכון', d: 'יעד, תאריך — ואומרת כמה לשים בצד כל חודש. מגיעים ליעד? קונפטי.' },
