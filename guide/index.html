@@ -99,6 +99,10 @@ nav.toc a{flex:none;text-decoration:none;font-size:15px;font-weight:600;padding:
 .d-loan .lr i{font-style:normal}.d-loan .lr b{direction:ltr}
 .d-loan .lr.ok{background:rgba(34,197,94,.15)}.d-loan .lr.ok b{text-decoration:line-through;opacity:.7}.d-loan .lr.late{background:rgba(244,63,94,.18)}
 .d-loan .lr:nth-child(3){animation-delay:.3s}.d-loan .lr:nth-child(4){animation-delay:.6s}.d-loan .lr:nth-child(5){animation-delay:.9s}
+.d-gcal{display:flex;flex-direction:column;gap:6px;min-height:0;margin:8px 0}
+.d-gcal .gs{background:#2A2240;border-radius:10px;padding:7px 10px;font-size:13.5px;font-weight:700;animation:nln 5s ease-out infinite}
+.d-gcal .gs:nth-child(2){animation-delay:.4s}.d-gcal .gs:nth-child(3){animation-delay:.8s}
+.d-gcal .gs.hl{background:linear-gradient(135deg,#2563EB,#7C3AED);display:flex;justify-content:space-between;animation-delay:1.2s}.d-gcal .gs.hl i{font-style:normal}
 .d-rv{display:flex;flex-direction:column;gap:7px;justify-content:center}
 .d-rv .rb{align-self:center;background:linear-gradient(135deg,#22C55E,#14B8A6);border-radius:999px;padding:5px 14px;font-weight:800;font-size:13px;animation:nsp 2.6s ease-in-out infinite}
 .d-rv .rc{background:#2A2240;border-inline-start:3px solid #F59E0B;border-radius:10px;padding:6px 10px;font-size:13px;animation:nln 4.5s ease-out infinite}
@@ -461,7 +465,7 @@ footer{padding:28px 0;text-align:center;color:#8B82A6;font-size:14px}
 </section>
 
 <nav class="toc"><div class="wrap">
-  <a href="#new">🆕 חדש</a><a href="#features">🔥 מה יש</a><a href="#install">📲 התקנה</a><a href="#budget">🎯 תקציב</a><a href="#android">🤖 אנדרואיד</a><a href="#iphone">🍏 אייפון</a><a href="#pc">💻 מחשב</a><a href="#signup">🔑 הרשמה</a><a href="#join">👨‍👩‍👧 הצטרפות</a><a href="#use">💬 שימוש</a><a href="#tips">⭐ טיפים</a>
+  <a href="#new">🆕 חדש</a><a href="#features">🔥 מה יש</a><a href="#install">📲 התקנה</a><a href="#budget">🎯 תקציב</a><a href="#android">🤖 אנדרואיד</a><a href="#iphone">🍏 אייפון</a><a href="#pc">💻 מחשב</a><a href="#calin">📅 יומן</a><a href="#signup">🔑 הרשמה</a><a href="#join">👨‍👩‍👧 הצטרפות</a><a href="#use">💬 שימוש</a><a href="#tips">⭐ טיפים</a>
 </div></nav>
 
 <section>
@@ -640,6 +644,22 @@ footer{padding:28px 0;text-align:center;color:#8B82A6;font-size:14px}
       <div class="card"><div class="emo">🔎</div><h3>ומה קורה אז?</h3><p>היא קוראת את כל התנועות ומראה רשימה לבדיקה, עם קטגוריה לכל שורה. מתקנים אם צריך ולוחצים <b>"ייבוא"</b> ✅</p></div>
       <div class="card"><div class="emo">📥</div><h3>איפה מוצאים את הקובץ?</h3><p>באתר / באפליקציה של הבנק או האשראי ← "פירוט חיובים" ← <b>"ייצוא לאקסל"</b>. הקובץ נשמר ב"הורדות"</p></div>
       <div class="card"><div class="emo">🛡️</div><h3>בלי כפילויות</h3><p>✋ מה שכבר רשמתם ידנית יזוהה ולא ייספר פעמיים. בסוף: "12 חדשות · 3 כבר היו רשומות"</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="blue" id="calin" style="background:#F4F6FF">
+  <div class="wrap">
+    <span class="pill" style="background:#2563EB;color:#fff">📅 יומן ↔ אפליקציה</span>
+    <h2 style="margin-top:12px">📅 חיבור ליומן — בשני הכיוונים</h2>
+    <p style="font-size:18px;color:var(--soft);margin:-8px 0 18px">⚙️ ← <b>"📅 חיבור ליומן של הטלפון"</b></p>
+    <div class="cards">
+      <div class="card"><div class="num">1</div><h3>📤 מהאפליקציה ליומן</h3><p>לוחצים <b>🍏 אייפון</b> או <b>📅 Google</b> ← "הוסף". נכנס יומן <b>"💰 כסף בכיף"</b> עם כל התשלומים הקבועים, התזכורות והחזרי ההלוואות — ומתעדכן לבד.</p></div>
+      <div class="card"><div class="num">2</div><h3>📥 מהיומן שלך לאפליקציה — גוגל</h3>
+        <div class="demo d-gcal"><div class="gs">⚙️ הגדרות</div><div class="gs">📅 שם היומן שלך</div><div class="gs">🔗 שילוב יומן</div><div class="gs hl">🔒 כתובת סודית בפורמט iCal <i>📋</i></div></div>
+        <p>במחשב: <b>calendar.google.com</b> ← ⚙️ <b>הגדרות</b> ← בצד: לוחצים על <b>שם היומן שלך</b> ← גוללים ל-<b>"שילוב יומן"</b> (Integrate calendar) ← <b>"כתובת סודית בפורמט iCal"</b> ← מעתיקים. באפליקציה: מדביקים בשדה ← <b>"🔗 חיבור היומן שלי"</b>.</p></div>
+      <div class="card"><div class="num">3</div><h3>🍏 מהיומן לאפליקציה — אייפון (iCloud)</h3><p>באפליקציית <b>לוח שנה</b> ← <b>"לוחות שנה"</b> למטה ← ⓘ ליד היומן ← מדליקים <b>"לוח שנה ציבורי"</b> ← <b>"שתף קישור"</b> ← העתקה ← מדביקים באפליקציה. ⚠️ קישור ציבורי = מי שיש לו את הקישור יכול לראות. בגוגל הכתובת סודית.</p></div>
+      <div class="card"><div class="num">🔒</div><h3>פרטיות</h3><p>הקישור נשמר <b>מוצפן</b> בשרת, והאירועים — <b>רק את/ה רואה</b> (לא שאר המשפחה). מתעדכן כל 15 דקות, מחודש אחורה עד 3 חודשים קדימה. <b>"🔌 ניתוק"</b> מוחק את הקישור ואת כל האירועים.</p></div>
     </div>
   </div>
 </section>

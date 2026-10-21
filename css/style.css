@@ -552,3 +552,10 @@ body.over-gate .sheet{z-index:111}
 .cal-step:nth-child(2){animation-delay:.08s}.cal-step:nth-child(3){animation-delay:.16s}
 .cal-step b{font-size:16px}.cal-step small{color:var(--muted);font-size:13px;line-height:1.45}
 .cal-step a.btn{color:#fff!important;display:flex!important;align-items:center;justify-content:center;min-height:52px}
+
+/* 📥 היומן שלך באפליקציה */
+.cal-in{border-color:rgba(59,130,246,.45)}
+.cal-ev{display:flex;flex-direction:column;gap:6px}
+.cal-ev div{display:flex;flex-direction:column;background:var(--card2);border-inline-start:3px solid #3B82F6;border-radius:10px;padding:7px 10px;animation:rise .35s both}
+.cal-ev span{font-size:12.5px;color:var(--muted)}.cal-ev b{font-size:14.5px}
+.cal-in a.chip{color:inherit}
