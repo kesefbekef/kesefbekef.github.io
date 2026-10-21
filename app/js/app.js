@@ -8,6 +8,7 @@ import * as lock from './lock.js';
 import * as help from './help.js';
 import { demoData } from './demo-data.js';
 import { fixedPayments, dueMonths, nextRuleDate } from './fixed.js';
+import { NEWS } from './whats-new.js';
 
 // ---------- עזרים ----------
 const $ = s => document.querySelector(s);
@@ -560,6 +561,57 @@ document.querySelector('#v-budget .duo').addEventListener('click', e => {
   if (st.querySelector('#incSum')) openCategory('income', S.month);
   else openExpenses(S.month);
 });
+// ---------- ✨ מה חדש ----------
+// קופץ פעם אחת אחרי עדכון. 'kesef-news' = הגרסה האחרונה שראו בטלפון הזה. משתמש חדש — לא מקבל (יש לו את המדריך)
+const NEWS_KEY = 'kesef-news';
+const newsFor = items => items.filter(i => sync.isParent() || i.kids);
+const NEWS_GO = {
+  budget: () => go('budget'),
+  bmode: () => { go('budget'); spot('.bmode'); },
+  cats: () => { go('budget'); openCatsSheet(); },
+  expenses: () => { go('budget'); openExpenses(); },
+  maaser: () => { go('budget'); openMaaser(); },
+  goals: () => { go('budget'); openGoals(); },
+  debts: () => { go('budget'); openDebts(); },
+  rec: () => { go('budget'); openRecurring(); },
+  view: () => { openSettings(); setTimeout(() => $('#viewCard')?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 350); },
+  news: () => openNews(true),
+};
+// מאיר רכיב במסך לכמה שניות
+function spot(sel) {
+  setTimeout(() => { const el = $(sel); if (!el) return; el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.classList.remove('spot'); void el.offsetWidth; el.classList.add('spot'); setTimeout(() => el.classList.remove('spot'), 2600); }, 350);
+}
+function maybeNews() {
+  if (!NEWS.length || (db.DEMO && !UITEST)) return;
+  const last = NEWS[0].v, seen = lsGet(NEWS_KEY);
+  if (seen === last) return;
+  if (!seen) {
+    // אין סימון: משתמש ותיק (יש נתונים) — רואה רק את העדכון האחרון. חדש — לא מקבל כלום
+    if (!S.tx.length) { lsSet(NEWS_KEY, last); return; }
+  }
+  const fresh = NEWS.filter(n => !seen ? n.v === last : n.v > seen);
+  const items = newsFor(fresh.flatMap(n => n.items));
+  if (!items.length) { lsSet(NEWS_KEY, last); return; }
+  setTimeout(() => { if ($('#gate').classList.contains('on') || $('#sheet').classList.contains('on')) return; openNews(false, items); }, 900);
+}
+function openNews(all = false, items = null) {
+  lsSet(NEWS_KEY, NEWS[0]?.v || '');
+  const row = (i, k) => `<button class="nw-row" ${i.go ? `data-ng="${i.go}"` : 'disabled'} style="--d:${k * 90}ms"><span class="nw-e">${i.e}</span><span class="nw-t"><b>${esc(i.t)}</b><small>${esc(i.d)}</small></span>${i.go ? '<i>‹</i>' : ''}</button>`;
+  const dLabel = v => new Date(v + 'T12:00:00').toLocaleDateString('he-IL', { day: 'numeric', month: 'long' });
+  const body = all
+    ? NEWS.map(n => ({ ...n, items: newsFor(n.items) })).filter(n => n.items.length).map((n, j) => `<div class="nw-day">${j === 0 ? '🆕 ' : ''}${dLabel(n.v)}</div>${n.items.map(row).join('')}`).join('')
+    : (items.length > 6 ? items.slice(0, 6) : items).map(row).join('') + (items.length > 6 ? `<button class="chip" id="nwAll" style="margin-top:4px">ועוד ${items.length - 6} — לכל הרשימה</button>` : '');
+  const first = (items || newsFor(NEWS[0].items)).find(i => i.go && i.go !== 'news');
+  openSheet(`<div class="nw-head"><span class="nw-spark">✨</span><h3>מה חדש${all ? '' : ' באפליקציה'}</h3><div class="sub">${all ? 'כל העדכונים — החדש למעלה. לחיצה על שורה — לשם.' : 'עדכנו את האפליקציה. הנה מה שהשתנה 👇'}</div></div>
+    <div class="nw-list">${body}</div>
+    ${all ? '' : `<div class="row2 nw-btns">${first ? '<button class="btn grad" id="nwShow">👀 תראו לי</button>' : ''}<button class="btn ghost" id="nwOk">הבנתי ✓</button></div>`}`, sh => {
+    sh.querySelectorAll('[data-ng]').forEach(b => b.onclick = () => { const f = NEWS_GO[b.dataset.ng]; closeSheet(); if (f) setTimeout(f, 250); });
+    sh.querySelector('#nwShow')?.addEventListener('click', () => { closeSheet(); setTimeout(NEWS_GO[first.go], 250); });
+    sh.querySelector('#nwOk')?.addEventListener('click', () => closeSheet());
+    sh.querySelector('#nwAll')?.addEventListener('click', () => openNews(true));
+  });
+}
+
 // 🪄 / ✍️ — מעבר בין תקציב אוטומטי לידני בכל רגע. הסכומים הידניים נשמרים בצד (_saved) כדי לחזור אליהם
 async function setBudgetMode(mode) {
   if (S.budgets._mode === mode) { toast(mode === 'auto' ? '🪄 התקציב כבר אוטומטי' : '✍️ כבר אתם קובעים — לשינוי סכום לוחצים על קטגוריה'); return; }
@@ -2017,6 +2069,7 @@ const TOUR = [
   { v: 'budget', sel: '#sheet', open: () => openBudgetSetup(), t: '🎯 פתיחה: איך בונים תקציב?', d: 'בפעם הראשונה בוחרים: 🪄 אוטומטי (מתעדכן לבד לפי ההוצאות) או ✍️ אני קובע לכל קטגוריה. אפשר לשנות אחר כך.' },
   { v: 'budget', sel: '#sheet', open: () => openRecurringSetup(), t: '🔁 מה הקבועים שלכם?', d: 'בסוף מסך הפתיחה: לוחצים על שכירות, ועד בית, משכורת… מקלידים סכום — וזה נרשם לבד כל חודש.' },
   { v: 'budget', sel: '#sheet', open: () => openRecurring(), t: '🔁 הקבועים שלי', d: 'כל ההכנסות וההוצאות הקבועות: לערוך, ⏸️ להשהות או להפסיק. חשמל עם "סכום משתנה" — שואלים כל חודש כמה יצא. גם בצ\'אט: "ועד בית 250 כל חודש".' },
+  { v: 'chat', sel: '#settingsBtn', t: '✨ מה חדש', d: 'אחרי כל עדכון קופץ חלון קצר עם מה שהשתנה, ו"👀 תראו לי" לוקח לשם. כל ההיסטוריה: ⚙️ ← "✨ מה חדש".' },
   { v: 'budget', sel: '#catsBtn', t: '🏷️ קטגוריות', d: 'כפתור גדול בראש מסך התקציב: מוסיפים קטגוריה משלכם (🐶 הכלב, 🎓 לימודים) או משנים שם, אייקון וצבע. וליד כל קטגוריה יש ✏️ עריכה.' },
   { v: 'budget', sel: '.bmode', t: '🪄 אוטומטי או ✍️ אני קובע', d: 'בכל רגע אפשר לעבור: אוטומטי = הסכומים מתעדכנים לבד לפי ההוצאות. אני קובע = אתם מחליטים. הסכומים שקבעתם נשמרים בצד ואפשר לחזור אליהם.' },
   { v: 'budget', sel: '#v-budget .duo', t: '🎯 הכנסות מול הוצאות', d: 'כמה נכנס וכמה יצא בחודש. לחיצה על ההוצאות 🔎 — לאן הלך הכסף: לפי קטגוריה ולפי מי. לחיצה על ההכנסות — מי הכניס.' },
@@ -2262,6 +2315,7 @@ function openSettings() {
   <a class="btn grad full" id="toAdmin" href="admin/" hidden style="margin-bottom:10px;display:block;text-align:center;text-decoration:none">📊 לוח בקרה — רק לך</a>
   <button class="btn ghost full" id="toHelp" style="margin-bottom:10px">❓ עזרה ואיך משתמשים</button>
   <button class="btn ghost full" id="toShare" style="margin-bottom:10px">📤 שתף את האפליקציה עם חבר</button>
+  <button class="btn ghost full news-btn" id="toNews" style="margin-bottom:10px">✨ מה חדש</button>
   <button class="btn ghost full" id="toFeedback" style="margin-bottom:10px">💌 שליחת משוב / הצעה / תקלה</button>
   ${isStandalone() ? '' : '<button class="btn ghost full" id="toInstall" style="margin-bottom:10px">📲 התקנה על המסך (כמו אפליקציה)</button>'}
   <button class="btn grad full kid-only" id="toMyBox" style="margin-bottom:10px">🐷 הקופה שלי</button>
@@ -2283,6 +2337,7 @@ function openSettings() {
   sh.querySelector('#demoExit')?.addEventListener('click', exitDemo);
   sh.querySelector('#toExcel').onclick = () => openExportSheet();
   sh.querySelector('#toCats').onclick = () => openCatsSheet();
+  sh.querySelector('#toNews').onclick = () => openNews(true);
   sh.querySelector('#toRec').onclick = () => openRecurring();
   sh.querySelector('#toMyBox').onclick = () => S.me ? openKid(S.me, true) : toast('קודם בוחרים "אני ___" במשפחה', true);
   sh.querySelector('#toHelp').onclick = () => openHelp();
@@ -2844,7 +2899,7 @@ async function load() {
   renderAll();
 }
 load().then(async () => {
-  if (db.DEMO) { await demoStart(); return; } // 🎭 בלי סנכרון, בלי שרת
+  if (db.DEMO) { await demoStart(); if (UITEST) maybeNews(); return; } // 🎭 בלי סנכרון, בלי שרת
   const r = await sync.start({
     onRemoteChange: () => reloadFromDb(),
     onStatus: st => { const el = document.querySelector('#syncState'); if (el) el.textContent = st === 'ok' ? '· מסונכרן ✓' : '· ממתין לרשת…'; },
@@ -2865,7 +2920,7 @@ load().then(async () => {
   if (new URLSearchParams(location.search).get('v') === 'budget') go('budget'); // לחיצה על התראת תקציב
   await postRecurring();
   starsLink(); addLink(); if (!$('#sheet').classList.contains('on')) maybeOnboard();
-  debtReminder();
+  debtReminder(); maybeNews();
 });
 
 // 🔑 הקישור מהמייל לא עבד (פג תוקף / כבר נפתח) — מסבירים ומאפשרים לשלוח שוב
