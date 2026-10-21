@@ -207,7 +207,7 @@ function botHTML(t) {
   return `<div class="cat-ic" style="background:${c.g}">${c.e}</div>
     <div><b>${t.rec ? '🔁 ' : ''}${title}</b><div class="sub">${sub}${day}${t.rec ? ' · קבוע' : ''}</div>${t.estimate ? `<div class="est"><span>💡 סכום משוער — כמה יצא החשבון?</span><input type="number" inputmode="decimal" value="${t.amount}" aria-label="הסכום האמיתי"><button data-act="estok" data-id="${t.id}">✅</button></div>` : ''}${t.tags?.length ? `<div class="tags">${t.tags.map(x => `<span class="tag">#${esc(x)}</span>`).join('')}</div>` : ''}
     ${askPay}
-    <div class="acts">${t.who && personOf(t.who) ? `<button data-act="who" data-id="${t.id}">${whoLabel(t.who)}</button>` : ''}${pay}<button data-act="fix" data-id="${t.id}">✏️ עריכה</button><button data-act="undo" data-id="${t.id}">🗑️ מחיקה</button></div></div>`;
+    <div class="acts">${t.who && personOf(t.who) ? `<button data-act="who" data-id="${t.id}">${whoLabel(t.who)}</button>` : ''}${pay}${t.cat === 'give' ? `<button data-act="mx" data-id="${t.id}">${t.extraGive ? '➕ בנוסף למעשר' : '🤲 מתוך המעשר'}</button>` : ''}<button data-act="fix" data-id="${t.id}">✏️ עריכה</button><button data-act="undo" data-id="${t.id}">🗑️ מחיקה</button></div></div>`;
 }
 
 function fileSummaryHTML(list, msg) {
@@ -288,6 +288,9 @@ async function send(raw, source = 'text') {
   if (help.isHelpRequest(raw)) { $('#inp').blur(); openHelp(raw, help.wantsGuide(raw) && !help.answer(raw).length); return; }
   const named = detectWho(raw);
   const tagged = takeTags(named.text);
+  // 🤲 "תרומה 100 בנוסף למעשר" — תרומה שלא נספרת מהמעשר
+  const EXTRA_RE = /\s*(בנוסף למעשר|לא מהמעשר|לא ממעשר|מחוץ למעשר)\s*/;
+  const extraGive = EXTRA_RE.test(tagged.text); if (extraGive) tagged.text = tagged.text.replace(EXTRA_RE, ' ').trim();
   const items = parseMessage(tagged.text);
   const me = document.createElement('div');
   me.className = 'me new'; me.innerHTML = esc(raw);
@@ -319,7 +322,7 @@ async function send(raw, source = 'text') {
     return { id: db.newId(), msg, raw, desc, cat, source, created: now.toISOString(), date: date.toISOString(),
       amount: inst ? Math.round(it.amount / inst * 100) / 100 : it.amount, total: it.amount, inst, pay: pay || (inst ? 'credit' : null),
       who: named.who || S.me || null, ...(tagged.tags.length ? { tags: tagged.tags } : {}) };
-  });
+  }).map(t => t.cat === 'give' && extraGive ? { ...t, extraGive: true } : t);
 
   // ⚠️ כפילות: אותו סכום בערך + אותה קטגוריה או שם דומה, באותו חודש — שואלים לפני שרושמים
   const dups = pending.map(t => ({ t, d: findDup(t) })).filter(x => x.d);
@@ -407,6 +410,7 @@ $('#chat').addEventListener('click', e => {
   else if (b.dataset.act === 'setpay') { t.pay = b.dataset.pay; db.putTx(t).then(() => { const el = document.getElementById('b-' + t.id); if (el) el.innerHTML = botHTML(t); toast(`${PAY[t.pay].e} נשמר: ${PAY[t.pay].n}`); }); }
   else if (b.dataset.act === 'skippay') { t.paySkip = true; db.putTx(t).then(() => { const el = document.getElementById('b-' + t.id); if (el) el.innerHTML = botHTML(t); }); }
   else if (b.dataset.act === 'who') openWhoSheet(t);
+  else if (b.dataset.act === 'mx') { if (t.extraGive) delete t.extraGive; else t.extraGive = true; db.putTx(t).then(() => { const el = document.getElementById('b-' + t.id); if (el) el.innerHTML = botHTML(t); toast(t.extraGive ? '➕ בנוסף למעשר — לא יורד ממה שחייבים' : '🤲 מתוך המעשר — יורד ממה שחייבים'); }); }
   else if (b.dataset.act === 'estok') {
     const v = num(b.parentElement.querySelector('input')?.value); if (!(v > 0)) return;
     t.amount = v; t.total = v; delete t.estimate; db.putTx(t).then(async () => {
@@ -883,10 +887,14 @@ function openEditSheet(t) {
     <div class="receipt" id="eRec">${t.receipt ? '<button class="chip" id="rShow">🧾 לראות את הקבלה</button> <button class="chip" id="rDel">🗑️ הסרה</button>' : '<button class="chip" id="rAdd">🧾 צילום קבלה</button>'}
       <input type="file" id="rFile" accept="image/*" capture="environment" hidden><input type="file" id="rGal" accept="image/*" hidden>${t.receipt ? '' : ' <button class="chip" id="rAddG">🖼️ מהגלריה</button>'}</div>
     ${t.cat === 'income' ? `<div class="chips" style="margin-bottom:14px"><button class="chip ${t.noMaaser ? 'on' : ''}" id="eNoM">🤲 בלי מעשר מההכנסה הזו</button></div>` : ''}
+    <div id="eGive" class="give-seg" ${t.cat === 'give' ? '' : 'hidden'}><div class="sub" style="margin-bottom:6px">🤲 התרומה הזו —</div><div class="bmode"><button data-gx="0" class="${t.extraGive ? '' : 'on'}">🤲 מתוך המעשר</button><button data-gx="1" class="${t.extraGive ? 'on' : ''}">➕ בנוסף למעשר</button></div></div>
     <div class="row2"><button class="btn danger" id="eDel">🗑️ מחיקה</button><button class="btn grad" id="eSave">שמירה</button></div>`, sh => {
     sh.querySelectorAll('[data-cat]').forEach(btn => btn.onclick = () => {
       cat = btn.dataset.cat; sh.querySelectorAll('[data-cat]').forEach(x => x.classList.toggle('sel', x === btn));
+      sh.querySelector('#eGive').hidden = cat !== 'give';
     });
+    let gx = !!t.extraGive;
+    sh.querySelectorAll('[data-gx]').forEach(b => b.onclick = () => { gx = b.dataset.gx === '1'; sh.querySelectorAll('[data-gx]').forEach(x => x.classList.toggle('on', x === b)); });
     sh.querySelectorAll('#eWho [data-w]').forEach(btn => btn.onclick = () => {
       who = btn.dataset.w; sh.querySelectorAll('#eWho [data-w]').forEach(x => x.classList.toggle('on', x === btn));
     });
@@ -926,6 +934,7 @@ function openEditSheet(t) {
       Object.assign(t, { desc, cat, pay, who, date: new Date(d + 'T12:00:00').toISOString() });
       const tg = readTags(sh, 'eTag'); if (tg.length) t.tags = tg; else delete t.tags;
       if (cat === 'income' && noM) t.noMaaser = true; else delete t.noMaaser;
+      if (cat === 'give' && gx) t.extraGive = true; else delete t.extraGive;
       if (t.inst > 1) { t.total = v; t.amount = Math.round(v / t.inst * 100) / 100; } else { t.amount = v; t.total = v; }
       await db.putTx(t); closeSheet(); renderAll(); toast('✅ נשמר');
     };
@@ -1521,7 +1530,7 @@ const incKind = t => (t.desc || 'הכנסה').trim().split(/\s+/).slice(0, 2).jo
 function maaserCalc() {
   const M = S.maaser || {}, pct = M.pct || 10, since = M.since || '', incOff = M.incOff || {}, dCats = M.deduct ? (M.deductCats || []) : [];
   const inRange = t => !since || ym(new Date(t.date)) >= since;
-  let inc = 0, ded = 0, giveExp = 0; const kinds = {}, months = {};
+  let inc = 0, ded = 0, giveExp = 0, extra = 0; const kinds = {}, months = {};
   for (const t of S.tx) {
     if (!inRange(t)) continue;
     const m = ym(new Date(t.date)), v = t.inst > 1 ? t.total : t.amount;
@@ -1531,14 +1540,16 @@ function maaserCalc() {
       if (!t.noMaaser && incOff[k] !== false) { inc += v; months[m].inc += v; }
     } else {
       if (dCats.includes(t.cat)) ded += v;
-      if (t.cat === 'give' && M.giveCounts !== false) { giveExp += v; months[m].given += v; }
+      // תרומה נספרת כ"ניתן" — אלא אם סומנה "בנוסף למעשר". חלוקה שסומנה ✅ במסך המעשר (mdist) תמיד נספרת
+      if (t.cat === 'give' && !t.extraGive && (t.mdist || M.giveCounts !== false)) { giveExp += v; months[m].given += v; }
+      if (t.cat === 'give' && t.extraGive) extra += v;
     }
   }
   const base = Math.max(0, inc - ded), owed = base * pct / 100;
   const dist = (M.dist || []).map(d => ({ ...d, nis: d.unit === 'pct' ? owed * (d.v || 0) / 100 : (d.v || 0) }));
-  const planned = dist.reduce((s, d) => s + d.nis, 0), doneSum = dist.filter(d => d.done).reduce((s, d) => s + d.nis, 0);
+  const planned = dist.reduce((s, d) => s + d.nis, 0), doneSum = dist.filter(d => d.done && !d.tx).reduce((s, d) => s + d.nis, 0); // ישנים — מלפני שחלוקה נרשמה כהוצאה
   const given = giveExp + doneSum;
-  return { pct, since, inc, ded, base, owed, given, giveExp, left: owed - given, kinds, months, dist, planned, toPlan: owed - planned };
+  return { pct, since, inc, ded, base, owed, given, giveExp, extra, left: owed - given, kinds, months, dist, planned, toPlan: owed - planned };
 }
 const saveMaaser = async patch => { await saveKV('maaser', { ...S.maaser, ...patch }); openMaaser(); };
 function openMaaser() {
@@ -1569,7 +1580,7 @@ function openMaaser() {
         <div style="flex:1;min-width:0"><b>${esc(d.name)}</b><small class="sub" style="display:block">${d.unit === 'pct' ? `${d.v}% · ` : ''}${fmt(d.nis)} · ${d.done ? 'בוצע' : 'לא בוצע'}</small></div><button class="chip" data-dx="${d.id}" aria-label="מחיקה">🗑️</button></div>`).join('')}</div>` : ''}
       <div class="madd"><input id="dN" maxlength="30" placeholder="למי? ישיבה, משפחה, קופה"><input id="dV" type="number" inputmode="decimal" placeholder="סכום">
         <button class="chip on" id="dU" data-u="nis">₪</button><button class="btn grad" id="dAdd" style="padding:0 14px;height:42px">➕</button></div>
-      <div class="sub" style="margin-top:6px">💡 הוצאה בקטגוריה 💝 צדקה נספרת לבד כ"ניתן" (${fmt(r.giveExp)}). <button class="chip ${M.giveCounts === false ? '' : 'on'}" id="mGive" style="margin-top:4px">${M.giveCounts === false ? 'לא לספור' : '✅ לספור'}</button></div></div>
+      <div class="sub" style="margin-top:6px">💡 תרומה בקטגוריה 💝 תרומות נספרת לבד כ"ניתן" (${fmt(r.giveExp)}). ✅ בחלוקה למעלה — נרשם גם כהוצאה.${r.extra ? ` ➕ בנוסף למעשר: ${fmt(r.extra)} (לא יורד ממה שחייבים).` : ''} לסמן תרומה כ"בנוסף": ✏️ עריכה, או בצ'אט "תרומה 100 בנוסף למעשר". <button class="chip ${M.giveCounts === false ? '' : 'on'}" id="mGive" style="margin-top:4px">${M.giveCounts === false ? 'לא לספור' : '✅ לספור'}</button></div></div>
 
     <label class="field" style="margin-top:12px"><span>לחשב החל מ (לא חובה)</span><input id="mSince" type="month" value="${r.since}"></label>`, sh => {
     sh.querySelectorAll('[data-mp]').forEach(b => b.onclick = () => saveMaaser({ pct: +b.dataset.mp }));
@@ -1578,7 +1589,19 @@ function openMaaser() {
     sh.querySelector('#mDed').onclick = () => saveMaaser({ deduct: !S.maaser?.deduct });
     sh.querySelectorAll('[data-dc]').forEach(b => b.onclick = () => { const l = new Set(S.maaser?.deductCats || []); l.has(b.dataset.dc) ? l.delete(b.dataset.dc) : l.add(b.dataset.dc); saveMaaser({ deductCats: [...l] }); });
     sh.querySelector('#mGive').onclick = () => saveMaaser({ giveCounts: S.maaser?.giveCounts === false });
-    sh.querySelectorAll('[data-dd]').forEach(b => b.onclick = () => { const dist = (S.maaser?.dist || []).map(d => d.id === b.dataset.dd ? { ...d, done: !d.done } : d); if (dist.find(d => d.id === b.dataset.dd)?.done) confetti(); saveMaaser({ dist }); });
+    // ✅ בוצע = נרשמת הוצאה ב-💝 תרומות (כדי שתופיע במאזן). ביטול ✅ — ההוצאה נמחקת
+    sh.querySelectorAll('[data-dd]').forEach(b => b.onclick = async () => {
+      const d0 = r.dist.find(d => d.id === b.dataset.dd); if (!d0) return;
+      const on = !d0.done; let txId = d0.tx || null;
+      if (on && d0.nis > 0) {
+        txId = 'mdist_' + d0.id; const now = new Date();
+        const t = { id: txId, msg: txId, raw: `🤲 ${d0.name} ${Math.round(d0.nis)}`, desc: `🤲 ${d0.name}`, cat: 'give', source: 'maaser', mdist: d0.id,
+          created: now.toISOString(), date: now.toISOString(), amount: Math.round(d0.nis), total: Math.round(d0.nis), inst: 0, pay: null, who: S.me || null };
+        S.tx = S.tx.filter(x => x.id !== txId); S.tx.push(t); await db.putTx(t); confetti(); toast(`✅ ${d0.name} — נרשם כהוצאה ב-💝 תרומות`);
+      } else if (!on && txId) { S.tx = S.tx.filter(x => x.id !== txId); await db.delTx(txId); txId = null; }
+      const dist = (S.maaser?.dist || []).map(d => d.id === d0.id ? { ...d, done: on, ...(txId ? { tx: txId } : { tx: undefined }) } : d);
+      renderAll(); saveMaaser({ dist });
+    });
     sh.querySelectorAll('[data-dx]').forEach(b => b.onclick = () => saveMaaser({ dist: (S.maaser?.dist || []).filter(d => d.id !== b.dataset.dx) }));
     const u = sh.querySelector('#dU'); u.onclick = () => { u.dataset.u = u.dataset.u === 'nis' ? 'pct' : 'nis'; u.textContent = u.dataset.u === 'nis' ? '₪' : '%'; };
     sh.querySelector('#dAdd').onclick = () => {
@@ -1915,7 +1938,7 @@ function maybeOnboard() {
 const REC_PRESETS = [
   ['🏠', 'שכירות', 'home', 4500, 1], ['🏦', 'משכנתא', 'home', 4000, 10], ['🏢', 'ועד בית', 'home', 250, 10], ['🏛️', 'ארנונה', 'home', 650, 1],
   ['💡', 'חשמל', 'home', 450, 15, true], ['💧', 'מים', 'home', 180, 15, true], ['👶', 'גן / מעון', 'kids', 1800, 1], ['⚽', 'חוגים', 'kids', 200, 1],
-  ['🛡️', 'ביטוחים', 'home', 350, 1], ['💼', 'משכורת', 'income', 12000, 1], ['👨‍👩‍👧', 'קצבת ילדים', 'income', 350, 20], ['🔑', 'שכירות שנכנסת', 'income', 4500, 1],
+  ['🛡️', 'ביטוחים', 'ins', 350, 1], ['💝', 'תרומה קבועה', 'give', 100, 1], ['💼', 'משכורת', 'income', 12000, 1], ['👨‍👩‍👧', 'קצבת ילדים', 'income', 350, 20], ['🔑', 'שכירות שנכנסת', 'income', 4500, 1],
 ];
 const recId = (rid, m) => `rec_${rid}_${m}`;
 const monthsBetween = (a, b) => { const [y1, m1] = a.split('-').map(Number), [y2, m2] = b.split('-').map(Number); return (y2 - y1) * 12 + (m2 - m1); };
@@ -2090,6 +2113,7 @@ const TOUR = [
   { v: 'budget', sel: '#sheet', open: () => openRecurringSetup(), t: '🔁 מה הקבועים שלכם?', d: 'בסוף מסך הפתיחה: לוחצים על שכירות, ועד בית, משכורת… מקלידים סכום — וזה נרשם לבד כל חודש.' },
   { v: 'budget', sel: '#sheet', open: () => openRecurring(), t: '🔁 הקבועים שלי', d: 'כל ההכנסות וההוצאות הקבועות: לערוך, ⏸️ להשהות או להפסיק. חשמל עם "סכום משתנה" — שואלים כל חודש כמה יצא. גם בצ\'אט: "ועד בית 250 כל חודש".' },
   { v: 'chat', sel: '#settingsBtn', t: '✨ מה חדש', d: 'אחרי כל עדכון קופץ חלון קצר עם מה שהשתנה, ו"👀 תראו לי" לוקח לשם. כל ההיסטוריה: ⚙️ ← "✨ מה חדש".' },
+  { v: 'budget', sel: '#sheet', open: () => openMaaser(), t: '💝 תרומה: מתוך המעשר או בנוסף', d: 'כל תרומה היא הוצאה במאזן. בבועה בצ\'אט או ב-✏️ עריכה בוחרים "🤲 מתוך המעשר" או "➕ בנוסף למעשר". ✅ בחלוקה כאן — נרשם לבד כהוצאה.' },
   { v: 'budget', sel: '#catsBtn', t: '🏷️ קטגוריות', d: 'כפתור גדול בראש מסך התקציב: מוסיפים קטגוריה משלכם (🐶 הכלב, 🎓 לימודים) או משנים שם, אייקון וצבע. וליד כל קטגוריה יש ✏️ עריכה.' },
   { v: 'budget', sel: '.bmode', t: '🪄 אוטומטי או ✍️ אני קובע', d: 'בכל רגע אפשר לעבור: אוטומטי = הסכומים מתעדכנים לבד לפי ההוצאות. אני קובע = אתם מחליטים. הסכומים שקבעתם נשמרים בצד ואפשר לחזור אליהם.' },
   { v: 'budget', sel: '#v-budget .duo', t: '🎯 הכנסות מול הוצאות', d: 'כמה נכנס וכמה יצא בחודש. לחיצה על ההוצאות 🔎 — לאן הלך הכסף: לפי קטגוריה ולפי מי. לחיצה על ההכנסות — מי הכניס.' },

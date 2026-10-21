@@ -93,6 +93,21 @@ nav.toc a{flex:none;text-decoration:none;font-size:15px;font-weight:600;padding:
 .divider{text-align:center;padding:40px 18px 0}
 .divider span{display:inline-block;font-weight:800;font-size:22px;padding:12px 26px;border-radius:999px;background:var(--g);color:#fff;box-shadow:0 10px 30px rgba(236,72,153,.35)}
 /* ---- 🆕 חדש: כרטיסים עם דוגמה חיה ---- */
+.d-give{display:flex;flex-direction:column;gap:10px;justify-content:center}
+.d-give .gb{display:flex;gap:10px;align-items:center;background:#2A2240;border-radius:14px;padding:9px 12px}
+.d-give .gb span{font-size:24px}.d-give .gb small{display:block;color:#B9AED6;font-size:12px}
+.d-give .gs{position:relative;display:grid;grid-template-columns:1fr 1fr;background:#2A2240;border-radius:12px;padding:3px;font-size:12.5px;font-weight:800;text-align:center}
+.d-give .gs span{position:relative;z-index:1;padding:8px 0}
+.d-give .gs i{position:absolute;top:3px;bottom:3px;right:3px;width:calc(50% - 3px);border-radius:9px;background:linear-gradient(135deg,#E879F9,#A855F7);animation:swmove 5s ease-in-out infinite}
+.d-give .gl{display:flex;justify-content:space-between;align-items:center;font-size:13px}
+.d-give .gl b{position:relative;height:22px;width:80px;font-size:17px}
+.d-give .gl b span{position:absolute;left:0;animation:gflip 5s ease-in-out infinite}
+.d-give .gl b span+span{animation-name:gflip2}
+@keyframes gflip{0%,40%{opacity:0}50%,90%{opacity:1}100%{opacity:0}}
+@keyframes gflip2{0%,40%{opacity:1}50%,90%{opacity:0}100%{opacity:1}}
+.d-ins{display:flex;flex-direction:column;gap:8px;justify-content:center}
+.d-ins .ir{display:flex;align-items:center;gap:8px;background:#2A2240;border-radius:12px;padding:8px 10px;font-size:13.5px;font-weight:700;animation:nln 4.5s ease-out infinite;animation-delay:var(--d)}
+.d-ins .ir span{font-size:18px}.d-ins .ir b{margin-inline-start:auto;direction:ltr}
 .d-news{text-align:center;display:flex;flex-direction:column;gap:7px}
 .d-news .sp{font-size:30px;animation:nsp 2.6s ease-in-out infinite}
 @keyframes nsp{25%{transform:rotate(-12deg) scale(1.15)}50%{transform:rotate(10deg)}}
@@ -248,8 +263,19 @@ footer{padding:28px 0;text-align:center;color:#8B82A6;font-size:14px}
 <section class="dark" id="new">
   <div class="wrap">
     <div class="eyebrow">🆕 חדש באפליקציה</div>
-    <h2>20 דברים חדשים — ככה זה נראה 👇</h2>
+    <h2>22 דברים חדשים — ככה זה נראה 👇</h2>
     <div class="nw">
+      <div class="card"><div class="demo d-give">
+          <div class="gb"><span>💝</span><div><b>תרומה לישיבה · 300₪</b><small>תרומות וצדקה</small></div></div>
+          <div class="gs"><i></i><span>🤲 מתוך המעשר</span><span>➕ בנוסף למעשר</span></div>
+          <div class="gl"><small>נשאר למעשר</small><b><span>1,200₪</span><span>900₪</span></b></div></div>
+        <h3>💝 תרומה — מתוך המעשר או בנוסף</h3><p>כל תרומה היא <b>הוצאה במאזן</b>. בבועה בצ'אט או ב-✏️ עריכה בוחרים: <b>🤲 מתוך המעשר</b> (יורד ממה שחייבים) או <b>➕ בנוסף</b>. או כותבים "תרומה 100 בנוסף למעשר". ✅ בחלוקת המעשר — נרשם לבד כהוצאה. ויש גם <b>💝 תרומה קבועה</b> ב-🔁 הקבועים שלי.</p></div>
+      <div class="card"><div class="demo d-ins">
+          <div class="ir" style="--d:0s"><span>🛡️</span>ביטוח רכב — הראל<b>320₪</b></div>
+          <div class="ir" style="--d:.4s"><span>🛡️</span>ביטוח חיים<b>95₪</b></div>
+          <div class="ir" style="--d:.8s"><span>💊</span>בית מרקחת<b>60₪</b></div>
+          <div class="ir" style="--d:1.2s"><span>💊</span>קופת חולים<b>45₪</b></div></div>
+        <h3>🛡️ ביטוחים + 💊 בריאות</h3><p>קטגוריה חדשה <b>🛡️ ביטוחים</b>: חיים, רכב, דירה, בריאות וביטוח לאומי — מזוהה לבד, גם לפי שם החברה (הראל, מגדל, הפניקס, כלל…). ו-<b>💊 בריאות</b> מכירה עכשיו קופות חולים, בתי מרקחת ורפואה.</p></div>
       <div class="card"><div class="demo d-news">
           <div class="sp">✨</div><b class="tt">מה חדש באפליקציה</b>
           <div class="ln" style="--d:.2s"><span>🪄</span>אוטומטי ⇄ אני קובע</div>
@@ -287,7 +313,7 @@ footer{padding:28px 0;text-align:center;color:#8B82A6;font-size:14px}
         <h3>🐷 קופות חיסכון</h3><p>🎯 תקציב ← <b>"🐷 קופות חיסכון"</b> ← קופה חדשה: למה, כמה ועד מתי. האפליקציה אומרת <b>כמה לשים בצד כל חודש</b>, ומפקידים בלחיצה. מגיעים ליעד? קונפטי 🎉</p></div>
       <div class="card"><div class="demo d-maaser"><div style="font-size:13px;color:#B9AED6">נשאר לתת</div><div style="font-size:30px;font-weight:800;color:#FACC15">340₪</div><div class="bar"><i></i></div>
           <div class="pair"><span>💰 הכנסות 12,500₪</span><span>חייבים 1,250₪</span></div><div class="pair"><span>💝 ניתן</span><span>910₪</span></div></div>
-        <h3>🤲 מעשר / חומש</h3><p>🎯 תקציב ← <b>"🤲 מעשר"</b>: 10%, <b>חומש 20%</b> או אחוז אחר. בוחרים <b>מאילו הכנסות</b> (משכורת כן, החזר מס לא), אם <b>לנכות הוצאות</b>, ו<b>מחלקים</b> למקבלים בשקלים או באחוזים — ✅ בוצע / ⏳ לא בוצע, ורואים כמה נשאר לחלק.</p></div>
+        <h3>🤲 מעשר / חומש</h3><p>🎯 תקציב ← <b>"🤲 מעשר"</b>: 10%, <b>חומש 20%</b> או אחוז אחר. בוחרים <b>מאילו הכנסות</b> (משכורת כן, החזר מס לא), אם <b>לנכות הוצאות</b>, ו<b>מחלקים</b> למקבלים בשקלים או באחוזים — ✅ בוצע (נרשם לבד כהוצאה) / ⏳ לא בוצע, ורואים כמה נשאר לחלק.</p></div>
       <div class="card"><div class="demo d-stars"><span class="s">⭐ 20</span><span>→</span><span class="n">10₪</span></div>
         <h3>🧒 קופת דמי כיס</h3><p>🎯 תקציב ← <b>"🧒 דמי כיס"</b>: לכל ילד קופה, הפקדות, הוצאות ויעד (אופניים 🚲). <b>⭐ כוכבים ממטלות הופכים לשקלים</b> — ההורה קובע כמה שווה כוכב. הילד רואה את הקופה שלו: ⚙️ ← "🐷 הקופה שלי".</p></div>
       <div class="card"><div class="demo d-rec"><div class="flash"></div><span style="font-size:44px">📷</span><div class="paper"><b>סופר השכונה</b><br>חלב ......... 6.90<br>לחם ......... 9.50<br><b>סה״כ 230.00</b></div></div>

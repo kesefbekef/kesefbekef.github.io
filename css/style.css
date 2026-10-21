@@ -443,3 +443,4 @@ body.over-gate .sheet{z-index:111}
 .spot{animation:spotlight 2.4s ease}
 @keyframes spotlight{0%,50%{box-shadow:0 0 0 3px #FACC15,0 0 24px rgba(250,204,21,.6)}100%{box-shadow:0 0 0 0 transparent}}
 .nw-btns{position:sticky;bottom:-1px;margin-top:14px;padding:10px 0 4px;background:linear-gradient(to top,#15151F 75%,rgba(21,21,31,0))}
+.give-seg{margin-bottom:14px}

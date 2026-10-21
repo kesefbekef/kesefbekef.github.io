@@ -41,6 +41,13 @@ export function demoData(now = new Date()) {
     if (k > 0 || D >= 4) addRec('r_chug', y, m, 4, 'חוג כדורגל', 180, 'kids', { who: 'p_kid2' });
     add(y, m, day(13), 'סופר פארם', 75, 'health', { who: 'p_mom' });
     add(y, m, day(7), 'צדקה', 300, 'give');
+    // 🛡️ ביטוחים + 💝 תרומה קבועה + 🏥 בריאות
+    if (k > 0 || D >= 10) addRec('r_ins', y, m, 10, 'ביטוח רכב — הראל', 320, 'ins', { pay: 'standing' });
+    if (k > 0 || D >= 10) addRec('r_insh', y, m, 10, 'ביטוח בריאות מכבי שלי', 140, 'ins', { pay: 'standing' });
+    if (k > 0 || D >= 12) addRec('r_give', y, m, 12, 'תרומה קבועה — ישיבה', 150, 'give', { pay: 'standing' });
+    if (k === 1) add(y, m, day(21), 'קופת חולים — השתתפות עצמית', 45, 'health', { who: 'p_mom' });
+    if (k === 0) add(y, m, day(3), 'בית מרקחת', 60, 'health', { who: 'p_mom' });
+    if (k === 0) add(y, m, day(5), 'תרומה לגמ"ח של השכונה', 200, 'give', { extraGive: true, pay: 'cash' });
     add(y, m, day(16), 'אוכל לכלב', 120, 'c_dog');
     if (k === 2) add(y, m, day(18), 'נעליים לנועה', 260, 'clothes', { who: 'p_kid1' });
     if (k === 0) add(y, m, day(1), 'גלידה', 15, 'rest', { who: 'p_kid2', pay: 'cash' });
@@ -65,6 +72,9 @@ export function demoData(now = new Date()) {
       r_elec: { desc: 'חשמל', amount: 470, cat: 'home', day: 3, start, end: '', variable: true },
       r_arnona: { desc: 'ארנונה', amount: 620, cat: 'home', day: 5, start, end: '' },
       r_vaad: { desc: 'ועד בית', amount: 150, cat: 'home', day: 8, start, end: '' },
+      r_ins: { desc: 'ביטוח רכב — הראל', amount: 320, cat: 'ins', day: 10, start, end: '' },
+      r_insh: { desc: 'ביטוח בריאות מכבי שלי', amount: 140, cat: 'ins', day: 10, start, end: '' },
+      r_give: { desc: 'תרומה קבועה — ישיבה', amount: 150, cat: 'give', day: 12, start, end: '' },
       r_chug: { desc: 'חוג כדורגל', amount: 180, cat: 'kids', day: 4, start, end: ymk(Y, M + 5), who: 'p_kid2' },
       r_rentin: { desc: 'שכירות שנכנסת', amount: 3800, cat: 'income', day: 28, start: ymk(Y, M + 1), end: '', paused: false },
     },
