@@ -52,9 +52,10 @@ async function readPdfRows(file) {
       rows.push(row);
     }
   }
-  if (!rows.length) throw Object.assign(new Error('scanned'), { scanned: true });
+  if (!rows.length) throw Object.assign(new Error('scanned'), { scanned: true, pages: pdf.numPages });
+  rows.meta = { pages: pdf.numPages };
   // דפי חשבון שבהם כל שורה היא טקסט אחד (בלי עמודות נפרדות) — "תאריך · תיאור · סכום ₪ · יתרה ₪"
-  if (!cols) { const st = statementLines(rows.map(r => r.join(' '))); if (st) return [st]; }
+  if (!cols) { const st = statementLines(rows.map(r => r.join(' '))); if (st) { st.meta = rows.meta; return [st]; } }
   return [rows];
 }
 
@@ -269,6 +270,16 @@ export async function readImage(file, onProgress, learned = {}) {
   } finally { await worker.terminate(); }
 }
 
+// 🏦 איזה בנק / חברת אשראי — לפי שם הקובץ ו-8 השורות הראשונות (לפני הטבלה). רק השם — בלי תוכן
+const BANKS = [['לאומי קארד|max|מקס', 'מקס'], ['ישראכרט', 'ישראכרט'], ['אמריקן אקספרס|amex', 'אמריקן אקספרס'], ['כאל|cal\\b|visa cal', 'כאל'],
+  ['לאומי|leumi', 'לאומי'], ['הפועלים|poalim', 'הפועלים'], ['דיסקונט|discount', 'דיסקונט'], ['מזרחי|טפחות|mizrahi', 'מזרחי טפחות'],
+  ['הבינלאומי|fibi|beinleumi', 'הבינלאומי'], ['מרכנתיל|mercantile', 'מרכנתיל'], ['בנק ירושלים|jerusalem', 'ירושלים'], ['וואן זירו|one ?zero|onezero', 'וואן זירו'],
+  ['יהב|yahav', 'יהב'], ['אוצר החייל|otsar', 'אוצר החייל'], ['מסד|massad', 'מסד'], ['פאגי|pagi', 'פאגי']];
+export function detectBank(sheets, fileName = '') {
+  const head = (sheets?.[0] || []).slice(0, 8).map(r => (Array.isArray(r) ? r : [r]).join(' ')).join(' ') + ' ' + fileName;
+  const hit = BANKS.find(([re]) => new RegExp(re, 'i').test(head));
+  return hit ? hit[1] : 'לא זוהה';
+}
 export const isSupported = name => /\.(xlsx|xls|csv|txt|pdf)$/i.test(name);
 export const isImage = name => /\.(png|jpe?g|heic|webp)$/i.test(name);
 export { CATS };

@@ -1399,18 +1399,20 @@ async function readOne(file, label) {
   if (imp.isImage(file.name) || file.type.startsWith('image/')) {
     let res;
     try { res = await imp.readImage(file, p => toast(`📸 ${label}קורא צילום מסך… ${p}%`), S.learned); }
-    catch (err) { throw new Error(err.offline ? 'כדי לקרוא צילומי מסך צריך חיבור לאינטרנט בפעם הראשונה' : 'לא הצלחתי לקרוא את התמונה'); }
-    if (!res.items.length) throw new Error('לא מצאתי סכומים בתמונה');
+    catch (err) { if (!err.offline) sync.trackFail('import', 'image unreadable'); throw new Error(err.offline ? 'כדי לקרוא צילומי מסך צריך חיבור לאינטרנט בפעם הראשונה' : 'לא הצלחתי לקרוא את התמונה'); }
+    if (!res.items.length) { sync.trackFail('import', 'image: no amounts'); throw new Error('לא מצאתי סכומים בתמונה'); }
     return res;
   }
   if (!imp.isSupported(file.name)) throw new Error('אפשר להעלות אקסל, CSV, PDF או צילום מסך');
-  let res;
-  try { res = imp.extract(await imp.readSheets(file), S.learned); }
-  catch (err) { console.error(err); throw new Error(err.scanned ? 'PDF סרוק בלי טקסט — נסה כצילום מסך' : 'לא הצלחתי לקרוא את הקובץ'); }
+  let res, sheets;
+  // 📊 ⚠️ ללוח הבקרה כשהקובץ לא נקרא: סוג, בנק שזוהה, עמודים, סרוק — בלי שום תוכן
+  const ext = ((file.name.match(/\.(\w+)$/) || [])[1] || '?').toUpperCase();
+  try { sheets = await imp.readSheets(file); res = imp.extract(sheets, S.learned); }
+  catch (err) { console.error(err); sync.trackFail('import', `${ext} · ${imp.detectBank(null, file.name)} · ${err.scanned ? `PDF סרוק (${err.pages || '?'} עמ')` : 'לא נפתח: ' + String(err?.message || err).slice(0, 60)}`);
+    throw new Error(err.scanned ? 'PDF סרוק בלי טקסט — נסו כצילום מסך, או הורידו מהבנק "ייצוא לאקסל"' : 'לא הצלחתי לפתוח את הקובץ 😕 נסו להוריד מהבנק / האשראי "ייצוא לאקסל", או שלחו לנו את הקובץ דרך 💌 משוב'); }
   if (!res.items.length) {
-    // 📊 ללוח הבקרה: רק סוג הקובץ ושם הקובץ בלי מספרים — בלי שום תוכן — כדי שנדע על פורמטים שלא נתמכים
-    const ext = (file.name.match(/\.(\w+)$/) || [])[1] || '?';
-    sync.reportIssue(`ייבוא: לא נמצאו תנועות בקובץ ${ext.toUpperCase()}`, `importer:${file.name.replace(/\d+/g, '#').replace(/[^\w#.\-א-ת ]/g, '').slice(0, 60)}`);
+    const meta = sheets?.[0]?.meta || {};
+    sync.trackFail('import', `${ext} · ${imp.detectBank(sheets, file.name)} · לא נמצאו תנועות${meta.pages ? ` · ${meta.pages} עמ'` : ` · ${sheets?.length || 0} גיליונות`}`);
     throw new Error('לא הצלחתי לקרוא את הפורמט של הקובץ הזה 😕 נסו להוריד מהבנק / האשראי "ייצוא לאקסל" (במקום PDF), או שלחו לנו את הקובץ דרך 💌 משוב — ונוסיף תמיכה');
   }
   return res;
@@ -2758,7 +2760,9 @@ async function sendFeedback({ kind = 'other', message, contact = '', device = ''
     });
     mailed = r.ok;
   } catch { mailed = false; }
-  return mailed || !!(await cloud);
+  const ok = mailed || !!(await cloud);
+  if (!ok) sync.trackFail('feedback', `not sent (${kind})`);
+  return ok;
 }
 function openFeedback(text = '', hint = text) {
   let kind = /באג|תקלה|בעיה|לא עובד/.test(hint) ? 'bug' : /רעיון|הצעה|שיפור/.test(hint) ? 'idea' : /תודה|מעולה|אוהב|כל הכבוד|מדהים/.test(hint) ? 'love' : 'other';
