@@ -445,21 +445,23 @@ export async function calendarURL(renew = false) {
 }
 
 // ---------- 📥 מהיומן לאפליקציה: קישור iCal סודי של המשתמש (נשמר מוצפן בשרת; האירועים — רק שלו) ----------
-export async function myCalendar() {
-  const u = await user(); if (!u) return null;
-  const { data } = await (await client()).from('user_calendars').select('host,last_sync,last_error,events').eq('user_id', u.id).maybeSingle();
-  return data || null;
+// עד 5 יומנים למשתמש (למשל "היומן שלי" + "היומן המשפחתי")
+export async function myCalendars() {
+  const u = await user(); if (!u) return [];
+  const { data } = await (await client()).from('user_calendars').select('id,label,host,last_sync,last_error,events,created_at').eq('user_id', u.id).order('created_at');
+  return data || [];
 }
-export async function connectCalendar(url) {
+export async function myCalendar() { return (await myCalendars())[0] || null; }
+export async function connectCalendar(url, label = '') {
   const c = await client();
-  const { data: host, error } = await c.rpc('set_my_calendar', { p_url: url });
+  const { data: host, error } = await c.rpc('set_my_calendar', { p_url: url, p_label: label || null });
   if (error) throw new Error(nice(error));
   const r = await c.functions.invoke('calendar-import', { body: {} }); // קורא עכשיו (ואחר כך כל 15 דקות)
   if (r.error) console.warn('calendar-import', r.error);
   return host;
 }
-export async function disconnectCalendar() {
-  const { error } = await (await client()).rpc('clear_my_calendar'); if (error) throw new Error(nice(error));
+export async function disconnectCalendar(id = null) {
+  const { error } = await (await client()).rpc('clear_my_calendar', { p_id: id }); if (error) throw new Error(nice(error));
 }
 export async function upcomingEvents(days = 14, limit = 8) {
   const u = await user(); if (!u) return [];

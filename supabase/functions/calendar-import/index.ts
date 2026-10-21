@@ -1,5 +1,5 @@
 // 📅 מהיומן לאפליקציות (כסף בכיף + זמן בכיף): קורא את היומן של המשתמש (קישור iCal סודי, שמור מוצפן ב-Vault)
-// ושומר את האירועים ב-external_events — מחודש אחורה עד 3 חודשים קדימה. אירועים חוזרים נפרשים לפגישות בודדות.
+// (עד 5 יומנים למשתמש — כל אחד נקרא בנפרד) ושומר את האירועים ב-external_events — מחודש אחורה עד 3 חודשים קדימה. אירועים חוזרים נפרשים לפגישות בודדות.
 // מי מפעיל: pg_cron כל 15 דקות (x-cron-secret) — לכל המשתמשים, או המשתמש עצמו (התחברות) — רק היומן שלו, מיד אחרי חיבור.
 // התזמון: cron.job "calendar-import" — */15 * * * * (נוצר ישירות במסד, כמו monthly-summary, כי יש בו סוד)
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
@@ -80,8 +80,8 @@ Deno.serve(async req => {
   if (error) return json({ error: error.message }, 500);
   const report: any[] = [];
   for (const c of list || []) {
-    try { const ev = parse(await fetchIcs(c.url), from, to); const { data: n } = await sb.rpc('calendar_import_save', { p_user: c.user_id, p_events: ev }); report.push({ ok: n }); }
-    catch (e) { await sb.rpc('calendar_import_save', { p_user: c.user_id, p_events: null, p_error: String((e as Error).message || e) }); report.push({ error: true }); }
+    try { const ev = parse(await fetchIcs(c.url), from, to); const { data: n } = await sb.rpc('calendar_import_save', { p_cal: c.cal_id, p_events: ev }); report.push({ ok: n }); }
+    catch (e) { await sb.rpc('calendar_import_save', { p_cal: c.cal_id, p_events: null, p_error: String((e as Error).message || e) }); report.push({ error: true }); }
   }
   return json({ users: report.length, report: only ? report : report.map(r => (r.error ? 'error' : 'ok')) });
 });
