@@ -1,6 +1,8 @@
 // שמירת הנתונים בתוך המכשיר (IndexedDB) — נשמר גם אחרי סגירת האפליקציה
 // 🎭 מצב הדגמה: מאגר נפרד לגמרי — הנתונים האמיתיים לא נגעים
-export const DEMO = (() => { try { return localStorage.getItem('kesef-demo') === '1'; } catch { return false; } })();
+// 📱 עמדת בדיקה (?bdika=1): ישר להדגמה, בלי חלונות קופצים, בלי סנכרון ומעקב
+export const BDIKA = new URLSearchParams(location.search).has('bdika');
+export const DEMO = BDIKA || (() => { try { return localStorage.getItem('kesef-demo') === '1'; } catch { return false; } })();
 const DB_NAME = DEMO ? 'kesef-bekef-demo' : 'kesef-bekef';
 let dbp;
 

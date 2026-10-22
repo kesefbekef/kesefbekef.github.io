@@ -2256,7 +2256,7 @@ function remindersDue(now = new Date()) {
     .map(f => ({ ...f, inDays: Math.round((new Date(ymd(f.next) + 'T12:00:00') - today) / 864e5) }));
 }
 function fixedReminder() {
-  if (!sync.isParent() || lsGet('fixRemind') === ymd(new Date())) return;
+  if (db.BDIKA || !sync.isParent() || lsGet('fixRemind') === ymd(new Date())) return;
   const due = remindersDue(); if (!due.length) return;
   lsSet('fixRemind', ymd(new Date()));
   const t = due.slice(0, 2).map(f => `${daysTxt(f.inDays)}: ${f.desc} ${f.variable ? 'בערך ' : ''}${fmt(f.amount)}`).join(' · ');
@@ -2532,8 +2532,22 @@ async function demoStart() {
   bar.querySelector('#dbReview').onclick = () => reviewStart();
   reviewBadge();
   bar.querySelector('#dbExit').onclick = exitDemo;
+  if (db.BDIKA) { bar.querySelector('#dbExit').hidden = true; bdikaStart(); return; } // 📱 עמדת בדיקה: בלי פתקים, בלי הצעת סיור
   notesFab();
   if (!lsGet('kesef-tour-seen')) setTimeout(() => toastAction('🧭 רוצה סיור מודרך בכל התכונות?', '▶️ להתחיל', () => tourStart(0)), 900);
+}
+// 📱 עמדת בדיקה: news=<v>|<i> (או הודעה מהדף) מפעיל את "👀 תראו לי" של הפריט
+function bdikaNews(v, i) {
+  const it = NEWS.find(n => n.v === v)?.items?.[+i];
+  while ($('#sheet').classList.contains('on')) closeSheet();
+  go('chat');
+  const f = it && (typeof it.go === 'function' ? it.go : NEWS_GO[it.go]);
+  if (f) setTimeout(f, 250);
+}
+function bdikaStart() {
+  const p = new URLSearchParams(location.search).get('news');
+  if (p) { const [v, i] = p.split('|'); setTimeout(() => bdikaNews(v, i), 400); }
+  addEventListener('message', e => { const m = e.data; if (m && m.bdika === 'news') bdikaNews(m.v, m.i); });
 }
 // אתחול מחדש של נתוני ההדגמה
 async function demoReset() {
@@ -3097,7 +3111,7 @@ function openInstallSheet() {
 function drawInstallBanner() {
   const el = $('#installBanner');
   let hidden = false; try { hidden = localStorage.getItem('kesef-install-hide') === '1'; } catch {}
-  if (isStandalone() || hidden || !location.protocol.startsWith('https')) { el.innerHTML = ''; return; }
+  if (isStandalone() || hidden || db.BDIKA || !location.protocol.startsWith('https')) { el.innerHTML = ''; return; }
   el.innerHTML = `<div class="card tip" style="margin:0 16px 14px;align-items:center">
     <div class="em">📲</div><p style="flex:1"><b>להתקין כאפליקציה?</b><br>אייקון במסך הבית, כמו וואטסאפ</p>
     <button class="btn grad" id="instGo" style="height:40px">התקנה</button><button class="chip" id="instX" aria-label="סגירה">✕</button></div>`;
@@ -3680,7 +3694,7 @@ async function showGate() {
 // ---------- עדכונים אוטומטיים ----------
 if ('serviceWorker' in navigator) {
   const hadController = !!navigator.serviceWorker.controller;
-  navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController) toastAction('✨ יש גרסה חדשה', '🔄 לרענן', () => location.reload()); });
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController && !db.BDIKA) toastAction('✨ יש גרסה חדשה', '🔄 לרענן', () => location.reload()); });
 }
 
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').then(reg => {
