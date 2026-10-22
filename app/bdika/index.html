@@ -263,6 +263,8 @@ async function refresh() {
     LIST = N.find(n => n.v === ver).items.map((it, i) => ({ app, v: ver, i, it }));
   }
   // מה שאושר — לא חוזר: לפי השרת (אישורים מהעמדה) או לפי ok: 'תאריך' בקובץ של האפליקציה
+  // החדשים תמיד למעלה (לפי תאריך העדכון), ובתוך כל יום — לפי אפליקציה
+  if (mode !== 'app') { const ord = Object.keys(APPS); LIST.sort((a, b) => b.v.slice(0, 10).localeCompare(a.v.slice(0, 10)) || ord.indexOf(a.app) - ord.indexOf(b.app)); }
   if (!showAll) LIST = LIST.filter(x => REV[kOf(x)]?.status !== 'ok' && !x.it.ok);
   cur = LIST.length ? 0 : -1;
   drawSide(); showAt(cur, true);
@@ -276,7 +278,7 @@ function counts() { const v = Object.values(getS()); return [v.filter(x => x.v =
 function itemHTML(x, k) {
   const s = getS()[kOf(x)] || {}, it = x.it;
   return `<div class="item ${s.v || ''} ${k === cur ? 'cur' : ''}" data-k="${k}" style="animation-delay:${Math.min(k, 12) * .04}s">
-    <div class="h"><div class="e">${esc(it.e)}</div><div><b>${esc(it.t)}${mode !== 'app' ? `<span class="tagapp">${heDate(x.v)}</span>` : ''}</b><p>${esc(it.d)}</p></div></div>
+    <div class="h"><div class="e">${esc(it.e)}</div><div><b>${esc(it.t)}${mode === 'todo' ? `<span class="tagapp">${APPS[x.app].name}</span>` : ''}</b><p>${esc(it.d)}</p></div></div>
     ${it.phone ? `<div class="ph"><b>📱 את זה צריך לבדוק בטלפון:</b> ${esc(it.phone)}</div>` : ''}
     ${REV[kOf(x)]?.status === 'bad' ? `<div class="ph" style="border-color:#F59E0B;color:#FDE68A"><b style="color:#FCD34D">🔧 סימנת שעוד לא טוב:</b> ${esc(REV[kOf(x)].note || '')} · אם תוקן, לסמן ✅</div>` : ''}
     ${REV[kOf(x)]?.status === 'ok' || it.ok ? `<div class="sub" style="margin-top:6px;color:#86EFAC">✅ כבר אישרת${it.ok ? ' (' + esc(heDate(String(it.ok))) + ')' : ''}</div>` : ''}
@@ -291,7 +293,13 @@ function drawSide() {
   if (!LIST.length) html += `<div class="empty">${mode === 'todo' ? '🎉 אין שום דבר שמחכה לך. הכל נבדק!' : mode === 'day' ? `ב־${heDate(day)} אין מה לבדוק` : 'אין שינויים שמחכים'}</div>`;
   if (phones.length) html += `<div class="phonebox"><b>📱 ${MOBILE ? 'את אלה בודקים ישר כאן, בטלפון' : 'בעדכון הזה תבדוק בטלפון'} (${phones.length}):</b><ul>${phones.map(x => `<li>${esc(x.it.e)} ${esc(x.it.t)}${mode !== 'app' ? ' · ' + APPS[x.app].name : ''}</li>`).join('')}</ul></div>`;
   let last = null;
-  LIST.forEach((x, k) => { if (mode !== 'app' && x.app !== last) { html += `<div class="grp">${APPS[x.app].name}</div>`; last = x.app; } html += itemHTML(x, k); });
+  const today = ymd(new Date());
+  LIST.forEach((x, k) => {
+    const d = x.v.slice(0, 10);
+    if (mode === 'todo' && d !== last) { html += `<div class="grp">📅 ${d === today ? 'היום · ' : ''}${heDate(d)}</div>`; last = d; }
+    if (mode === 'day' && x.app !== last) { html += `<div class="grp">${APPS[x.app].name}</div>`; last = x.app; }
+    html += itemHTML(x, k);
+  });
   if (LIST.length) html += `<div class="send"><div id="cnt"></div><button id="snd">📤 שליחה</button></div>`;
   $('#side').innerHTML = html;
   upd();
