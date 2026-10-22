@@ -136,6 +136,11 @@ export async function isAdmin() {
   try { if (!enabled() || !(await user())) return false; const { data } = await (await client()).rpc('is_app_admin'); return data === true; }
   catch { return false; }
 }
+/** 📱 מה המנהל כבר אישר ✅ בעמדת הבדיקה — מפתחות "kesef|v|כותרת" (לאחרים: ריק) */
+export async function bdikaApproved() {
+  try { if (!enabled() || !(await user())) return []; const { data } = await (await client()).rpc('bdika_approved', { p_app: 'kesef' }); return Array.isArray(data) ? data : []; }
+  catch { return []; }
+}
 export async function changePassword(pw) {
   const { error } = await (await client()).auth.updateUser({ password: pw });
   if (error) throw new Error(nice(error));
