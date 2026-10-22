@@ -264,6 +264,13 @@ footer{padding:28px 0;text-align:center;color:#8B82A6;font-size:14px}
 .enter small{display:block;font-weight:600;font-size:14px;opacity:.9;margin-top:2px}
 .enter-fab{position:fixed;left:50%;bottom:calc(14px + env(safe-area-inset-bottom));transform:translate(-50%,120px);z-index:20;text-decoration:none;font-weight:800;font-size:17px;padding:13px 24px;border-radius:999px;background:linear-gradient(135deg,#22C55E,#14B8A6);color:#fff;box-shadow:0 8px 24px rgba(0,0,0,.3);border:2px solid #fff;white-space:nowrap;transition:transform .3s}
 .enter-fab.show{transform:translate(-50%,0)}
+.d-rules{display:flex;flex-direction:column;gap:7px;justify-content:center}
+.d-rules .bk{background:#2A2240;border-radius:10px;padding:7px 10px;font-size:12.5px;color:#C4B5FD}
+.d-rules .ar{text-align:center;font-size:18px;animation:rlb 2.4s ease-in-out infinite}
+.d-rules .nm{background:rgba(236,72,153,.18);border:1px solid rgba(236,72,153,.5);border-radius:10px;padding:7px 10px;font-weight:700;font-size:14px}
+.d-rules .q{display:flex;gap:6px;justify-content:center}.d-rules .q span{border-radius:20px;padding:4px 10px;font-size:12px;font-weight:700;background:#2A2240}.d-rules .q span.y{background:linear-gradient(135deg,#7C3AED,#EC4899)}
+@keyframes rlb{0%,100%{transform:translateY(0)}50%{transform:translateY(3px)}}
+@media (prefers-reduced-motion:reduce){.d-rules .ar{animation:none}}
 </style>
 </head>
 <body>
@@ -289,8 +296,13 @@ footer{padding:28px 0;text-align:center;color:#8B82A6;font-size:14px}
 <section class="dark" id="new">
   <div class="wrap">
     <div class="eyebrow">🆕 חדש באפליקציה</div>
-    <h2>25 דברים חדשים — ככה זה נראה 👇</h2>
+    <h2>27 דברים חדשים — ככה זה נראה 👇</h2>
     <div class="nw">
+      <div class="card"><div class="demo d-rules">
+          <div class="bk">🏦 בבנק כתוב: <bdi>הו"ק פלאפון 4101</bdi></div><div class="ar">⬇️</div>
+          <div class="nm">📱 פלאפון של נועה</div>
+          <div class="q"><span>רק הפעם</span><span class="y">💾 כן, תמיד</span></div></div>
+        <h3>📏 גם בפעם הבאה?</h3><p>בקובץ מהבנק כתוב שם לא ברור? נוגעים בו ומשנים (או משנים קטגוריה) — והאפליקציה שואלת <b>"גם בפעם הבאה?"</b>. מעכשיו זה קורה לבד בכל קובץ, גם כשהמספרים שונים. בכל תנועה מקובץ רואים <b>"🏦 בבנק כתוב"</b> עם הטקסט המקורי. לראות, לשנות ולמחוק: ⚙️ ← <b>"📏 כללים שלמדתי"</b>.<br><small>⚠️ טקסט כללי כמו "העברה" או "ביט" לא מסומן מראש — כדי שלא יחול על כל ההעברות.</small></p></div>
       <div class="card"><div class="demo d-catsx">
           <div class="rings"><i class="nx">➕</i><i>🛒</i><i>🚗</i><i>🏠</i></div>
           <div class="cb2">🏷️ הקטגוריות שלכם — להוסיף / לשנות <b>›</b></div></div>
