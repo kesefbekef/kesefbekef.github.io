@@ -1553,7 +1553,7 @@ const STATUS = {
   'atm': '💵 משיכת מזומן — מה לעשות איתה?',
 };
 
-// 📎 — תפריט: קובץ מהבנק / צילום מסך מהגלריה / לצלם עכשיו
+// 📎 — קובץ מהבנק / מהאשראי (אקסל, CSV, PDF). העלאה מתמונה הוסרה (22.10) — לא מספיק מדויקת
 // (קלט נפרד לקבצים — אחרת אנדרואיד מציע רק מצלמה ותמונות)
 const DOC_ACCEPT = '.xlsx,.xls,.csv,.txt,.pdf,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,text/plain';
 function makePicker(accept, camera) {
@@ -1564,15 +1564,19 @@ function makePicker(accept, camera) {
   document.body.appendChild(i);
   return i;
 }
-const PICK = { doc: makePicker(DOC_ACCEPT), img: makePicker('image/*'), cam: makePicker('image/*', true) };
+const PICK = { doc: makePicker(DOC_ACCEPT) };
+// ✅ נבדק עם קבצים אמיתיים (לא רק קבצי דוגמה). בנק שלא כאן — "⏳ בבדיקה"
+const VERIFIED = [['לאומי', 'PDF'], ['יהב', 'PDF']];
+const IN_TEST = ['הפועלים', 'דיסקונט', 'מזרחי טפחות', 'הבינלאומי', 'מרכנתיל', 'ירושלים', 'וואן זירו', 'ישראכרט', 'מקס', 'כאל', 'אמריקן אקספרס'];
 
 function openAttachSheet() {
   openSheet(`<h3>📎 העלאת פירוט מהבנק או מהאשראי</h3>
-    <div class="sub" style="margin:-6px 0 14px">מכל בנק וכל כרטיס אשראי · אפשר כמה קבצים יחד, גם חודשים אחורה</div>
+    <div class="sub" style="margin:-6px 0 14px">קובץ מאתר הבנק או חברת האשראי · אפשר כמה קבצים יחד, גם חודשים אחורה</div>
     ${allMsgs().length ? `<button class="btn ghost full" id="atLists" style="margin-bottom:12px">📂 הרשימות שלי — ${allMsgs().length} קבצים שהעליתם</button>` : ''}
     <button class="pick" data-pick="doc"><span class="pe" style="background:var(--g3)">📊</span><span><b>קובץ אקסל או PDF</b><small>שהורדת מהאתר או מהאפליקציה של הבנק / האשראי</small></span></button>
-    <button class="pick" data-pick="img"><span class="pe" style="background:var(--g2)">🖼️</span><span><b>צילום מסך מהגלריה</b><small>צילום של רשימת התנועות באפליקציית הבנק</small></span></button>
-    <button class="pick" data-pick="cam"><span class="pe" style="background:var(--g1)">📷</span><span><b>לצלם עכשיו</b><small>דף חיוב מודפס או קבלה</small></span></button>
+    <div class="card bank-ok"><b>🏦 איזה בנקים?</b>
+      <div class="sub" style="margin-top:4px">✅ <b>נבדק עם קבצים אמיתיים:</b> ${VERIFIED.map(([b, f]) => `${b} (${f})`).join(' · ')}</div>
+      <div class="sub" style="margin-top:4px">⏳ <b>בבדיקה:</b> ${IN_TEST.join(', ')} — אמורים לעבוד (נבדקו על קבצי דוגמה). קובץ שלא נקרא? אנחנו מקבלים על זה הודעה ומתקנים.</div></div>
     <div class="card" style="margin-top:6px"><b>🤔 מה קורה אחרי שבוחרים?</b>
       <div class="sub" style="margin-top:6px;line-height:1.9">1️⃣ האפליקציה קוראת את כל התנועות לבד<br>2️⃣ מוצגת רשימה לבדיקה — עם קטגוריה לכל שורה<br>3️⃣ מה שכבר נרשם מסומן 🔁 ולא ייכנס פעמיים<br>4️⃣ מתקנים אם צריך ולוחצים <b>"ייבוא"</b> ✅</div></div>
     <div class="dup-note">✋ מה שכבר רשמתם ידנית (בצ'אט או ב-➕) יזוהה ולא ייספר פעמיים</div>
@@ -1684,6 +1688,8 @@ $('#plusBtn').onclick = () => openAddSheet();
 // קורא קובץ אחד → { kind, items } או זורק שגיאה עם הודעה ידידותית
 async function readOne(file, label) {
   if (imp.isImage(file.name) || file.type.startsWith('image/')) {
+    sync.trackFail('import', 'image (no longer supported)');
+    throw Object.assign(new Error('צילום מסך כבר לא נקרא — הוא לא מספיק מדויק. הורידו מאתר או מאפליקציית הבנק / האשראי קובץ אקסל או PDF (תנועות בחשבון ← "ייצוא" / "הורדה"), ואז 📎 ← קובץ.'), { how: 1 });
     let res;
     try { res = await imp.readImage(file, p => toast(`📸 ${label}קורא צילום מסך… ${p}%`), S.learned); }
     catch (err) { if (!err.offline) sync.trackFail('import', 'image unreadable'); throw new Error(err.offline ? 'כדי לקרוא צילומי מסך צריך חיבור לאינטרנט בפעם הראשונה' : 'לא הצלחתי לקרוא את התמונה'); }
@@ -1696,7 +1702,7 @@ async function readOne(file, label) {
   const ext = ((file.name.match(/\.(\w+)$/) || [])[1] || '?').toUpperCase();
   try { sheets = await imp.readSheets(file); res = imp.extract(sheets, S.learned); }
   catch (err) { console.error(err); sync.trackFail('import', `${ext} · ${imp.detectBank(null, file.name)} · ${err.scanned ? `PDF סרוק (${err.pages || '?'} עמ')` : 'לא נפתח: ' + String(err?.message || err).slice(0, 60)}`);
-    throw new Error(err.scanned ? 'PDF סרוק בלי טקסט — נסו כצילום מסך, או הורידו מהבנק "ייצוא לאקסל"' : 'לא הצלחתי לפתוח את הקובץ 😕 נסו להוריד מהבנק / האשראי "ייצוא לאקסל", או שלחו לנו את הקובץ דרך 💌 משוב'); }
+    throw new Error(err.scanned ? 'הקובץ הזה הוא צילום (PDF סרוק), ואי אפשר לקרוא ממנו את המספרים. הורידו מאתר או מאפליקציית הבנק קובץ אקסל: נכנסים ל"תנועות בחשבון" ← "ייצוא" / "הורדה" ← אקסל (או PDF רגיל, לא סרוק), ואז 📎 ← קובץ.' : 'לא הצלחתי לפתוח את הקובץ 😕 נסו להוריד מהבנק / האשראי "ייצוא לאקסל", או שלחו לנו את הקובץ דרך 💌 משוב'); }
   if (!res.items.length) {
     const meta = sheets?.[0]?.meta || {};
     sync.trackFail('import', `${ext} · ${imp.detectBank(sheets, file.name)} · לא נמצאו תנועות${meta.pages ? ` · ${meta.pages} עמ'` : ` · ${sheets?.length || 0} גיליונות`}`);
@@ -1717,7 +1723,12 @@ async function importFiles(files) {
       all.push(...res.items); kinds.add(res.kind); ok.push(f.name);
     } catch (e) { errors.push(`${f.name}: ${e.message}`); }
   }
-  if (!all.length) { toast(errors[0] || 'לא נמצאו תנועות', true); return; }
+  // ❌ שום קובץ לא נקרא — חלון ברור עם מה לעשות (לא הודעה קטנה שנעלמת)
+  if (!all.length) {
+    const a = await confirmBox({ e: '📄', title: files.length > 1 ? 'הקבצים לא נקראו' : 'הקובץ לא נקרא', text: (files.length > 1 ? errors : errors.map(x => x.slice(files[0].name.length + 2))).map(x => esc(x)).join('<br><br>') || 'לא נמצאו תנועות', ok: 'הבנתי', no: '❓ איך מורידים קובץ מהבנק' });
+    if (a.how === 'no') openHelp('איך מעלים פירוט מהבנק');
+    return;
+  }
   if (errors.length) setTimeout(() => toast(`⚠️ ${errors.length} קבצים לא נקראו: ${errors.join(' · ')}`, true), 400);
   markDuplicates(all);
   if (await alreadyUploaded(all)) return;
@@ -2903,7 +2914,7 @@ const cardWith = txt => () => [...document.querySelectorAll('#tips .card')].find
 const TOUR = [
   { v: 'chat', sel: '#inp', t: '💬 רושמים הוצאה כמו הודעה', d: 'כותבים "אושר עד 500" ושולחים — הקטגוריה נבחרת לבד. אפשר כמה ביחד, תאריך ("אתמול"), ושם ("רחל: …").' },
   { v: 'chat', sel: '#mic', t: '🎤 מדברים במקום להקליד', d: 'לחיצה קצרה — הקלטה עד ⏹️. החזקה — כמו בוואטסאפ: למעלה נועל, הצידה מבטל.' },
-  { v: 'chat', sel: '#attach', t: '📎 פירוט מהבנק / אשראי', d: 'אקסל, PDF או צילום מסך. כל שורה עם ✅ "נספר" — מה שלא מסומן נשמר באפור ולא נכנס לחישובים. חיובי אשראי, כפילויות והעברות בין החשבונות מגיעים בלי סימון, ולכל משיכת מזומן בוחרים מה לעשות. ☑️ בחירה (או לחיצה ארוכה) — כמה שורות יחד.' },
+  { v: 'chat', sel: '#attach', t: '📎 פירוט מהבנק / אשראי', d: 'אקסל או PDF מאתר הבנק / האשראי. כל שורה עם ✅ "נספר" — מה שלא מסומן נשמר באפור ולא נכנס לחישובים. חיובי אשראי, כפילויות והעברות בין החשבונות מגיעים בלי סימון, ולכל משיכת מזומן בוחרים מה לעשות. ☑️ בחירה (או לחיצה ארוכה) — כמה שורות יחד.' },
   { v: 'chat', sel: '#plusBtn', t: '➕ הוספה בלי צ\'אט', d: 'בוחרים קטגוריה (או 💰 הכנסה), סכום — ושמירה. אפשר גם תגית אירוע.' },
   { v: 'chat', sel: '.hero', t: '💜 כמה נשאר החודש', d: 'המספר "רץ" לערך החדש, והפס מראה כמה מהתקציב נוצל.' },
   { v: 'chat', sel: '#stories', t: '⭕ הטבעות של הקטגוריות', d: 'כל טבעת מתמלאת לפי התקציב, ונהיית אדומה כשחורגים. לחיצה — פירוט.' },

@@ -746,3 +746,5 @@ body.over-gate .sheet{z-index:111}
 .dp-bot small { color: var(--muted); font-size: 12px; }
 .dp-none { font-size: 13px; color: var(--muted); }
 .dup-see { display: block; font-size: 12.5px; margin-top: 2px; }
+.bank-ok { padding: 12px; margin: 4px 0 10px; }
+.bank-ok .sub { line-height: 1.6; }
