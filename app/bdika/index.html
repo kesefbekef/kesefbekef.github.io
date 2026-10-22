@@ -63,6 +63,32 @@ textarea{width:100%;margin-top:8px;background:var(--card2);border:1px solid var(
 .toast{position:fixed;top:16px;left:50%;transform:translate(-50%,-150px);background:var(--g);padding:12px 18px;border-radius:16px;font-weight:700;z-index:20;transition:transform .4s}
 .toast.show{transform:translate(-50%,0)}
 @keyframes pop{from{opacity:0;transform:translateY(10px)}}
+/* 📅 מצב היום */
+.apps button.day{border-color:#F59E0B}
+.apps button.day.on{background:linear-gradient(135deg,#F59E0B,#F97316);color:#1F1300}
+.grp{font-size:18px;font-weight:800;margin:8px 4px 0;display:flex;gap:6px;align-items:center}
+.item .tagapp{font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--card2);color:#E9D5FF;margin-inline-start:6px}
+/* 📱 גרסת טלפון: האפליקציה על כל המסך + פס תחתון */
+body.mob{overflow:hidden}
+.mobwrap{position:fixed;inset:0;display:flex;flex-direction:column;background:#000}
+.mobwrap iframe{flex:1;width:100%;border:0;background:#0A0A12;min-height:0}
+.mbar{background:#120C1E;border-top:1px solid var(--line);padding:8px 10px calc(8px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:6px}
+.mbar .row{display:flex;gap:6px;align-items:center}
+.mbar .ttl{flex:1;min-width:0;font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mbar button{border:1px solid var(--line);background:var(--card2);border-radius:12px;padding:9px 10px;font-weight:700;font-size:14px;cursor:pointer;flex:none;min-height:40px}
+.mbar button:disabled{opacity:.35}
+.mbar .list{background:var(--g);border-color:transparent;color:#fff}
+.mbar .vok.on{background:linear-gradient(135deg,#22C55E,#14B8A6);border-color:transparent;color:#05210F}
+.mbar .vbad.on{background:linear-gradient(135deg,#F59E0B,#F97316);border-color:transparent;color:#1F1300}
+.mbar .ph1{font-size:12.5px;color:#FED7AA;background:rgba(249,115,22,.15);border:1px dashed #F97316;border-radius:10px;padding:5px 8px;line-height:1.4;max-height:3.2em;overflow:hidden}
+.msheet{position:fixed;inset:0;z-index:15;background:rgba(5,3,10,.6);display:none}
+.msheet.on{display:block}
+.msheet .in{position:absolute;left:0;right:0;bottom:0;max-height:86%;overflow-y:auto;background:var(--bg);border-radius:22px 22px 0 0;padding:12px 12px calc(14px + env(safe-area-inset-bottom,0px));animation:up .3s both}
+.msheet #side{display:flex;flex-direction:column;gap:10px;max-height:none}
+.msheet textarea{font-size:16px}
+.msheet .grip{width:44px;height:5px;border-radius:5px;background:#3B2A63;margin:0 auto 8px}
+@keyframes up{from{transform:translateY(40%);opacity:.4}}
+
 </style>
 </head>
 <body>
@@ -83,7 +109,17 @@ const APPS = {
   lomdim: { name: '🎮 לומדים בכיף', url: 'https://lomdimbekef.github.io/', news: 'https://lomdimbekef.github.io/js/news.js', fb: 'lomdim' },
 };
 const DEVICES = { a360: ['🤖 אנדרואיד', 360, 760], a412: ['🤖 אנדרואיד גדול', 412, 880], i375: ['🍏 אייפון', 375, 812], i430: ['🍏 אייפון גדול', 430, 900] };
-let app = ls.get('bdika-app', 'kesef'), NEWS = [], ver = null, cur = -1, devs = ls.get('bdika-devs', ['a360', 'i375']);
+const Q = new URLSearchParams(location.search);
+const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const heDate = v => v.slice(0, 10).split('-').reverse().join('.');
+const MOBILE = matchMedia('(max-width: 760px)').matches;
+// מצב: 'app' (אפליקציה אחת, לפי עדכון) או 'day' (כל השינויים של יום אחד מכל האפליקציות)
+let mode = Q.has('day') ? 'day' : 'app';
+let day = (Q.get('day') && Q.get('day') !== 'today') ? Q.get('day') : ymd(new Date());
+let app = Q.get('app') && APPS[Q.get('app')] ? Q.get('app') : ls.get('bdika-app', 'kesef');
+let ver = null, devs = ls.get('bdika-devs', ['a360', 'i375']);
+const NEWS = {};         // app -> מערך NEWS
+let LIST = [], cur = -1; // LIST: [{app, v, i, it}] — מה שמוצג עכשיו ברשימה
 
 // מחלצים את המערך NEWS מתוך הקובץ של האפליקציה (בלי להריץ את שאר הקוד שלה)
 function extractNews(src) {
@@ -98,8 +134,14 @@ function extractNews(src) {
   }
   return new Function('"use strict"; return (' + src.slice(start, i + 1) + ');')();
 }
+async function loadNews(a) {
+  if (NEWS[a]) return NEWS[a];
+  try { NEWS[a] = extractNews(await (await fetch(APPS[a].news + '?t=' + Date.now(), { cache: 'no-store' })).text()); }
+  catch { NEWS[a] = []; }
+  return NEWS[a];
+}
 
-async function start() { draw(); loadApp(); } // צפייה פתוחה (הכל במצב הדגמה). כניסה נדרשת רק לשליחה
+async function start() { draw(); await refresh(); } // צפייה פתוחה (הכל במצב הדגמה). כניסה נדרשת רק לשליחה
 // לפני שליחה: מחובר + מנהל? אם לא — חלון כניסה
 async function ensureAdmin() {
   const { data } = await sb.auth.getSession();
@@ -108,12 +150,12 @@ async function ensureAdmin() {
 }
 function login(msg = '', done) {
   const box = document.createElement('div'); box.id = 'lg';
-  box.style.cssText = 'position:fixed;inset:0;z-index:30;background:rgba(5,3,10,.8);backdrop-filter:blur(6px);overflow:auto';
+  box.style.cssText = 'position:fixed;inset:0;z-index:30;background:rgba(5,3,10,.8);backdrop-filter:blur(6px);overflow:auto;padding:0 12px';
   document.body.appendChild(box);
-  box.innerHTML = `<div class="login"><h2>📱 עמדת בדיקה</h2><p class="sub" style="margin:4px 0 14px">כניסה עם החשבון של כסף בכיף</p>
+  box.innerHTML = `<div class="login"><h2>📱 עמדת בדיקה</h2><p class="sub" style="margin:4px 0 14px">כניסה עם החשבון של כסף בכיף, כדי לשלוח</p>
     <input id="em" type="email" autocomplete="email" placeholder="מייל"><input id="pw" type="password" autocomplete="current-password" placeholder="סיסמה">
     <div class="err" id="er">${esc(msg)}</div><button class="go" id="go">כניסה ושליחה</button>
-    <button id="cx" style="margin-top:8px;width:100%;background:none;border:none;color:var(--soft);cursor:pointer">ביטול</button></div>`;
+    <button id="cx" style="margin-top:8px;width:100%;background:none;border:none;color:var(--soft);cursor:pointer;padding:10px">ביטול</button></div>`;
   $('#cx').onclick = () => { box.remove(); done?.(false); };
   $('#go').onclick = async () => {
     const { error } = await sb.auth.signInWithPassword({ email: $('#em').value.trim(), password: $('#pw').value });
@@ -125,97 +167,165 @@ function login(msg = '', done) {
   $('#pw').onkeydown = e => { if (e.key === 'Enter') $('#go').click(); };
 }
 
+// ---------- מבנה הדף ----------
 function draw() {
+  if (MOBILE) {
+    document.body.classList.add('mob');
+    $('#root').innerHTML = `<div class="mobwrap"><iframe id="f0" title="האפליקציה" allow="clipboard-write"></iframe><div class="mbar" id="mbar"></div></div>
+      <div class="msheet" id="msheet"><div class="in"><div class="grip"></div><div id="side"></div></div></div>`;
+    $('#msheet').onclick = e => { if (e.target.id === 'msheet') $('#msheet').classList.remove('on'); };
+    devs = ['mob'];
+    return;
+  }
   $('#root').innerHTML = `<div class="top"><h1>📱 עמדת בדיקה</h1>
-      <div class="apps">${Object.entries(APPS).map(([k, a]) => `<button data-app="${k}" class="${k === app ? 'on' : ''}">${a.name}</button>`).join('')}</div>
-      <label class="sub">עדכון: <select id="ver"></select></label>
-      <span class="sub" id="hint">לוחצים "👀 להראות" ליד כל שינוי. הטלפונים קופצים למסך שלו.</span></div>
-    <div class="main"><div class="side" id="side"><div class="empty">טוען את "מה חדש"…</div></div>
-      <div class="phones" id="phones"></div></div>`;
-  document.querySelectorAll('[data-app]').forEach(b => b.onclick = () => { app = b.dataset.app; ls.set('bdika-app', app); ver = null; cur = -1; draw(); loadApp(); });
+      <div class="apps"><button data-mode="day" class="day ${mode === 'day' ? 'on' : ''}">📅 העדכונים של היום</button>
+        ${Object.entries(APPS).map(([k, a]) => `<button data-app="${k}" class="${mode === 'app' && k === app ? 'on' : ''}">${a.name}</button>`).join('')}</div>
+      <label class="sub" id="pick"></label>
+      <span class="sub">"👀 להראות" ליד כל שינוי: הטלפונים קופצים למסך שלו.</span></div>
+    <div class="main"><div class="side" id="side"><div class="empty">טוען…</div></div><div class="phones" id="phones"></div></div>`;
+  document.querySelectorAll('[data-app]').forEach(b => b.onclick = () => { mode = 'app'; app = b.dataset.app; ls.set('bdika-app', app); ver = null; setUrl(); draw(); refresh(); });
+  $('[data-mode="day"]').onclick = () => { mode = 'day'; setUrl(); draw(); refresh(); };
   drawPhones();
 }
+function setUrl() { history.replaceState(null, '', mode === 'day' ? `?day=${day}` : `?app=${app}`); }
 
 function drawPhones() {
+  if (MOBILE) return;
   $('#phones').innerHTML = devs.map((d, k) => `<div class="dev"><div class="lbl"><select data-dev="${k}">${Object.entries(DEVICES).map(([id, [n, w]]) => `<option value="${id}" ${id === d ? 'selected' : ''}>${n} · ${w}</option>`).join('')}</select>
       <button class="reload" data-reload="${k}" title="טעינה מחדש">🔄</button></div>
       <div class="frame ${d.startsWith('i') ? 'ios' : ''}"><div class="screen" id="scr${k}"><iframe id="f${k}" title="טלפון ${k + 1}" allow="clipboard-write"></iframe></div></div></div>`).join('');
-  document.querySelectorAll('[data-dev]').forEach(s => s.onchange = () => { devs[+s.dataset.dev] = s.value; ls.set('bdika-devs', devs); drawPhones(); });
+  document.querySelectorAll('[data-dev]').forEach(s => s.onchange = () => { devs[+s.dataset.dev] = s.value; ls.set('bdika-devs', devs); drawPhones(); showAt(cur, true); });
   document.querySelectorAll('[data-reload]').forEach(b => b.onclick = () => showAt(cur, true));
-  fit(); showAt(cur, true);
+  fit();
 }
-// מקטינים את הטלפונים כך ששניהם ייכנסו במסך
 function fit() {
+  if (MOBILE || !$('#phones')) return;
   const avail = Math.max(260, ($('#phones').clientWidth - 60) / 2), maxH = innerHeight - 170;
   devs.forEach((d, k) => {
     const [, w, h] = DEVICES[d], s = Math.min(1, avail / (w + 16), maxH / h);
-    const f = $('#f' + k), scr = $('#scr' + k);
+    const f = $('#f' + k), scr = $('#scr' + k); if (!f) return;
     f.style.width = w + 'px'; f.style.height = h + 'px'; f.style.transform = `scale(${s})`;
     scr.style.width = w * s + 'px'; scr.style.height = h * s + 'px';
   });
 }
-addEventListener('resize', () => { if ($('#phones')) fit(); });
+addEventListener('resize', fit);
 
-function showAt(i, force = false) {
-  cur = i;
-  const it = NEWS.find(n => n.v === ver), q = i >= 0 && it ? `&news=${encodeURIComponent(ver + '|' + i)}` : '';
-  devs.forEach((d, k) => {
-    const f = $('#f' + k); if (!f) return;
-    const src = `${APPS[app].url}?bdika=1${q}&t=${Date.now()}`;
-    if (!force && f.dataset.loaded === app) { try { f.contentWindow.postMessage({ bdika: 'news', v: ver, i }, '*'); } catch {} }
-    f.src = src; f.dataset.loaded = app;
-  });
-  document.querySelectorAll('.item').forEach(el => el.classList.toggle('cur', +el.dataset.i === i));
+// ---------- מה מוצג ----------
+async function refresh() {
+  if (mode === 'day') {
+    await Promise.all(Object.keys(APPS).map(loadNews));
+    const days = [...new Set(Object.values(NEWS).flat().map(n => n.v.slice(0, 10)))].sort().reverse();
+    if (!MOBILE) {
+      $('#pick').innerHTML = `יום: <select id="dayS">${(days.includes(day) ? days : [day, ...days]).map(d => `<option value="${d}" ${d === day ? 'selected' : ''}>${heDate(d)}${d === ymd(new Date()) ? ' (היום)' : ''}</option>`).join('')}</select>`;
+      $('#dayS').onchange = () => { day = $('#dayS').value; setUrl(); refresh(); };
+    }
+    LIST = [];
+    for (const a of Object.keys(APPS)) for (const n of NEWS[a]) if (n.v.slice(0, 10) === day) n.items.forEach((it, i) => LIST.push({ app: a, v: n.v, i, it }));
+  } else {
+    const N = await loadNews(app);
+    if (!N.length) { $('#side').innerHTML = `<div class="empty">⚠️ לא הצלחתי לקרוא את "מה חדש" של ${esc(APPS[app].name)}</div>`; return; }
+    ver = ver && N.some(n => n.v === ver) ? ver : N[0].v;
+    if (!MOBILE) {
+      $('#pick').innerHTML = `עדכון: <select id="ver">${N.map(n => `<option value="${esc(n.v)}" ${n.v === ver ? 'selected' : ''}>${heDate(n.v)} · ${n.items.length} שינויים</option>`).join('')}</select>`;
+      $('#ver').onchange = () => { ver = $('#ver').value; refresh(); };
+    }
+    LIST = N.find(n => n.v === ver).items.map((it, i) => ({ app, v: ver, i, it }));
+  }
+  cur = LIST.length ? 0 : -1;
+  drawSide(); showAt(cur, true);
 }
 
-async function loadApp() {
-  try {
-    const src = await (await fetch(APPS[app].news + '?t=' + Date.now(), { cache: 'no-store' })).text();
-    NEWS = extractNews(src);
-  } catch (e) { $('#side').innerHTML = `<div class="empty">⚠️ לא הצלחתי לקרוא את "מה חדש" של ${esc(APPS[app].name)}</div>`; return; }
-  ver = ver || NEWS[0]?.v;
-  $('#ver').innerHTML = NEWS.map(n => `<option value="${esc(n.v)}" ${n.v === ver ? 'selected' : ''}>${esc(n.v.slice(0, 10).split('-').reverse().join('.'))} · ${n.items.length} שינויים</option>`).join('');
-  $('#ver').onchange = () => { ver = $('#ver').value; cur = -1; drawSide(); showAt(-1, true); };
-  drawSide(); showAt(-1, true);
-}
+const SK = () => mode === 'day' ? `bdika-day-${day}` : `bdika-${app}-${ver}`;
+const kOf = x => `${x.app}|${x.v}|${x.i}`;
+const getS = () => ls.get(SK(), {}), putS = s => ls.set(SK(), s);
+function counts() { const v = Object.values(getS()); return [v.filter(x => x.v === 'ok').length, v.filter(x => x.v === 'bad').length, v.filter(x => (x.n || '').trim()).length]; }
 
-const key = () => `bdika-${app}-${ver}`;
+function itemHTML(x, k) {
+  const s = getS()[kOf(x)] || {}, it = x.it;
+  return `<div class="item ${s.v || ''} ${k === cur ? 'cur' : ''}" data-k="${k}" style="animation-delay:${Math.min(k, 12) * .04}s">
+    <div class="h"><div class="e">${esc(it.e)}</div><div><b>${esc(it.t)}${mode === 'day' ? `<span class="tagapp">${APPS[x.app].name}</span>` : ''}</b><p>${esc(it.d)}</p></div></div>
+    ${it.phone ? `<div class="ph"><b>📱 את זה צריך לבדוק בטלפון:</b> ${esc(it.phone)}</div>` : ''}
+    <div class="acts"><button class="show" data-show="${k}">👀 להראות</button><button class="vok ${s.v === 'ok' ? 'on' : ''}" data-v="ok" data-k="${k}">✅ מאשר</button><button class="vbad ${s.v === 'bad' ? 'on' : ''}" data-v="bad" data-k="${k}">🔧 עוד לא טוב</button></div>
+    <textarea data-n="${k}" rows="1" placeholder="הערה (לא חובה)">${esc(s.n || '')}</textarea></div>`;
+}
 function drawSide() {
-  const entry = NEWS.find(n => n.v === ver); if (!entry) return;
-  const st = ls.get(key(), {}), items = entry.items;
-  const phones = items.map((x, i) => [x, i]).filter(([x]) => x.phone);
-  const counts = () => { const s = ls.get(key(), {}); const v = Object.values(s); return [v.filter(x => x.v === 'ok').length, v.filter(x => x.v === 'bad').length, v.filter(x => x.n).length]; };
-  $('#side').innerHTML = (phones.length ? `<div class="phonebox"><b>📱 בעדכון הזה תבדוק בטלפון (${phones.length}):</b><ul>${phones.map(([x]) => `<li>${esc(x.e)} ${esc(x.t)}</li>`).join('')}</ul></div>` : '')
-    + items.map((x, i) => { const s = st[i] || {}; return `<div class="item ${s.v || ''}" data-i="${i}" style="animation-delay:${Math.min(i, 12) * .04}s">
-      <div class="h"><div class="e">${esc(x.e)}</div><div><b>${esc(x.t)}</b><p>${esc(x.d)}</p></div></div>
-      ${x.phone ? `<div class="ph"><b>📱 את זה צריך לבדוק בטלפון:</b> ${esc(x.phone)}</div>` : ''}
-      <div class="acts"><button class="show" data-show="${i}">👀 להראות</button><button class="vok ${s.v === 'ok' ? 'on' : ''}" data-v="ok" data-i="${i}">✅ מאשר</button><button class="vbad ${s.v === 'bad' ? 'on' : ''}" data-v="bad" data-i="${i}">🔧 עוד לא טוב</button></div>
-      <textarea data-n="${i}" rows="1" placeholder="הערה (לא חובה)">${esc(s.n || '')}</textarea></div>`; }).join('')
-    + `<div class="send"><div id="cnt"></div><button id="snd">📤 שליחה</button></div>`;
-  const upd = () => { const [o, b, n] = counts(); $('#cnt').textContent = `✅ ${o} · 🔧 ${b} · 📝 ${n} מתוך ${items.length}`; };
+  const phones = LIST.filter(x => x.it.phone);
+  let html = '';
+  if (MOBILE) html += `<div class="grp">${mode === 'day' ? `📅 העדכונים של ${heDate(day)}` : APPS[app].name + ' · ' + heDate(ver)}</div>`;
+  if (!LIST.length) html += `<div class="empty">${mode === 'day' ? `ב־${heDate(day)} לא היו עדכונים` : 'אין שינויים'}</div>`;
+  if (phones.length) html += `<div class="phonebox"><b>📱 ${MOBILE ? 'את אלה בודקים ישר כאן, בטלפון' : 'בעדכון הזה תבדוק בטלפון'} (${phones.length}):</b><ul>${phones.map(x => `<li>${esc(x.it.e)} ${esc(x.it.t)}${mode === 'day' ? ' · ' + APPS[x.app].name : ''}</li>`).join('')}</ul></div>`;
+  let last = null;
+  LIST.forEach((x, k) => { if (mode === 'day' && x.app !== last) { html += `<div class="grp">${APPS[x.app].name}</div>`; last = x.app; } html += itemHTML(x, k); });
+  if (LIST.length) html += `<div class="send"><div id="cnt"></div><button id="snd">📤 שליחה</button></div>`;
+  $('#side').innerHTML = html;
   upd();
-  document.querySelectorAll('[data-show]').forEach(b => b.onclick = () => showAt(+b.dataset.show));
-  document.querySelectorAll('[data-v]').forEach(b => b.onclick = () => {
-    const s = ls.get(key(), {}), i = +b.dataset.i; s[i] = s[i] || {}; s[i].v = s[i].v === b.dataset.v ? undefined : b.dataset.v; ls.set(key(), s);
-    const el = b.closest('.item'); el.classList.remove('ok', 'bad'); if (s[i].v) el.classList.add(s[i].v);
-    el.querySelectorAll('[data-v]').forEach(x => x.classList.toggle('on', x.dataset.v === s[i].v)); upd();
+  document.querySelectorAll('[data-show]').forEach(b => b.onclick = () => { showAt(+b.dataset.show); if (MOBILE) $('#msheet').classList.remove('on'); });
+  document.querySelectorAll('.item [data-v]').forEach(b => b.onclick = () => vote(+b.dataset.k, b.dataset.v));
+  document.querySelectorAll('[data-n]').forEach(t => t.oninput = () => note(+t.dataset.n, t.value));
+  $('#snd') && ($('#snd').onclick = send);
+  drawBar();
+}
+function upd() { const c = $('#cnt'); if (!c) return; const [o, b, n] = counts(); c.textContent = `✅ ${o} · 🔧 ${b} · 📝 ${n} מתוך ${LIST.length}`; }
+function vote(k, v) {
+  const s = getS(), key = kOf(LIST[k]); s[key] = s[key] || {}; s[key].v = s[key].v === v ? undefined : v; putS(s);
+  const el = document.querySelector(`.item[data-k="${k}"]`);
+  if (el) { el.classList.remove('ok', 'bad'); if (s[key].v) el.classList.add(s[key].v); el.querySelectorAll('[data-v]').forEach(x => x.classList.toggle('on', x.dataset.v === s[key].v)); }
+  upd(); drawBar();
+}
+function note(k, text) { const s = getS(), key = kOf(LIST[k]); s[key] = s[key] || {}; s[key].n = text; putS(s); upd(); }
+
+// ---------- הטלפונים קופצים לשינוי ----------
+function showAt(k, force = false) {
+  const prevApp = cur >= 0 && LIST[cur] ? LIST[cur].app : null;
+  cur = k;
+  const x = LIST[k], a = x ? x.app : app;
+  const q = x ? `&news=${encodeURIComponent(x.v + '|' + x.i)}` : '';
+  devs.forEach((d, n) => {
+    const f = $('#f' + n); if (!f) return;
+    if (!force && f.dataset.app === a && x) { try { f.contentWindow.postMessage({ bdika: 'news', v: x.v, i: x.i }, '*'); return; } catch {} }
+    f.src = `${APPS[a].url}?bdika=1${q}&t=${Date.now()}`; f.dataset.app = a;
   });
-  document.querySelectorAll('[data-n]').forEach(t => t.oninput = () => { const s = ls.get(key(), {}), i = +t.dataset.n; s[i] = s[i] || {}; s[i].n = t.value; ls.set(key(), s); upd(); });
-  $('#snd').onclick = send;
+  document.querySelectorAll('.item').forEach(el => el.classList.toggle('cur', +el.dataset.k === k));
+  drawBar();
 }
 
+// ---------- 📱 פס תחתון בטלפון ----------
+function drawBar() {
+  const bar = $('#mbar'); if (!bar) return;
+  const x = LIST[cur], s = x ? (getS()[kOf(x)] || {}) : {};
+  bar.innerHTML = `${x && x.it.phone ? `<div class="ph1">📱 ${esc(x.it.phone)}</div>` : ''}
+    <div class="row"><button class="list" id="mList">📋 שינויים (${LIST.length})</button>
+      <div class="ttl">${x ? `${esc(x.it.e)} ${esc(x.it.t)}` : (mode === 'day' ? 'אין עדכונים היום' : '')}</div>
+      <button id="mPrev" ${cur > 0 ? '' : 'disabled'}>▶</button><button id="mNext" ${cur < LIST.length - 1 ? '' : 'disabled'}>◀</button></div>
+    ${x ? `<div class="row"><button class="vok ${s.v === 'ok' ? 'on' : ''}" data-mv="ok">✅ מאשר</button><button class="vbad ${s.v === 'bad' ? 'on' : ''}" data-mv="bad">🔧 עוד לא טוב</button>
+      <button id="mNote" style="flex:1">📝 ${(s.n || '').trim() ? 'הערה ✓' : 'הערה'}</button></div>` : ''}`;
+  $('#mList').onclick = () => { $('#msheet').classList.add('on'); document.querySelector('.item.cur')?.scrollIntoView({ block: 'center' }); };
+  $('#mPrev').onclick = () => showAt(cur - 1);
+  $('#mNext').onclick = () => showAt(cur + 1);
+  bar.querySelectorAll('[data-mv]').forEach(b => b.onclick = () => { vote(cur, b.dataset.mv); });
+  $('#mNote') && ($('#mNote').onclick = () => { $('#msheet').classList.add('on'); const t = document.querySelector(`[data-n="${cur}"]`); t?.scrollIntoView({ block: 'center' }); setTimeout(() => t?.focus(), 300); });
+}
+
+// ---------- 📤 שליחה: הודעה אחת לכל אפליקציה ----------
 async function send() {
-  const entry = NEWS.find(n => n.v === ver), s = ls.get(key(), {});
-  const rows = entry.items.map((x, i) => [x, s[i] || {}]).filter(([, r]) => r.v || (r.n || '').trim());
+  const s = getS();
+  const rows = LIST.map(x => [x, s[kOf(x)] || {}]).filter(([, r]) => r.v || (r.n || '').trim());
   if (!rows.length) return toast('עוד לא סימנת כלום');
   if (!(await ensureAdmin())) return;
-  const msg = `[עמדת בדיקה] ${APPS[app].name} · עדכון ${ver}\n` + rows.map(([x, r], k) => `${k + 1}. ${r.v === 'ok' ? '✅' : r.v === 'bad' ? '🔧' : '📝'} ${x.e} ${x.t}${(r.n || '').trim() ? '\n   ' + r.n.trim() : ''}`).join('\n');
   const b = $('#snd'); b.disabled = true; b.textContent = 'שולח…';
   const { data: u } = await sb.auth.getUser();
-  const { error } = await sb.from('feedback').insert({ user_id: u.user?.id, app: APPS[app].fb, kind: 'idea', message: msg.slice(0, 4990), device: 'עמדת בדיקה · מחשב' });
+  const byApp = {}; rows.forEach(r => (byApp[r[0].app] = byApp[r[0].app] || []).push(r));
+  let sent = 0, fail = '';
+  for (const [a, list] of Object.entries(byApp)) {
+    const head = `[עמדת בדיקה] ${APPS[a].name} · ${mode === 'day' ? 'העדכונים של ' + heDate(day) : 'עדכון ' + list[0][0].v}${MOBILE ? ' · מהטלפון' : ''}\n`;
+    const msg = head + list.map(([x, r], k) => `${k + 1}. ${r.v === 'ok' ? '✅' : r.v === 'bad' ? '🔧' : '📝'} ${x.it.e} ${x.it.t}${(r.n || '').trim() ? '\n   ' + r.n.trim() : ''}`).join('\n');
+    const { error } = await sb.from('feedback').insert({ user_id: u.user?.id, app: APPS[a].fb, kind: 'idea', message: msg.slice(0, 4990), device: MOBILE ? 'עמדת בדיקה · טלפון' : 'עמדת בדיקה · מחשב' });
+    if (error) fail = error.message; else sent += list.length;
+  }
   b.disabled = false; b.textContent = '📤 שליחה';
-  if (error) return toast('⚠️ לא נשלח: ' + error.message);
-  ls.set(key(), {}); drawSide(); toast(`📤 נשלח! ${rows.length} פריטים הגיעו לשיחה של ${APPS[app].name}`);
+  if (fail) return toast('⚠️ חלק לא נשלח: ' + fail);
+  putS({}); drawSide(); toast(`📤 נשלח! ${sent} פריטים, לשיחה של כל אפליקציה`);
+  if (MOBILE) $('#msheet').classList.remove('on');
 }
 start();
 </script>
