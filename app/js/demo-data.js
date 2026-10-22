@@ -62,7 +62,7 @@ export function demoData(now = new Date()) {
     chag(y, 8, 10, 'קניות לראש השנה', Math.round(1250 * f), 'food', 'חגים'); chag(y, 8, 25, 'סוכה וקישוטים', Math.round(700 * f), 'fun', 'חגים');
   }
   // 📄 מקובץ הבנק (מדומה): השם שונה, ושורת "🏦 בבנק כתוב" שומרת את הטקסט המקורי. אחד מהם לפי כלל שנשמר
-  const file = (y, m, d, desc, bank, amount, cat) => add(y, m, d, desc, amount, cat, { source: 'file', raw: 'עוש-דוגמה.xlsx', bankDesc: bank, fp: `${iso(y, m, d).slice(0, 10)}|${amount.toFixed(2)}|${bank}`, pay: 'standing' });
+  const file = (y, m, d, desc, bank, amount, cat) => add(y, m, d, desc, amount, cat, { source: 'file', raw: 'עוש-דוגמה.xlsx', bankDesc: bank, fp: `${iso(y, m, d).slice(0, 10)}|${amount.toFixed(2)}|${bank}`, pay: 'standing', fileKind: 'bank', msg: `demofile_${m}`, created: iso(y, m, 20) });
   for (let k = 2; k >= 1; k--) {
     const y = new Date(Y, M - k, 1).getFullYear(), m = new Date(Y, M - k, 1).getMonth();
     file(y, m, 13, 'פלאפון של נועה', `הו"ק פלאפון ${4100 + k}`, 59, 'subs');
@@ -89,6 +89,7 @@ export function demoData(now = new Date()) {
     cats: { c_dog: { n: 'הכלב', e: '🐶', c: '#F97316', custom: true } },
     budgets: { _mode: 'auto', food: 2600, rest: 450, c_dog: 150, fun: 400 },
     learned: {},
+    lists: Object.fromEntries([2, 1].map(k => { const mm = new Date(Y, M - k, 1).getMonth(); return [`demofile_${mm}`, { kind: 'bank', bank: 'לאומי', files: ['עוש-דוגמה.xlsx'] }]; })),
     rules: { rl_phone: { match: 'הוק פלאפון', bank: 'הו"ק פלאפון 4101', name: 'פלאפון של נועה', cat: 'subs', created: iso(Y, M - 2, 14) } },
     goals: {
       g_wed: { n: 'חתונה של יוסי', e: '💍', target: 20000, date: `${Y + 1}-06`, dep: [{ d: iso(Y, M - 2, 1), a: 6000, w: 'p_dad' }, { d: iso(Y, M - 1, 1), a: 2500, w: 'p_mom' }, { d: iso(Y, M, 1), a: 2500, w: 'p_dad' }] },
