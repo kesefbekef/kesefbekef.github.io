@@ -510,14 +510,26 @@ function renderStories() {
   // ➕ חדשה — ראשון בשורה (שיהיה אי אפשר לפספס)
   $('#stories').innerHTML = (sync.isParent() ? '<button class="story story-new" id="stNew" aria-label="קטגוריה חדשה"><div class="ring"><span>➕</span></div>חדשה</button>' : '') + Object.entries(CATS).map(([id, c]) => {
     const b = budgetOf(id), sp = spentIn(id, m), p = b ? Math.min(100, sp / b * 100) : sp ? 100 : 0, over = b && sp > b;
-    return `<button class="story" id="st-${id}" data-cat="${id}"><div class="ring" style="background:conic-gradient(${over ? '#F43F5E' : c.c} ${p}%, rgba(255,255,255,.12) 0)"><span>${c.e}</span></div>${c.n.split(' ')[0]}</button>`;
+    return `<button class="story" id="st-${id}" data-cat="${id}"><div class="ring" style="background:conic-gradient(${over ? '#F43F5E' : c.c} ${p}%, rgba(255,255,255,.12) 0)"><span>${c.e}</span>${sync.isParent() ? '<i class="st-pen" data-edit aria-label="עריכת הקטגוריה">✏️</i>' : ''}</div>${c.n.split(' ')[0]}</button>`;
   }).join('');
 }
 $('#stories').addEventListener('click', e => {
   if (e.target.closest('#stNew')) { lsSet('kesef-cathint', '1'); openCatEdit(null, () => closeSheet()); return; }
   const b = e.target.closest('[data-cat]'); if (!b) return;
+  if (stLong) { stLong = false; return; } // אחרי לחיצה ארוכה — כבר נפתחה עריכה
+  if (e.target.closest('[data-edit]')) { lsSet('kesef-cathint', '1'); openCatEdit(b.dataset.cat, () => closeSheet()); return; } // ✏️ העיפרון הקטן
   openCategory(b.dataset.cat, thisMonth());
 });
+// ✋ לחיצה ארוכה על עיגול = עריכת שם, אייקון וצבע (רק הורה)
+let stLong = false, stT = null, stX = 0;
+$('#stories').addEventListener('pointerdown', e => {
+  const b = e.target.closest('.story[data-cat]'); if (!b || !sync.isParent()) return;
+  stLong = false; stX = e.clientX; clearTimeout(stT);
+  stT = setTimeout(() => { stLong = true; navigator.vibrate?.(20); openCatEdit(b.dataset.cat, () => closeSheet()); }, 600);
+});
+['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => $('#stories').addEventListener(ev, () => clearTimeout(stT)));
+$('#stories').addEventListener('pointermove', e => { if (Math.abs(e.clientX - stX) > 8) clearTimeout(stT); });
+$('#stories').addEventListener('contextmenu', e => { if (e.target.closest('.story')) e.preventDefault(); });
 
 // פירוט קטגוריה: כמה יצא, על מה, מתי ומי — לכל חודש
 function openCategory(id, m = S.month) {
@@ -592,6 +604,7 @@ const NEWS_GO = {
   cats: () => { go('budget'); openCatsSheet(); },
   rules: () => openRulesSheet(),
   addEdit: () => openAddSheet(true),
+  stPen: () => { go('chat'); $('#stories').scrollLeft = 0; spot('#stories .story[data-cat] .st-pen'); },
   expenses: () => { go('budget'); openExpenses(); },
   maaser: () => { go('budget'); openMaaser(); },
   goals: () => { go('budget'); openGoals(); },
@@ -2733,6 +2746,7 @@ const REVIEW_AT = {
   excel: { v: 'chat', sel: '#exportBtn' },
   bmode: { v: 'budget', sel: '.bmode' },
   catsBtn: { v: 'budget', sel: '#catsBtn' },
+  stPen: { v: 'chat', sel: '#stories .story[data-cat] .st-pen' },
   addEdit: { v: 'chat', sel: '#sheet', open: () => openAddSheet(true) },
   recCard: { v: 'budget', sel: '#recCard' },
   insCard: { v: 'budget', sel: '#budgetList [data-cat="ins"]' },
@@ -2751,7 +2765,7 @@ const REVIEW_AT = {
   view: { v: 'chat', sel: '#sheet', open: () => { openSettings(); setTimeout(() => $('#viewCard')?.scrollIntoView({ block: 'center' }), 350); } },
 };
 // עוד לא נסקרו: מה שתוקן / נענה, ושאין עליו אישור / "עוד לא טוב" שכבר נשלח או מחכה לשליחה
-const rvPending = () => { const done = rvGet(RV_KEY), sent = rvGet(RV_SENT); return REVIEW.filter(r => r.st !== 'todo' && !done[r.id] && !sent[r.id]); };
+const rvPending = () => { const done = rvGet(RV_KEY), sent = rvGet(RV_SENT); return REVIEW.filter(r => r.st !== 'todo' && !r.ok && !done[r.id] && !sent[r.id]); };
 // מה שנכתב / סומן ועוד לא נשלח
 function rvUnsent() {
   const done = rvGet(RV_KEY), notes = rvGet(RV_NOTES), sent = rvGet(RV_SENT);
@@ -2764,7 +2778,7 @@ function reviewBadge() {
 }
 function reviewStart() {
   if (!REVIEW.length) return;
-  const order = [...REVIEW.filter(r => r.st !== 'todo'), ...REVIEW.filter(r => r.st === 'todo')];
+  const order = [...REVIEW.filter(r => r.st !== 'todo' && !r.ok), ...REVIEW.filter(r => r.st === 'todo' && !r.ok)]; // ✅ מה שאושר בעמדה — לא שוב
   STEPS = order.map(r => ({ ...(REVIEW_AT[r.at] || REVIEW_AT.chat), t: r.where, review: r }));
   const pend = rvPending().map(r => r.id), pos = lsGet(RV_POS);
   let first = STEPS.findIndex(x => x.review.id === pos);
