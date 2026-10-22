@@ -1354,12 +1354,37 @@ function confirmBox({ e = '📏', title, text = '', warn = '', past = 0, ok = '�
       <label class="cbox-past" ${past ? '' : 'hidden'}><input type="checkbox" checked><span>לעשות את זה גם ל־<b class="cb-n">${past}</b> השורות הקודמות עם אותו טקסט</span></label>
       <div class="cbox-btns"><button class="btn ghost" data-r="0">${no}</button><button class="btn grad" data-r="1">${ok}</button></div></div>`;
     const pl = () => ov.querySelector('.cbox-past:not(.cbox-opt)');
-    const done = r => { ov.classList.add('out'); setTimeout(() => ov.remove(), 180); res({ ok: r, past: !pl().hidden && pl().querySelector('input').checked, opt: !!ov.querySelector('.cbox-opt input')?.checked }); };
+    const done = (r, how) => { ov.classList.add('out'); setTimeout(() => ov.remove(), 180); res({ ok: r, how, past: !pl().hidden && pl().querySelector('input').checked, opt: !!ov.querySelector('.cbox-opt input')?.checked }); };
     ov.querySelector('.cbox-opt input')?.addEventListener('change', e => { const n = onOpt?.(e.target.checked); if (n != null) { pl().hidden = !n; pl().querySelector('.cb-n').textContent = n; } });
-    ov.addEventListener('click', ev => { const b = ev.target.closest('[data-r]'); if (b) done(b.dataset.r === '1'); else if (ev.target === ov) done(false); });
+    ov.addEventListener('click', ev => { const b = ev.target.closest('[data-r]'); if (b) done(b.dataset.r === '1', b.dataset.r === '1' ? 'ok' : 'no'); else if (ev.target === ov) done(false, 'out'); });
     document.body.appendChild(ov); setTimeout(() => ov.querySelector('[data-r="1"]').focus(), 50);
   });
 }
+// 💳 חיוב כרטיס אשראי בעו"ש — לספור את הסכום הכולל כאן, או לחכות לפירוט מחברת האשראי?
+// S.budgets._ccMode = 'total' | 'detail' (נשמר למשפחה; אין = לשאול). בחרו "פירוט" והוא לא הגיע? — תזכורת
+const ccMode = () => S.budgets?._ccMode || '';
+async function setCcMode(m) { const b = { ...S.budgets }; if (m) b._ccMode = m; else delete b._ccMode; await saveKV('budgets', b); }
+const ccSum = list => list.map(x => `<b>${esc((x.bankDesc || x.desc || '').split(/\s+/).slice(0, 2).join(' '))} ${fmt(x.amount)}</b>`).slice(0, 3).join(', ') + (list.length > 3 ? ` ועוד ${list.length - 3}` : '');
+function askCc(list) {
+  return confirmBox({ e: '💳', title: 'חיוב של כרטיס אשראי',
+    text: `בדף הבנק יש ${list.length > 1 ? `${list.length} חיובים` : 'חיוב'} של כרטיס אשראי: ${ccSum(list)}.<br>זה הסכום החודשי של הכרטיס — בלי פירוט מה קניתם. איך לספור?`,
+    opt: '🔒 לזכור את הבחירה לפעם הבאה <small>(אפשר לשנות ב⚙️ ← 📏 כללים שלמדתי)</small>', optOn: true,
+    ok: '✅ לספור את הסכום הכולל<small>כהוצאה אחת</small>', no: '📄 אעלה פירוט מחברת האשראי<small>ואז כל קנייה בקטגוריה שלה</small>' });
+}
+// חיוב שמחכה לפירוט: אין עדיין תנועות מקובץ אשראי ב-45 הימים שלפניו
+const ccWaiting = () => S.skip.filter(t => t.skipWhy === 'cc' && !allTx().some(x => x.msg !== t.msg && x.source === 'file' && (x.fileKind ? x.fileKind === 'card' : x.pay === 'credit' && x.skipWhy !== 'cc') && dayDist(x.date, t.date) <= 45 && x.date <= t.date));
+async function ccReminder() {
+  if (db.BDIKA || !sync.isParent() || lsGet('ccRemind') === ymd(new Date())) return;
+  const list = ccWaiting().filter(t => Date.now() - new Date(t.created) > 5 * 864e5); if (!list.length) return;
+  lsSet('ccRemind', ymd(new Date()));
+  await new Promise(r => setTimeout(r, 3500)); if ($('#sheet').classList.contains('on')) return;
+  const a = await confirmBox({ e: '💳', title: 'חסר פירוט של כרטיס האשראי',
+    text: `${list.length > 1 ? `${list.length} חיובי אשראי` : 'חיוב אשראי'} מהבנק עדיין לא נספר${list.length > 1 ? 'ו' : ''}, כי חיכינו לפירוט מחברת האשראי: ${ccSum(list)}.`,
+    ok: '✅ לספור את הסכום הכולל', no: '📎 אעלה פירוט עכשיו' });
+  if (a.how === 'ok') { for (const t of list) await setCounted(t, true); renderAll(); toast(`✅ ${list.length} חיובי אשראי נספרו`); }
+  else if (a.how === 'no') openAttachSheet();
+}
+
 // 📏 "תמיד ככה?" על שורה אחת — חלון קטן. patch = { name?, cat?, skip? }
 async function ruleBox(bank, patch, except) {
   if (!bank || !sync.isParent() || ruleKey(bank).length < 2) return false;
@@ -1431,6 +1456,10 @@ function openRulesSheet() {
   const catOpts = sel => ['', ...Object.keys(CATS), 'income'].map(id => `<option value="${id}" ${id === (sel || '') ? 'selected' : ''}>${id ? catOf(id).e + ' ' + catOf(id).n : '— בלי לשנות קטגוריה —'}</option>`).join('');
   openSheet(`<h3>📏 כללים שלמדתי</h3>
     <div class="sub" style="margin:-6px 0 12px">כשמשנים שם או קטגוריה של תנועה מקובץ הבנק, אפשר לבקש "גם בפעם הבאה". הכללים כאן מופעלים לבד בכל העלאה.</div>
+    <div class="card cc-card" style="margin-bottom:12px"><b>💳 חיוב כרטיס אשראי בדף הבנק</b>
+      <div class="sub">ההחלטה הזו חלה על כל ההעלאות</div>
+      <div class="chips" id="ccMode" style="flex-wrap:wrap;margin-top:8px"><button class="chip" data-m="total">✅ לספור סכום כולל</button><button class="chip" data-m="detail">📄 מחכים לפירוט</button><button class="chip" data-m="">❓ לשאול כל פעם</button></div>
+      ${ccWaiting().length ? `<button class="btn ghost full" id="ccCountNow" style="margin-top:8px">⏳ ${ccWaiting().length} חיובים מחכים לפירוט — לספור אותם עכשיו</button>` : ''}</div>
     ${list.length ? list.map(([id, r]) => `<div class="card rule-card" data-id="${id}">
       <small>🏦 כשבבנק כתוב:</small><div class="rule-bank"><bdi>${esc(r.bank || r.match)}</bdi></div><small class="rule-hint">${r.exact ? '🔢 רק כשגם המספר זהה' : '🔢 מתאים גם כשהמספרים שונים (סניף, אסמכתא)'}</small>
       <label class="field"><span>✏️ לקרוא לזה</span><input class="rName" value="${esc(r.name || '')}" placeholder="(בלי לשנות שם)"></label>
@@ -1438,6 +1467,10 @@ function openRulesSheet() {
       <label class="rule-past"><input type="checkbox" class="rSkip" ${r.skip ? 'checked' : ''}> ⏸️ לא לספור (נשמר, אבל לא נכנס לחישובים)</label>
       <div class="row2" style="margin-top:8px"><button class="btn danger rDel">🗑️ מחיקה</button><button class="btn grad rSave">שמירה</button></div>
     </div>`).join('') : `<div class="card tip"><div class="em">💡</div><p>עוד אין כללים. משנים שם או קטגוריה של תנועה שהגיעה מקובץ — והאפליקציה תשאל "גם בפעם הבאה?"</p></div>`}`, sh => {
+    const drawCc = () => sh.querySelectorAll('#ccMode [data-m]').forEach(b => b.classList.toggle('on', b.dataset.m === ccMode()));
+    drawCc();
+    sh.querySelectorAll('#ccMode [data-m]').forEach(b => b.onclick = async () => { await setCcMode(b.dataset.m); drawCc(); toast('✅ נשמר'); });
+    sh.querySelector('#ccCountNow')?.addEventListener('click', async e => { const l = ccWaiting(); for (const t of l) await setCounted(t, true); renderAll(); e.target.remove(); toast(`✅ ${l.length} חיובי אשראי נספרו`); });
     sh.querySelectorAll('.rule-card').forEach(c => {
       const id = c.dataset.id;
       c.querySelector('.rSave').onclick = async () => {
@@ -1637,12 +1670,16 @@ function monthsSpan(dates) {
 
 function openImportSheet(name, { kind, items, files = [name] }) {
   let fileWho = S.me, filter = 'all', sel = null; // sel = מצב בחירה של כמה שורות (Set של אינדקסים)
+  const ccRows = items.filter(i => i.status === 'cc');
+  if (ccMode() === 'total') for (const it of ccRows) if (!it.ruleSkip) it.on = true;
   const count = s => items.filter(i => i.status === s).length;
   const catOptions = (sel, inc) => (inc ? ['income'] : Object.keys(CATS)).map(id => `<option value="${id}" ${id === sel ? 'selected' : ''}>${catOf(id).e} ${catOf(id).n}</option>`).join('');
   const sorted = items.map((it, i) => ({ it, i })).sort((a, b) => b.it.date - a.it.date);
   const off0 = items.filter(i => !i.on).length;
   const why = it => it.status === 'dup-manual' ? `✋ כבר רשום ידנית: "${esc(it.match)}" — כדי שלא ייספר פעמיים`
-    : it.ruleSkip ? '📏 לפי כלל: לא לספור' : STATUS[it.status] || '';
+    : it.ruleSkip ? '📏 לפי כלל: לא לספור'
+    : it.status === 'cc' ? (it.on ? '💳 חיוב כרטיס אשראי — נספר כסכום כולל' : '💳 חיוב כרטיס אשראי — מחכה לפירוט מחברת האשראי (אזכיר אם לא יגיע)')
+    : STATUS[it.status] || '';
   const amt = it => it.amount < 0 ? `−${fmt(-it.amount)}` : (it.income ? '+' : '') + fmt(it.amount);
   openSheet(`<!--page--><h3>📄 ${esc(name)}</h3>
     <div class="sub" style="margin:-6px 0 10px">${kind === 'multi' ? '📚 ' + files.map(esc).join(' · ') : kind === 'bank' ? '🏦 דף חשבון בנק' : kind === 'image' ? '📸 צילום מסך — כדאי לעבור על השורות, הזיהוי לא תמיד מדויק' : '💳 פירוט כרטיס אשראי'} · ${items.length} תנועות · ${monthsSpan(items.map(i => i.date))}</div>
@@ -1656,6 +1693,8 @@ function openImportSheet(name, { kind, items, files = [name] }) {
     ${off0 ? `<div class="card tip" style="margin-bottom:10px"><div class="em">⏸️</div><p><b>${off0} שורות הגיעו בלי סימון</b> — ${[count('dup-manual') && `${count('dup-manual')} כבר רשומות ידנית`, count('cc') && `${count('cc')} חיובי אשראי (נספרים בפירוט הכרטיס)`, count('own') && `${count('own')} העברות בין החשבונות שלכם`, count('dup-file') && `${count('dup-file')} כבר יובאו בעבר`, count('atm') && `${count('atm')} משיכות מזומן`].filter(Boolean).join(' · ')}. אפשר לסמן כל אחת.</p></div>` : ''}
     ${count('atm') ? `<div class="card atm-all"><b>💵 ${count('atm')} משיכות מזומן</b><div class="sub">אפשר לבחור לכל משיכה בנפרד ברשימה, או לכולן יחד:</div>
       <div class="row2"><button class="btn ghost" data-atmall="skip">⏸️ לכולן: לא לספור<small>אני רושם את ההוצאות במזומן</small></button><button class="btn ghost" data-atmall="count">✅ לכולן: לספור<small>כהוצאה, עם קטגוריה</small></button></div></div>` : ''}
+    ${ccRows.length ? `<div class="card cc-card"><b>💳 ${ccRows.length > 1 ? `${ccRows.length} חיובי כרטיס אשראי` : 'חיוב כרטיס אשראי'}</b>
+      <div class="sub" id="ccNow"></div><div class="row2" style="margin-top:8px"><button class="btn ghost" data-cc="detail">📄 אעלה פירוט</button><button class="btn ghost" data-cc="total">✅ לספור סכום כולל</button></div></div>` : ''}
     <div class="chips imp-filter" id="impFilter"><button class="chip on" data-f="all">הכל</button><button class="chip" data-f="on">✅ נספרות</button><button class="chip" data-f="off">⏸️ לא נספרות</button><button class="chip" id="impSel">☑️ בחירה</button></div>
     <div class="card imp-list" style="padding:4px 12px">${sorted.map(({ it, i }) => `
       <div class="tx imp-row" data-i="${i}">
@@ -1684,6 +1723,10 @@ function openImportSheet(name, { kind, items, files = [name] }) {
         row.querySelectorAll('[data-atm]').forEach(b => b.classList.toggle('on', b.dataset.atm === it.atmAns));
         const cs = row.querySelector('.imp-cat'); if (it.status === 'atm') cs.hidden = it.atmAns !== 'count';
       }
+      for (const row of rows) { const it = items[row.dataset.i]; if (it.status === 'cc') { const w = row.querySelector('.imp-why'); if (w) w.innerHTML = why(it); } }
+      const ccOn = ccRows.filter(i => i.on).length, cn = sh.querySelector('#ccNow');
+      if (cn) { cn.textContent = !ccOn ? '⏳ לא נספר — מחכה לפירוט מחברת האשראי' : ccOn === ccRows.length ? '✅ נספר כסכום כולל' : `✅ ${ccOn} נספרים · ⏳ ${ccRows.length - ccOn} מחכים לפירוט`;
+        sh.querySelectorAll('[data-cc]').forEach(b => b.classList.toggle('on', b.dataset.cc === (!ccOn ? 'detail' : ccOn === ccRows.length ? 'total' : ''))); }
       const n = items.filter(i => i.on).length, e = sum(false, true), e0 = sum(false), inc = sum(true, true), inc0 = sum(true);
       sh.querySelector('#impCount').textContent = n;
       sh.querySelector('#totE').textContent = fmt(e); sh.querySelector('#totE0').textContent = e0 !== e ? `במקום ${fmt(e0)}` : '';
@@ -1702,6 +1745,13 @@ function openImportSheet(name, { kind, items, files = [name] }) {
       filter = b.dataset.f; sh.querySelectorAll('#impFilter [data-f]').forEach(x => x.classList.toggle('on', x === b)); refresh();
     });
     sh.querySelector('#impSel').onclick = () => { sel = sel ? null : new Set(); refresh(); };
+    const ccSet = on => { for (const it of ccRows) { it.on = on; it.touched = true; } refresh(); };
+    sh.querySelectorAll('[data-cc]').forEach(b => b.onclick = () => ccSet(b.dataset.cc === 'total'));
+    // ❓ אין עדיין בחירה — שואלים מיד, בחלון ברור
+    if (ccRows.length && !ccMode() && sync.isParent()) setTimeout(async () => {
+      const a = await askCc(ccRows); if (a.how === 'out') return;
+      ccSet(a.ok); if (a.opt) { await setCcMode(a.ok ? 'total' : 'detail'); toast('🔒 נזכור את הבחירה · אפשר לשנות ב⚙️ ← 📏 כללים שלמדתי'); }
+    }, 450);
     sh.querySelectorAll('[data-atmall]').forEach(b => b.onclick = () => {
       const on = b.dataset.atmall === 'count';
       for (const it of items) if (it.status === 'atm') setOn(it, on);
@@ -1715,7 +1765,7 @@ function openImportSheet(name, { kind, items, files = [name] }) {
       const it = items[row.dataset.i];
       row.querySelector('.cnt input').onchange = async e => {
         setOn(it, e.target.checked); refresh();
-        if (it.bankDesc && ['new', 'cc', 'own'].includes(it.status)) {
+        if (it.bankDesc && ['new', 'own'].includes(it.status)) { // (חיובי אשראי — לפי הבחירה למעלה, לא כלל לכל שורה)
           const id = await ruleBox(it.bankDesc, { skip: !it.on });
           if (id) { for (const x of items) if (x.bankDesc && ruleFor(x.bankDesc)?.id === id && ['new', 'cc', 'own'].includes(x.status)) { x.on = it.on; x.rule = id; } refresh(); }
         }
@@ -1748,7 +1798,7 @@ function openImportSheet(name, { kind, items, files = [name] }) {
         const t = { id: db.newId(), msg, raw: files.join(', '), desc: it.desc, cat: it.cat, source: 'file', created: now,
           date: it.date.toISOString(), amount: it.amount, total: it.amount, inst: 0, fp: it.fp, note: it.note || '', ...(it.bankDesc ? { bankDesc: it.bankDesc } : {}),
           pay: it.status === 'atm' ? 'cash' : it.kind === 'card' || it.ccCharge ? 'credit' : it.kind === 'image' ? detectPay(it.desc) : (detectPay(it.desc + ' ' + (it.note || '')) || 'transfer'),
-          who: fileWho || null, ...(it.on ? {} : { skip: true, skipWhy: it.ruleSkip ? 'rule' : it.status === 'new' ? 'user' : it.status }) };
+          who: fileWho || null, fileKind: it.kind, ...(it.ccCharge ? { cc: true } : {}), ...(it.on ? {} : { skip: true, skipWhy: it.ruleSkip ? 'rule' : it.status === 'new' ? 'user' : it.status }) };
         (it.on ? S.tx : S.skip).push(t); await db.putTx(t); ids.push(t.id);
         if (it.catChanged) { S.learned[it.desc.toLowerCase()] = it.cat; if (it.bankDesc) S.learned[it.bankDesc.toLowerCase()] = it.cat; }
       }
@@ -3618,7 +3668,7 @@ async function load() {
   renderAll();
 }
 load().then(async () => {
-  if (db.DEMO) { await demoStart(); fixedReminder(); if (UITEST) maybeNews(); return; } // 🎭 בלי סנכרון, בלי שרת
+  if (db.DEMO) { await demoStart(); fixedReminder(); ccReminder(); if (UITEST) maybeNews(); return; } // 🎭 בלי סנכרון, בלי שרת
   const r = await sync.start({
     onRemoteChange: () => reloadFromDb(),
     onStatus: st => { const el = document.querySelector('#syncState'); if (el) el.textContent = st === 'ok' ? '· מסונכרן ✓' : '· ממתין לרשת…'; },
@@ -3640,7 +3690,7 @@ load().then(async () => {
   if (new URLSearchParams(location.search).get('v') === 'rec') { go('budget'); setTimeout(openRecurring, 400); } // לחיצה על תזכורת לפני תשלום
   await postRecurring();
   starsLink(); addLink(); if (!$('#sheet').classList.contains('on')) maybeOnboard();
-  debtReminder(); fixedReminder(); await loadBdikaApproved(); maybeNews();
+  debtReminder(); fixedReminder(); await loadBdikaApproved(); maybeNews(); ccReminder();
 });
 
 // 🔑 הקישור מהמייל לא עבד (פג תוקף / כבר נפתח) — מסבירים ומאפשרים לשלוח שוב
