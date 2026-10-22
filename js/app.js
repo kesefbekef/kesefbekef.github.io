@@ -1755,6 +1755,9 @@ function monthsSpan(dates) {
 function openImportSheet(name, { kind, items, files = [name] }) {
   let fileWho = S.me, filter = 'all', sel = null; // sel = מצב בחירה של כמה שורות (Set של אינדקסים)
   const ccRows = items.filter(i => i.status === 'cc');
+  // 🏦 הבנק לא זוהה מהקובץ? — בוחרים (נשמר בשם הרשימה)
+  let bankPick = '';
+  const noBank = kind !== 'image' && !items.some(i => i.bank && !/לא זוהה/.test(i.bank));
   const count = s => items.filter(i => i.status === s).length;
   const catOptions = (sel, inc) => (inc ? ['income'] : Object.keys(CATS)).map(id => `<option value="${id}" ${id === sel ? 'selected' : ''}>${catOf(id).e} ${catOf(id).n}</option>`).join('');
   const sorted = items.map((it, i) => ({ it, i })).sort((a, b) => b.it.date - a.it.date);
@@ -1776,6 +1779,8 @@ function openImportSheet(name, { kind, items, files = [name] }) {
     ${off0 ? `<div class="card tip" style="margin-bottom:10px"><div class="em">⏸️</div><p><b>${off0} שורות הגיעו בלי סימון</b> — ${[count('dup-manual') && `${count('dup-manual')} כבר רשומות ידנית`, count('cc') && `${count('cc')} חיובי אשראי (נספרים בפירוט הכרטיס)`, count('own') && `${count('own')} העברות בין החשבונות שלכם`, count('dup-file') && `${count('dup-file')} כבר יובאו בעבר`, count('atm') && `${count('atm')} משיכות מזומן`].filter(Boolean).join(' · ')}. אפשר לסמן כל אחת.</p></div>` : ''}
     ${count('atm') ? `<div class="card atm-all"><b>💵 ${count('atm')} משיכות מזומן</b><div class="sub">אפשר לבחור לכל משיכה בנפרד ברשימה, או לכולן יחד:</div>
       <div class="row2"><button class="btn ghost" data-atmall="skip">⏸️ לכולן: לא לספור<small>אני רושם את ההוצאות במזומן</small></button><button class="btn ghost" data-atmall="count">✅ לכולן: לספור<small>כהוצאה, עם קטגוריה</small></button></div></div>` : ''}
+    ${noBank ? `<div class="card cc-card"><b>🏦 איזה ${kind === 'card' ? 'כרטיס' : 'בנק'}?</b><div class="sub">לא כתוב בקובץ — כדי שהרשימה תקבל שם ברור (למשל "עו"ש ${kind === 'card' ? 'ישראכרט' : 'לאומי'} · אוקטובר")</div>
+      <select id="impBank" class="bank-sel"><option value="">— לבחור —</option>${imp.BANK_NAMES.map(b => `<option>${b}</option>`).join('')}<option value="__other">✏️ אחר…</option></select></div>` : ''}
     ${items.some(isDup) ? `<div class="card cc-card"><b>🔁 ${items.filter(isDup).length} שורות שאולי כבר רשומות</b><div class="sub">הגיעו בלי סימון. הזיהוי לא תמיד מדויק — אפשר לבדוק כל אחת.</div><button class="btn ghost full" id="dupPick" style="margin-top:8px">🔁 לבחור לכל כפילות</button></div>` : ''}
     ${ccRows.length ? `<div class="card cc-card"><b>💳 ${ccRows.length > 1 ? `${ccRows.length} חיובי כרטיס אשראי` : 'חיוב כרטיס אשראי'}</b>
       <div class="sub" id="ccNow"></div><button class="btn ghost full" id="ccPick" style="margin-top:8px">💳 לבחור לכל חיוב</button></div>` : ''}
@@ -1844,6 +1849,10 @@ function openImportSheet(name, { kind, items, files = [name] }) {
       list.forEach((it, i) => { it.on = a.pick[i]; it.touched = true; }); refresh();
     };
     sh.querySelector('#dupPick')?.addEventListener('click', () => dupAsk(items.filter(isDup)));
+    sh.querySelector('#impBank')?.addEventListener('change', e => {
+      if (e.target.value === '__other') { const v = (prompt('שם הבנק / הכרטיס:') || '').replace(/[<>]/g, '').trim().slice(0, 30); bankPick = v; if (v) { e.target.insertAdjacentHTML('beforeend', `<option selected>${esc(v)}</option>`); } else e.target.value = ''; }
+      else bankPick = e.target.value;
+    });
     // קודם אשראי, אחר כך כפילויות — חלון אחרי חלון
     setTimeout(async () => {
       if (ccNew.length && sync.isParent()) await ccAsk(ccNew);
@@ -1901,7 +1910,7 @@ function openImportSheet(name, { kind, items, files = [name] }) {
         if (it.catChanged) { S.learned[it.desc.toLowerCase()] = it.cat; if (it.bankDesc) S.learned[it.bankDesc.toLowerCase()] = it.cat; }
       }
       if (keep.some(i => i.catChanged)) await db.setKV('learned', S.learned);
-      await saveListMeta(msg, { kind, bank: [...new Set(keep.map(i => i.bank).filter(b => b && !/לא זוהה/.test(b)))].join(' + ') || '', files, created: now });
+      await saveListMeta(msg, { kind, bank: bankPick || [...new Set(keep.map(i => i.bank).filter(b => b && !/לא זוהה/.test(b)))].join(' + ') || '', files, created: now });
       closeSheet(); go('chat'); renderAll(ids); confetti();
       const nOn = keep.filter(i => i.on).length, nOff = keep.length - nOn, had = count('dup-file');
       toast(`✅ ${nOn} נספרו${nOff ? ` · ⏸️ ${nOff} נשמרו בלי לספור` : ''}${had ? ` · ${had} כבר היו` : ''}`);
@@ -2024,7 +2033,7 @@ function openListsSheet() {
         <div class="lst-nm"><b class="lst-name">${esc(listName(m, l))}</b><small>📅 ${dm(st.from) === dm(st.to) ? dm(st.from) : `מ־${dm(st.from)} עד ${dm(st.to)}`} · ${st.n} תנועות · הועלה ${dm(st.created)}</small></div>
         ${sync.isParent() ? '<button class="lst-more" aria-label="עוד פעולות">⋯</button>' : ''}</div>
       <div class="lst-sums">${st.exp ? `<span>💸 ${fmt(st.exp)}</span>` : ''}${st.inc ? `<span class="inc">💰 ${fmt(st.inc)}</span>` : ''}${st.off ? `<span class="off">⏸️ ${st.off} לא נספרו</span>` : ''}</div>
-      <div class="lst-menu" hidden><button data-a="ren">✏️ שינוי שם</button><button data-a="cnt">${st.off === st.n ? '✅ לספור את כל הרשימה' : '⏸️ לא לספור את כל הרשימה'}</button><button data-a="del" class="del">🗑️ מחיקה</button></div>
+      <div class="lst-menu" hidden><button data-a="ren">✏️ שינוי שם</button><button data-a="bank">🏦 ${S.lists?.[m]?.bank ? 'שינוי בנק / כרטיס' : 'איזה בנק / כרטיס?'}</button><button data-a="cnt">${st.off === st.n ? '✅ לספור את כל הרשימה' : '⏸️ לא לספור את כל הרשימה'}</button><button data-a="del" class="del">🗑️ מחיקה</button></div>
     </div>`).join('') : `<div class="card tip"><div class="em">📎</div><p>עוד לא העליתם קבצים. לוחצים על 📎 ליד שורת הכתיבה ← קובץ מהבנק או מהאשראי.</p></div>`}
     ${trashN ? `<button class="btn ghost full" id="toTrash" style="margin-top:6px">🗑️ סל מחזור (${trashN})</button>` : ''}
     <button class="btn grad full" id="lstAdd" style="margin-top:10px">📎 העלאת קובץ חדש</button>`, sh => {
@@ -2042,6 +2051,12 @@ function openListsSheet() {
         let saved = false;
         const save = async () => { if (saved) return; saved = true; const v = inp.value.replace(/[<>]/g, '').trim(); if (v && v !== listName(m)) { await saveListMeta(m, { name: v }); renderAll(); toast('✅ השם נשמר'); } openListsSheet(); };
         inp.addEventListener('keydown', e => { if (e.key === 'Enter') inp.blur(); }); inp.addEventListener('blur', save); inp.addEventListener('change', save);
+      };
+      menu.querySelector('[data-a="bank"]').onclick = () => {
+        menu.innerHTML = `<select class="bank-sel"><option value="">— בלי —</option>${imp.BANK_NAMES.map(b => `<option ${S.lists?.[m]?.bank === b ? 'selected' : ''}>${b}</option>`).join('')}<option value="__other">✏️ אחר…</option></select>`;
+        const sel = menu.querySelector('select'); sel.focus();
+        sel.onchange = async () => { let v = sel.value; if (v === '__other') v = (prompt('שם הבנק / הכרטיס:') || '').replace(/[<>]/g, '').trim().slice(0, 30);
+          await saveListMeta(m, { bank: v }); renderAll(); toast(v ? `🏦 ${v}` : 'הבנק הוסר'); openListsSheet(); };
       };
       menu.querySelector('[data-a="cnt"]').onclick = async () => {
         const l = listTx(m), on = l.every(t => t.skip);
@@ -2913,6 +2928,25 @@ function bdikaStart() {
   if (p) { const [v, i] = p.split('|'); setTimeout(() => bdikaNews(v, i), 400); }
   addEventListener('message', e => { const m = e.data; if (m && m.bdika === 'news') bdikaNews(m.v, m.i); });
 }
+// ↩️ שחזור הגדרות ההתחלה — רק העדפות. הנתונים (תנועות, תקציבים, קטגוריות, יעדים, הלוואות, קבועים, רשימות) נשארים
+const RESET_LOCAL = ['fontScale', 'anim', 'hebMonths', 'kesef-start', 'kesef-cathint', 'kesef-onb-later', 'kesef-tour-seen', 'kesef-fx', 'kesef-install-hide', 'ccRemind', 'fixRemind', 'debtRemind'];
+async function resetSettings() {
+  const parent = sync.isParent();
+  const a = await confirmBox({ e: '↩️', title: 'לשחזר את הגדרות ההתחלה?',
+    text: `<span class="cb-steps"><b>חוזר להתחלה:</b><br>🎨 תצוגה — גודל כתב, אנימציות, חודשים עבריים, המסך שנפתח ראשון<br>💡 רמזים, סיור והודעות שכבר ראיתם${parent ? '<br>📏 כללים שלמדתי (שמות, קטגוריות, "לא לספור", בחירות אשראי)<br>🧠 קטגוריות שהאפליקציה למדה מתיקונים<br>🔔 כמה ימים לפני תשלום קבוע מזכירים (חוזר ל-3 ימים)' : ''}</span>
+      <span class="cb-steps"><b>✅ לא נוגעים:</b> תנועות, התקציב, קטגוריות שהוספתם, יעדים, הלוואות, קבועים, רשימות, בני המשפחה, נעילה והתראות</span>${parent ? '<small>הכללים והקטגוריות שנלמדו — לכל המשפחה.</small>' : ''}`,
+    ok: '↩️ לשחזר', no: 'ביטול' });
+  if (!a.ok) return;
+  const b = await confirmBox({ e: '⚠️', title: 'בטוח?', text: 'אי אפשר לבטל את זה. ההגדרות יחזרו להתחלה.', ok: 'כן, לשחזר', no: 'לא' });
+  if (!b.ok) return;
+  for (const k of RESET_LOCAL) try { localStorage.removeItem(k); } catch { /* */ }
+  if (parent) {
+    await saveKV('rules', {}); await saveKV('learned', {});
+    const bu = { ...S.budgets }; delete bu._remind; // מצב התקציב והסכומים — נשארים (אחרת התקציב היה נעלם) await saveKV('budgets', bu);
+  }
+  toast('↩️ ההגדרות חזרו להתחלה'); setTimeout(() => location.reload(), 900);
+}
+
 // אתחול מחדש של נתוני ההדגמה
 async function demoReset() {
   await db.clearAll(); location.reload();
@@ -3315,6 +3349,7 @@ function openSettings() {
   <button class="btn grad full parent-only" id="toExcel" style="margin-bottom:10px">📊 הורדת סיכום לאקסל</button>
   <div class="row2" style="margin-bottom:10px"><button class="btn ghost" id="exp">⬇️ גיבוי</button><button class="btn ghost" id="imp">⬆️ שחזור מגיבוי</button></div>
   <input type="file" id="impFile" accept="application/json,.json" hidden>
+  <button class="btn ghost full" id="toReset" style="margin-top:4px">↩️ שחזור הגדרות ההתחלה</button>
   <div class="sub" style="text-align:center;margin-top:8px">${S.tx.length} רשומות · ${Object.keys(S.learned).length} מילים שלמדתי</div>`, sh => {
   drawMe(sh.querySelector('#meCard'));
   drawSync(sh.querySelector('#syncCard'));
@@ -3330,6 +3365,7 @@ function openSettings() {
   sh.querySelector('#toCats').onclick = () => openCatsSheet();
   sh.querySelector('#toRules').onclick = () => openRulesSheet();
   sh.querySelector('#toLists').onclick = () => openListsSheet();
+  sh.querySelector('#toReset').onclick = () => resetSettings();
   sh.querySelector('#toNews').onclick = () => openNews(true);
   sh.querySelector('#toCal').onclick = () => openCalendarSub();
   sh.querySelector('#toRec').onclick = () => openRecurring();
