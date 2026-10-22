@@ -1724,18 +1724,15 @@ async function importFiles(files) {
       all.push(...res.items); kinds.add(res.kind); ok.push(f.name);
     } catch (e) { if (e.image) images.push(f); else errors.push(`${f.name}: ${e.message}`); }
   }
-  // 📸 רק תמונות? — חלון: איך מורידים קובץ מהבנק, או "לנסות בכל זאת"
-  if (!all.length && images.length && !errors.length) {
+  // 📸 תמונה: כרגע לא נקראת — חלון ברור: רק PDF או אקסל, ואיך מורידים
+  if (images.length) {
     const ios = /iPhone|iPad|Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1;
-    const a = await confirmBox({ e: '📸', title: images.length > 1 ? 'אלה תמונות, לא קבצים מהבנק' : 'זו תמונה, לא קובץ מהבנק',
-      text: `הכי מדויק — קובץ אקסל או PDF מהבנק. ${ios ? 'באייפד / אייפון' : 'בטלפון'}:<span class="cb-steps">1️⃣ אפליקציית הבנק (או האתר) ← <b>"תנועות בחשבון"</b> (באשראי: "פירוט חיובים")<br>2️⃣ <b>"ייצוא"</b> / <b>"שיתוף"</b> ← אקסל או PDF ← ${ios ? '<b>"שמירה בקבצים"</b>' : 'שמירה'}<br>3️⃣ כאן: 📎 ← "קובץ אקסל או PDF" ← ${ios ? '<b>"עיון"</b>' : 'הורדות'} ← הקובץ</span><small>אפשר גם לנסות לקרוא את התמונה — פחות מדויק, כדאי לעבור על כל שורה.</small>`,
-      ok: '📸 לנסות בכל זאת', no: 'הבנתי, אוריד קובץ' });
-    if (a.how !== 'ok') return;
-    for (const f of images) {
-      try { const res = await readOne(f, '', true); for (const it of res.items) { it.kind = res.kind; it.file = f.name; } all.push(...res.items); kinds.add(res.kind); ok.push(f.name); }
-      catch (e) { errors.push(`${f.name}: ${e.message}`); }
-    }
-  } else for (const f of images) errors.push(`${f.name}: תמונה — הכי טוב להעלות קובץ אקסל או PDF מהבנק`);
+    const a = await confirmBox({ e: '📸', title: 'כרגע — רק PDF או אקסל',
+      text: `${images.length > 1 ? 'בחרתם תמונות' : 'בחרתם תמונה'}. כרגע אפשר להעלות רק <b>קובץ PDF או אקסל</b> מהבנק או מחברת האשראי. ${ios ? 'באייפד / אייפון' : 'בטלפון'}:<span class="cb-steps">1️⃣ אפליקציית הבנק (או האתר) ← <b>"תנועות בחשבון"</b> (באשראי: "פירוט חיובים")<br>2️⃣ <b>"ייצוא"</b> / <b>"שיתוף"</b> ← PDF או אקסל ← ${ios ? '<b>"שמירה בקבצים"</b>' : 'שמירה'}<br>3️⃣ כאן: 📎 ← "קובץ אקסל או PDF" ← ${ios ? '<b>"עיון"</b>' : 'הורדות'} ← הקובץ</span>`,
+      ok: 'הבנתי', no: '📎 לבחור קובץ' });
+    if (a.how === 'no') { PICK.doc.value = ''; PICK.doc.click(); }
+    if (!all.length) return;
+  }
   // ❌ שום קובץ לא נקרא — חלון ברור עם מה לעשות (לא הודעה קטנה שנעלמת)
   if (!all.length) {
     const a = await confirmBox({ e: '📄', title: files.length > 1 ? 'הקבצים לא נקראו' : 'הקובץ לא נקרא', text: (files.length > 1 ? errors : errors.map(x => x.slice(files[0].name.length + 2))).map(x => esc(x)).join('<br><br>') || 'לא נמצאו תנועות', ok: 'הבנתי', no: '❓ איך מורידים קובץ מהבנק' });
