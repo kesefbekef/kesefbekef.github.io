@@ -732,3 +732,17 @@ body.over-gate .sheet{z-index:111}
 .fl-head span { font-size: 24px; }
 .fl-title { font-size: 20px !important; font-weight: 800; }
 .linkbtn { background: none; border: 0; color: #F9A8D4; font: inherit; text-decoration: underline; padding: 0; cursor: pointer; }
+
+/* 🔁 כפילויות: תצוגת ההודעה המקורית מהצ'אט */
+.dup-row .dp-tg { flex-basis: 100%; text-align: start; font-size: 13px; margin-top: 2px; }
+.dp-wrap { flex-basis: 100%; }
+.dp-wrap[hidden] { display: none; }
+.dp { background: rgba(0,0,0,.25); border-radius: 12px; padding: 8px; margin-top: 4px; display: flex; flex-direction: column; gap: 6px; }
+.dp-from { font-size: 11.5px; color: var(--muted); }
+.dp-me { align-self: flex-start; background: var(--g1); color: #fff; border-radius: 14px 14px 14px 4px; padding: 6px 10px; font-size: 14px; max-width: 90%; overflow-wrap: anywhere; }
+.dp-bot { display: flex; gap: 8px; align-items: center; background: var(--card2); border-radius: 12px; padding: 6px 8px; }
+.dp-bot .cat-ic { width: 30px; height: 30px; font-size: 16px; flex: none; }
+.dp-bot span:last-child { display: flex; flex-direction: column; min-width: 0; }
+.dp-bot small { color: var(--muted); font-size: 12px; }
+.dp-none { font-size: 13px; color: var(--muted); }
+.dup-see { display: block; font-size: 12.5px; margin-top: 2px; }
