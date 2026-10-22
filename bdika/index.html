@@ -99,22 +99,28 @@ function extractNews(src) {
   return new Function('"use strict"; return (' + src.slice(start, i + 1) + ');')();
 }
 
-async function start() {
-  if (location.hostname === 'localhost' && location.search.includes('test')) { draw(); loadApp(); return; } // בדיקת עיצוב במחשב בלבד
+async function start() { draw(); loadApp(); } // צפייה פתוחה (הכל במצב הדגמה). כניסה נדרשת רק לשליחה
+// לפני שליחה: מחובר + מנהל? אם לא — חלון כניסה
+async function ensureAdmin() {
   const { data } = await sb.auth.getSession();
-  if (!data.session) return login();
-  const { data: ok } = await sb.rpc('is_app_admin');
-  if (ok !== true) { await sb.auth.signOut(); return login('אין הרשאה לחשבון הזה'); }
-  draw(); loadApp();
+  if (data.session) { const { data: ok } = await sb.rpc('is_app_admin'); if (ok === true) return true; await sb.auth.signOut(); }
+  return new Promise(res => login('', res));
 }
-function login(msg = '') {
-  $('#root').innerHTML = `<div class="login"><h2>📱 עמדת בדיקה</h2><p class="sub" style="margin:4px 0 14px">כניסה עם החשבון של כסף בכיף</p>
+function login(msg = '', done) {
+  const box = document.createElement('div'); box.id = 'lg';
+  box.style.cssText = 'position:fixed;inset:0;z-index:30;background:rgba(5,3,10,.8);backdrop-filter:blur(6px);overflow:auto';
+  document.body.appendChild(box);
+  box.innerHTML = `<div class="login"><h2>📱 עמדת בדיקה</h2><p class="sub" style="margin:4px 0 14px">כניסה עם החשבון של כסף בכיף</p>
     <input id="em" type="email" autocomplete="email" placeholder="מייל"><input id="pw" type="password" autocomplete="current-password" placeholder="סיסמה">
-    <div class="err" id="er">${esc(msg)}</div><button class="go" id="go">כניסה</button></div>`;
+    <div class="err" id="er">${esc(msg)}</div><button class="go" id="go">כניסה ושליחה</button>
+    <button id="cx" style="margin-top:8px;width:100%;background:none;border:none;color:var(--soft);cursor:pointer">ביטול</button></div>`;
+  $('#cx').onclick = () => { box.remove(); done?.(false); };
   $('#go').onclick = async () => {
     const { error } = await sb.auth.signInWithPassword({ email: $('#em').value.trim(), password: $('#pw').value });
     if (error) { $('#er').textContent = /Invalid/.test(error.message) ? 'המייל או הסיסמה לא נכונים' : error.message; return; }
-    start();
+    const { data: ok } = await sb.rpc('is_app_admin');
+    if (ok !== true) { await sb.auth.signOut(); $('#er').textContent = 'אין הרשאה לחשבון הזה'; return; }
+    box.remove(); done?.(true);
   };
   $('#pw').onkeydown = e => { if (e.key === 'Enter') $('#go').click(); };
 }
@@ -202,6 +208,7 @@ async function send() {
   const entry = NEWS.find(n => n.v === ver), s = ls.get(key(), {});
   const rows = entry.items.map((x, i) => [x, s[i] || {}]).filter(([, r]) => r.v || (r.n || '').trim());
   if (!rows.length) return toast('עוד לא סימנת כלום');
+  if (!(await ensureAdmin())) return;
   const msg = `[עמדת בדיקה] ${APPS[app].name} · עדכון ${ver}\n` + rows.map(([x, r], k) => `${k + 1}. ${r.v === 'ok' ? '✅' : r.v === 'bad' ? '🔧' : '📝'} ${x.e} ${x.t}${(r.n || '').trim() ? '\n   ' + r.n.trim() : ''}`).join('\n');
   const b = $('#snd'); b.disabled = true; b.textContent = 'שולח…';
   const { data: u } = await sb.auth.getUser();
