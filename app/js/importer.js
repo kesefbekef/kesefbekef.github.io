@@ -160,6 +160,11 @@ const CC_RE = /(ישראכרט|כאל|ויזה|visa|מקס|max|לאומי קאר
 // משיכת מזומן מהכספומט — הכסף רק עבר לארנק; ההוצאות עצמן נרשמות במזומן
 const ATM_RE = /(משיכת מזומן|משיכה מכספומט|כספומט|מכשיר אוטומטי|atm)/i;
 
+// העברה בין החשבונות שלי / לחיסכון — הכסף לא יצא מהבית
+const OWN_RE = /(בין חשבונות|העברה עצמית|לחשבון שלי|מחשבון שלי|לפיקדון|מפיקדון|פיקדון|לחיסכון|לחסכון|קופת חיסכון|העברה לחשבון אחר שלי)/i;
+// זיכוי מחנות בבנק (החזר / ביטול עסקה) — מוריד מההוצאות באותה קטגוריה, לא הכנסה
+const REFUND_RE = /(זיכוי|החזר|ביטול עסקה|ביטול חיוב|ביטול)\s*/;
+
 const HINT = { 'מזון': 'food', 'צריכה': 'food', 'סופרמרקט': 'food', 'מסעדות': 'rest', 'בתי קפה': 'rest', 'מזון מהיר': 'rest',
   'דלק': 'car', 'תחבורה': 'car', 'רכב': 'car', 'ביגוד': 'clothes', 'אופנה': 'clothes', 'הנעלה': 'clothes',
   'רפואה': 'health', 'בריאות': 'health', 'פארם': 'health', 'תקשורת': 'subs', 'מחשבים': 'subs', 'סלולר': 'subs',
@@ -204,10 +209,17 @@ export function extract(sheets, learned = {}) {
       const inst = note.match(/תשלום\s*(\d+)\s*(?:מתוך|מ-|\/)\s*(\d+)/);
       if (inst && m.chargeDate >= 0) date = parseDate(row[m.chargeDate]) || date;
 
-      let cat = income ? 'income' : classify(desc, learned);
+      let cat = income ? 'income' : classify(desc, learned), refund = false;
       if (cat === 'other' && !income) cat = hintCat(row[m.hint]) || 'other';
-      items.push({ date, desc, amount: Math.round(amount * 100) / 100, income, cat, note,
-        ccCharge: kind === 'bank' && !income && CC_RE.test(desc), atm: !income && ATM_RE.test(desc) });
+      // 🔄 זיכוי מחנות (למשל "זיכוי שופרסל") — מינוס בקטגוריה של החנות
+      if (income && REFUND_RE.test(desc)) {
+        const c = classify(desc.replace(REFUND_RE, ' '), learned);
+        if (c !== 'other' && c !== 'income' && CATS[c]) { income = false; amount = -amount; cat = c; refund = true; }
+      }
+      if (amount < 0 && !income) refund = true; // באשראי: זיכוי
+      items.push({ date, desc, amount: Math.round(amount * 100) / 100, income, cat, note, refund,
+        ccCharge: kind === 'bank' && !income && !refund && CC_RE.test(desc), atm: !income && !refund && ATM_RE.test(desc),
+        own: kind === 'bank' && OWN_RE.test(desc) });
     }
   }
   return { kind, items };

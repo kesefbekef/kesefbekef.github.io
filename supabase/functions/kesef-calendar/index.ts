@@ -41,7 +41,7 @@ Deno.serve(async req => {
     kv = Object.fromEntries(((await sb.from('kv').select('key,value').eq('household_id', hh)).data || []).map((r: any) => [r.key, r.value]));
     for (let from = 0; ; from += 1000) {
       const { data } = await sb.from('tx').select('data').eq('household_id', hh).eq('deleted', false).order('id').range(from, from + 999);
-      tx.push(...(data ?? []).map((r: any) => r.data));
+      tx.push(...(data ?? []).map((r: any) => r.data).filter((t: any) => !t.skip)); // ⏸️ לא נספר
       if (!data || data.length < 1000) break;
     }
   }

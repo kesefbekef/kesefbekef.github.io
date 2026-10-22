@@ -91,7 +91,7 @@ Deno.serve(async req => {
   for (const [hh, uids] of Object.entries(byHH)) {
     try {
       const { data: h } = await sb.from('households').select('name').eq('id', hh).single();
-      const tx = (await all(sb.from('tx').select('data').eq('household_id', hh).eq('deleted', false).order('id'))).map(r => r.data);
+      const tx = (await all(sb.from('tx').select('data').eq('household_id', hh).eq('deleted', false).order('id'))).map(r => r.data).filter((t: any) => !t.skip); // ⏸️ לא נספר
       const kv = Object.fromEntries(((await sb.from('kv').select('key,value').eq('household_id', hh)).data || []).map((r: any) => [r.key, r.value]));
       applyCustomCats(kv.cats || {}); // הקטגוריות האישיות של המשפחה הזו
       const st = xp.quickStats(tx, 'month', anchor);

@@ -31,7 +31,7 @@ Deno.serve(async req => {
     const kv = Object.fromEntries(((await sb.from('kv').select('key,value').eq('household_id', hh).in('key', ['recurring', 'budgets', 'cats'])).data || []).map((r: any) => [r.key, r.value]));
     applyCustomCats(kv.cats || {});
     const since = new Date(today.getFullYear(), today.getMonth() - 4, 1).toISOString();
-    const tx = (await all(sb.from('tx').select('data').eq('household_id', hh).eq('deleted', false).gte('data->>date', since).order('id'))).map((r: any) => r.data);
+    const tx = (await all(sb.from('tx').select('data').eq('household_id', hh).eq('deleted', false).gte('data->>date', since).order('id'))).map((r: any) => r.data).filter((t: any) => !t.skip);
     const list = fixedPayments(tx, today, kv.recurring || {}, { detected: kv.budgets?._remind ?? REMIND_DEFAULT }).filter((f: any) => f.kind === 'fixed');
     const due = list.filter((f: any) => f.alert && days.has(ymd(new Date(f.alert))));
     return { due, rules: Object.keys(kv.recurring || {}).length, fixed: list.length, withAlert: list.filter((f: any) => f.alert).length,

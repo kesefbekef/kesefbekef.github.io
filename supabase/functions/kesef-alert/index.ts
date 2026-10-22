@@ -69,7 +69,7 @@ Deno.serve(async req => {
   const tx: any[] = [];
   for (let from = 0; ; from += 1000) {
     const { data } = await sb.from('tx').select('data').eq('household_id', hh).eq('deleted', false).order('id').range(from, from + 999);
-    tx.push(...(data ?? []).map((r: any) => r.data));
+    tx.push(...(data ?? []).map((r: any) => r.data).filter((t: any) => !t.skip)); // ⏸️ לא נספר
     if (!data || data.length < 1000) break;
   }
   const { start, end } = xp.periodRange('month', new Date(now.getFullYear(), now.getMonth(), 15, 12));
