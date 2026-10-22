@@ -296,9 +296,17 @@ const BANKS = [['לאומי קארד|max|מקס', 'מקס'], ['ישראכרט', 
   ['מזרחי|טפחות|mizrahi', 'מזרחי טפחות'], ['ירושלים|jerusalem', 'ירושלים'], ['וואן.?זירו|one.?zero', 'וואן זירו'],
   ['יהב|yahav', 'יהב'], ['אוצר החייל|otsar', 'אוצר החייל'], ['מסד|massad', 'מסד'], ['פאגי|pagi', 'פאגי']];
 export function detectBank(sheets, fileName = '') {
-  const head = (sheets?.[0] || []).slice(0, 8).map(r => (Array.isArray(r) ? r : [r]).join(' ')).join(' ') + ' ' + fileName;
+  const rows = (sheets?.[0] || []).map(r => (Array.isArray(r) ? r : [r]).join(' '));
+  // 1) "בנק יהב" שחוזר בכותרת / בתחתית כל עמוד — הכי אמין (תנועה בודדת כמו "העברה לבנק לאומי" לא מנצחת)
+  const cnt = {};
+  for (const t of rows) for (const [re, name] of BANKS.slice(4)) if (new RegExp('בנק\\s*(' + re + ')', 'i').test(t)) cnt[name] = (cnt[name] || 0) + 1;
+  const top = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0];
+  if (top && top[1] >= 2) return top[0];
+  // 2) רק מה שמעל שורת הכותרות (לא שורות התנועות) + שם הקובץ
+  let hi = rows.findIndex(t => /יתרה|תאריך/.test(t) && /סכום|חובה|זכות|תיאור|פרטים/.test(t)); if (hi < 0) hi = 8;
+  const head = rows.slice(0, Math.min(hi, 8)).join(' ') + ' ' + fileName;
   const hit = BANKS.find(([re]) => new RegExp(re, 'i').test(head));
-  return hit ? hit[1] : 'לא זוהה';
+  return hit ? hit[1] : top ? top[0] : 'לא זוהה';
 }
 export const isSupported = name => /\.(xlsx|xls|csv|txt|pdf)$/i.test(name);
 export const isImage = name => /\.(png|jpe?g|heic|webp)$/i.test(name);
