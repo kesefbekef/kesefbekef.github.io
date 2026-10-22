@@ -607,3 +607,16 @@ body.over-gate .sheet{z-index:111}
 .rule-card select { width: 100%; background: var(--card2); border: 1px solid var(--line); border-radius: 12px; padding: 10px; color: inherit; font: inherit; }
 .rule-warn { font-style: normal; font-size: 12.5px; color: #FCD34D; line-height: 1.45; }
 .rule-hint { display: block; color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+
+/* ➕ עריכת קטגוריות ישר מחלון ההוספה */
+.add-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.add-head h3 { margin: 0; flex: 1; }
+.add-head .chip { flex: none; }
+.cat-editing .catbtn { position: relative; animation: catwig 1.6s ease-in-out infinite; }
+.cat-editing .catbtn:nth-child(2n) { animation-delay: .2s; }
+.cat-editing .cat-new { animation: none; }
+.cat-pen { position: absolute; top: 4px; left: 4px; font-style: normal; font-size: 13px; background: #EC4899; border-radius: 50%; width: 22px; height: 22px; display: grid; place-items: center; box-shadow: 0 2px 6px rgba(0,0,0,.4); }
+@keyframes catwig { 0%,100% { transform: rotate(0) } 25% { transform: rotate(-1.5deg) } 75% { transform: rotate(1.5deg) } }
+@media (prefers-reduced-motion: reduce) { .cat-editing .catbtn { animation: none; } }
+#addEditCats { background: rgba(236,72,153,.18); border: 1px solid rgba(236,72,153,.6); color: #FBCFE8; font-weight: 700; }
+#addEditCats.on { background: linear-gradient(135deg,#22C55E,#14B8A6); border-color: transparent; color: #fff; }

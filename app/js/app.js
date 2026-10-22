@@ -581,6 +581,7 @@ const NEWS_GO = {
   bmode: () => { go('budget'); spot('.bmode'); },
   cats: () => { go('budget'); openCatsSheet(); },
   rules: () => openRulesSheet(),
+  addEdit: () => openAddSheet(true),
   expenses: () => { go('budget'); openExpenses(); },
   maaser: () => { go('budget'); openMaaser(); },
   goals: () => { go('budget'); openGoals(); },
@@ -1399,15 +1400,18 @@ function openAttachSheet() {
 $('#attach').onclick = openAttachSheet;
 
 // ---------- ➕ הוספה בלי צ'אט: בוחרים קטגוריה וממלאים ----------
-function openAddSheet() {
-  const ids = ['income', ...Object.keys(CATS)];
-  openSheet(`<h3>➕ מה מוסיפים?</h3>
-    <div class="catgrid">${ids.map(id => { const c = catOf(id);
-      return `<button class="catbtn${id === 'income' ? ' inc' : ''}" data-cat="${id}"><div class="cat-ic" style="background:${c.g}">${c.e}</div>${id === 'income' ? 'הכנסה' : c.n}</button>`; }).join('')}${sync.isParent() ? '<button class="catbtn cat-new" id="addNewCat"><div class="cat-ic">➕</div>קטגוריה חדשה</button>' : ''}</div>
-    <button class="btn ghost full" id="addFile">📎 או: העלאת פירוט מהבנק / אשראי</button>`, sh => {
-    sh.querySelectorAll('[data-cat]').forEach(b => b.onclick = () => openAddForm(b.dataset.cat));
-    sh.querySelector('#addNewCat')?.addEventListener('click', () => openCatEdit(null, openAddSheet));
-    sh.querySelector('#addFile').onclick = openAttachSheet;
+function openAddSheet(edit = false) {
+  const ids = ['income', ...Object.keys(CATS)], parent = sync.isParent();
+  openSheet(`<div class="add-head"><h3>${edit ? '✏️ איזו קטגוריה לשנות?' : '➕ מה מוסיפים?'}</h3>
+      ${parent ? `<button class="chip ${edit ? 'on' : ''}" id="addEditCats">${edit ? '✅ סיום' : '✏️ לשנות קטגוריות'}</button>` : ''}</div>
+    ${edit ? '<div class="sub" style="margin:-4px 0 12px">נוגעים בקטגוריה ← שם, אייקון, צבע (ואת אלה שהוספתם — גם למחוק)</div>' : ''}
+    <div class="catgrid${edit ? ' cat-editing' : ''}">${ids.filter(id => !edit || id !== 'income').map(id => { const c = catOf(id);
+      return `<button class="catbtn${id === 'income' ? ' inc' : ''}" data-cat="${id}"><div class="cat-ic" style="background:${c.g}">${c.e}</div>${id === 'income' ? 'הכנסה' : c.n}${edit ? '<i class="cat-pen">✏️</i>' : ''}</button>`; }).join('')}${parent ? '<button class="catbtn cat-new" id="addNewCat"><div class="cat-ic">➕</div>קטגוריה חדשה</button>' : ''}</div>
+    ${edit ? '' : '<button class="btn ghost full" id="addFile">📎 או: העלאת פירוט מהבנק / אשראי</button>'}`, sh => {
+    sh.querySelectorAll('[data-cat]').forEach(b => b.onclick = () => edit ? openCatEdit(b.dataset.cat, () => openAddSheet(true)) : openAddForm(b.dataset.cat));
+    sh.querySelector('#addEditCats')?.addEventListener('click', () => openAddSheet(!edit));
+    sh.querySelector('#addNewCat')?.addEventListener('click', () => openCatEdit(null, () => openAddSheet(edit)));
+    sh.querySelector('#addFile')?.addEventListener('click', openAttachSheet);
   });
 }
 const ADD_HINT = { income: 'משכורת', food: 'אושר עד', car: 'דלק / טעינה', rest: 'פיצה', home: 'חשמל', kids: 'חוג', health: 'קופת חולים', subs: 'נטפליקס', clothes: 'נעליים', fun: 'סרט', give: 'צדקה', other: 'מתנה' };
@@ -1438,7 +1442,7 @@ function openAddForm(cat) {
     ${!inc && S.people.length ? `<div class="sub" style="margin-bottom:8px">של מי?</div><div class="chips" id="aWho" style="flex-wrap:wrap;margin-bottom:14px">${whoChips(who)}</div>` : ''}
     ${tagField('aTag', [])}
     <button class="btn grad full" id="aSave">✅ שמירה</button>`, sh => {
-    sh.querySelector('#aBack').onclick = openAddSheet;
+    sh.querySelector('#aBack').onclick = () => openAddSheet();
     sh.querySelectorAll('#aRecDur [data-dur]').forEach(b => b.onclick = () => {
       sh.querySelectorAll('#aRecDur [data-dur]').forEach(x => x.classList.toggle('on', x === b));
       const v = b.dataset.dur; sh.querySelector('#aRecEndF').style.display = v === 'end' ? '' : 'none';
@@ -1491,7 +1495,7 @@ function openAddForm(cat) {
     };
   });
 }
-$('#plusBtn').onclick = openAddSheet;
+$('#plusBtn').onclick = () => openAddSheet();
 
 // קורא קובץ אחד → { kind, items } או זורק שגיאה עם הודעה ידידותית
 async function readOne(file, label) {
@@ -2538,6 +2542,7 @@ const REVIEW_AT = {
   excel: { v: 'chat', sel: '#exportBtn' },
   bmode: { v: 'budget', sel: '.bmode' },
   catsBtn: { v: 'budget', sel: '#catsBtn' },
+  addEdit: { v: 'chat', sel: '#sheet', open: () => openAddSheet(true) },
   recCard: { v: 'budget', sel: '#recCard' },
   insCard: { v: 'budget', sel: '#budgetList [data-cat="ins"]' },
   expenses: { v: 'budget', sel: '#sheet', open: () => openExpenses() },
