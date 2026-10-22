@@ -2607,7 +2607,14 @@ function bdikaNews(v, i) {
   const f = it && (typeof it.go === 'function' ? it.go : NEWS_GO[it.go]);
   if (f) setTimeout(f, 250);
 }
+// 📱 לעמדה: "✅ נטען" אחרי כמה שניות, ו"⚠️ תקלה" על כל שגיאה
+const bdikaPost = m => { try { if (parent !== window) parent.postMessage({ app: 'kesef', ...m }, '*'); } catch { /* */ } };
+if (db.BDIKA) {
+  addEventListener('error', e => bdikaPost({ bdika: 'error', msg: String(e.message || 'error').slice(0, 200) }));
+  addEventListener('unhandledrejection', e => bdikaPost({ bdika: 'error', msg: String(e.reason?.message || e.reason || 'rejection').slice(0, 200) }));
+}
 function bdikaStart() {
+  setTimeout(() => bdikaPost({ bdika: 'alive' }), 4000);
   const p = new URLSearchParams(location.search).get('news');
   if (p) { const [v, i] = p.split('|'); setTimeout(() => bdikaNews(v, i), 400); }
   addEventListener('message', e => { const m = e.data; if (m && m.bdika === 'news') bdikaNews(m.v, m.i); });
