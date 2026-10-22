@@ -41,9 +41,10 @@ const thisMonth = () => ym(new Date());
 const RECOVERY = /type=recovery/.test(location.hash);
 // קישור מהמייל שכבר לא תקף (פג תוקף / נפתח כבר — לפעמים Gmail "בודק" קישורים מראש)
 const LINK_ERR = /error_code=|error=access_denied/.test(location.hash) ? decodeURIComponent((location.hash.match(/error_code=([^&]+)/) || [])[1] || 'error') : '';
-const S = { tx: [], skip: [], budgets: {}, learned: {}, cats: {}, goals: {}, maaser: {}, pocket: {}, debts: {}, recurring: {}, rules: {}, people: [], me: null, month: thisMonth(), view: 'chat', catFilter: null, whoFilter: null, search: '' };
+const S = { tx: [], skip: [], trash: [], budgets: {}, learned: {}, cats: {}, goals: {}, maaser: {}, pocket: {}, debts: {}, recurring: {}, rules: {}, lists: {}, people: [], me: null, month: thisMonth(), view: 'chat', catFilter: null, whoFilter: null, search: '' };
 // ⏸️ תנועות "לא נספרות" (מקובץ): נשמרות ולא נמחקות, אבל לא נכנסות לשום חישוב. S.tx = רק מה שנספר
-function setAllTx(all) { S.tx = all.filter(t => !t.skip); S.skip = all.filter(t => t.skip); }
+// 🗑️ סל מחזור: t.trash = מתי נמחק (30 יום ואז נמחק לגמרי). לא ב-S.tx ולא ב-S.skip
+function setAllTx(all) { S.trash = all.filter(t => t.trash); all = all.filter(t => !t.trash); S.tx = all.filter(t => !t.skip); S.skip = all.filter(t => t.skip); }
 const allTx = () => [...S.tx, ...S.skip];
 async function setCounted(t, on) {
   if (on) { delete t.skip; delete t.skipWhy; } else { t.skip = true; t.skipWhy = t.skipWhy || 'user'; }
@@ -230,8 +231,8 @@ function fileSummaryHTML(list, msg, off = 0) {
   const top = Object.entries(list.filter(t => t.cat !== 'income').reduce((a, t) => (a[t.cat] = (a[t.cat] || 0) + t.amount, a), {}))
     .sort((a, b) => b[1] - a[1]).slice(0, 4).map(([c]) => catOf(c).e).join(' ');
   return `<div class="cat-ic" style="background:var(--g2)">📊</div>
-    <div><b>יובאו ${list.length + off} תנועות</b><div class="sub">📅 ${monthsSpan(list.map(t => t.date))}${off ? `<br>✅ ${list.length} נספרו · ⏸️ ${off} לא נספרו` : ''}<br>${exp ? 'הוצאות ' + fmt(exp) : ''}${exp && inc ? ' · ' : ''}${inc ? 'הכנסות ' + fmt(inc) : ''} ${top}</div>
-    <div class="acts"><button data-act="viewfile" data-msg="${msg}">👀 לצפייה</button><button data-act="undofile" data-msg="${msg}">↩️ ביטול ייבוא</button></div></div>`;
+    <div><b>📂 ${esc(listName(msg))}</b><div class="sub">יובאו ${list.length + off} תנועות</div><div class="sub">📅 ${monthsSpan(list.map(t => t.date))}${off ? `<br>✅ ${list.length} נספרו · ⏸️ ${off} לא נספרו` : ''}<br>${exp ? 'הוצאות ' + fmt(exp) : ''}${exp && inc ? ' · ' : ''}${inc ? 'הכנסות ' + fmt(inc) : ''} ${top}</div>
+    <div class="acts"><button data-act="viewfile" data-msg="${msg}">👀 לצפייה</button><button data-act="lists">📂 כל הרשימות</button><button data-act="undofile" data-msg="${msg}">🗑️ מחיקה</button></div></div>`;
 }
 
 function dayLabel(d) {
@@ -413,6 +414,7 @@ $('#chat').addEventListener('click', e => {
   if (b.dataset.act === 'viewfile') {
     openFileList(b.dataset.msg); return;
   }
+  if (b.dataset.act === 'lists') { openListsSheet(); return; }
   if (b.dataset.act === 'undofile') {
     if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'בטוח? לחץ שוב'; return; }
     undoImport(b.dataset.msg); return;
@@ -609,6 +611,7 @@ const NEWS_GO = {
   bmode: () => { go('budget'); spot('.bmode'); },
   cats: () => { go('budget'); openCatsSheet(); },
   rules: () => openRulesSheet(),
+  lists: () => openListsSheet(),
   addEdit: () => openAddSheet(true),
   stPen: () => { go('chat'); $('#stories').scrollLeft = 0; spot('#stories .story[data-cat] .st-pen'); },
   expenses: () => { go('budget'); openExpenses(); },
@@ -1533,6 +1536,7 @@ const PICK = { doc: makePicker(DOC_ACCEPT), img: makePicker('image/*'), cam: mak
 function openAttachSheet() {
   openSheet(`<h3>📎 העלאת פירוט מהבנק או מהאשראי</h3>
     <div class="sub" style="margin:-6px 0 14px">מכל בנק וכל כרטיס אשראי · אפשר כמה קבצים יחד, גם חודשים אחורה</div>
+    ${allMsgs().length ? `<button class="btn ghost full" id="atLists" style="margin-bottom:12px">📂 הרשימות שלי — ${allMsgs().length} קבצים שהעליתם</button>` : ''}
     <button class="pick" data-pick="doc"><span class="pe" style="background:var(--g3)">📊</span><span><b>קובץ אקסל או PDF</b><small>שהורדת מהאתר או מהאפליקציה של הבנק / האשראי</small></span></button>
     <button class="pick" data-pick="img"><span class="pe" style="background:var(--g2)">🖼️</span><span><b>צילום מסך מהגלריה</b><small>צילום של רשימת התנועות באפליקציית הבנק</small></span></button>
     <button class="pick" data-pick="cam"><span class="pe" style="background:var(--g1)">📷</span><span><b>לצלם עכשיו</b><small>דף חיוב מודפס או קבלה</small></span></button>
@@ -1541,6 +1545,7 @@ function openAttachSheet() {
     <div class="dup-note">✋ מה שכבר רשמתם ידנית (בצ'אט או ב-➕) יזוהה ולא ייספר פעמיים</div>
     <div class="sub" style="margin-top:12px">💡 איפה מוצאים את הקובץ? באתר או באפליקציה של הבנק / חברת האשראי ← "פירוט חיובים" או "תנועות בחשבון" ← "ייצוא לאקסל" / "הורדה". הקובץ נשמר בתיקיית <b>"הורדות"</b>.</div>`, sh => {
     sh.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => { const i = PICK[b.dataset.pick]; i.value = ''; i.click(); });
+    sh.querySelector('#atLists')?.addEventListener('click', openListsSheet);
   });
 }
 $('#attach').onclick = openAttachSheet;
@@ -1664,6 +1669,7 @@ async function readOne(file, label) {
     sync.trackFail('import', `${ext} · ${imp.detectBank(sheets, file.name)} · לא נמצאו תנועות${meta.pages ? ` · ${meta.pages} עמ'` : ` · ${sheets?.length || 0} גיליונות`}`);
     throw new Error('לא הצלחתי לקרוא את הפורמט של הקובץ הזה 😕 נסו להוריד מהבנק / האשראי "ייצוא לאקסל" (במקום PDF), או שלחו לנו את הקובץ דרך 💌 משוב — ונוסיף תמיכה');
   }
+  res.bank = imp.detectBank(sheets, file.name);
   return res;
 }
 
@@ -1674,13 +1680,14 @@ async function importFiles(files) {
     toast(`📄 ${label}קורא את ${f.name}…`);
     try {
       const res = await readOne(f, label);
-      for (const it of res.items) { it.kind = res.kind; it.file = f.name; }
+      for (const it of res.items) { it.kind = res.kind; it.file = f.name; it.bank = res.bank; }
       all.push(...res.items); kinds.add(res.kind); ok.push(f.name);
     } catch (e) { errors.push(`${f.name}: ${e.message}`); }
   }
   if (!all.length) { toast(errors[0] || 'לא נמצאו תנועות', true); return; }
   if (errors.length) setTimeout(() => toast(`⚠️ ${errors.length} קבצים לא נקראו: ${errors.join(' · ')}`, true), 400);
   markDuplicates(all);
+  if (await alreadyUploaded(all)) return;
   const kind = kinds.size === 1 ? [...kinds][0] : 'multi';
   openImportSheet(ok.length === 1 ? ok[0] : `${ok.length} קבצים`, { kind, items: all, files: ok });
 }
@@ -1827,6 +1834,7 @@ function openImportSheet(name, { kind, items, files = [name] }) {
         if (it.catChanged) { S.learned[it.desc.toLowerCase()] = it.cat; if (it.bankDesc) S.learned[it.bankDesc.toLowerCase()] = it.cat; }
       }
       if (keep.some(i => i.catChanged)) await db.setKV('learned', S.learned);
+      await saveListMeta(msg, { kind, bank: [...new Set(keep.map(i => i.bank).filter(b => b && !/לא זוהה/.test(b)))].join(' + ') || '', files, created: now });
       closeSheet(); go('chat'); renderAll(ids); confetti();
       const nOn = keep.filter(i => i.on).length, nOff = keep.length - nOn, had = count('dup-file');
       toast(`✅ ${nOn} נספרו${nOff ? ` · ⏸️ ${nOff} נשמרו בלי לספור` : ''}${had ? ` · ${had} כבר היו` : ''}`);
@@ -1850,8 +1858,8 @@ function openFileList(msg) {
   const list = () => allTx().filter(t => t.msg === msg).sort((a, b) => b.date.localeCompare(a.date));
   const l0 = list(); if (!l0.length) return;
   const sum = (inc, onOnly) => list().filter(t => (t.cat === 'income') === inc && (!onOnly || !t.skip)).reduce((s, t) => s + t.amount, 0);
-  openSheet(`<!--page--><h3>📄 ${esc(l0[0].raw)}</h3>
-    <div class="sub" style="margin:-6px 0 10px">${l0.length} תנועות · ${monthsSpan(l0.map(t => t.date))}</div>
+  openSheet(`<!--page--><div class="fl-head"><span>${KIND_IC[listKind(msg, l0)] || '📄'}</span><input class="imp-name fl-title" value="${esc(listName(msg, l0))}" maxlength="40" aria-label="שם הרשימה — אפשר לשנות"></div>
+    <div class="sub" style="margin:2px 0 10px">${l0.length} תנועות · ${monthsSpan(l0.map(t => new Date(t.date)))} · 📄 ${esc(l0[0].raw)} · <button class="linkbtn" id="flAll">📂 כל הרשימות</button></div>
     <div class="imp-tot" id="flTot"></div>
     <div class="chips imp-filter" id="flFilter"><button class="chip on" data-f="all">הכל</button><button class="chip" data-f="on">✅ נספרות</button><button class="chip" data-f="off">⏸️ לא נספרות</button></div>
     <div class="card imp-list" style="padding:4px 12px">${l0.map(t => `
@@ -1871,6 +1879,10 @@ function openFileList(msg) {
         row.classList.toggle('off', !!t.skip); row.hidden = filter === 'on' ? !!t.skip : filter === 'off' ? !t.skip : false;
       });
     };
+    const ti = sh.querySelector('.fl-title');
+    ti.addEventListener('keydown', e => { if (e.key === 'Enter') ti.blur(); });
+    ti.addEventListener('change', async () => { const v = ti.value.replace(/[<>]/g, '').trim(); if (v) { await saveListMeta(msg, { name: v }); renderAll(); toast('✅ שם הרשימה נשמר'); } else ti.value = listName(msg); });
+    sh.querySelector('#flAll').onclick = () => openListsSheet();
     sh.querySelectorAll('#flFilter [data-f]').forEach(b => b.onclick = () => { filter = b.dataset.f; sh.querySelectorAll('#flFilter [data-f]').forEach(x => x.classList.toggle('on', x === b)); draw(); });
     sh.querySelectorAll('.fl-row').forEach(row => {
       row.querySelector('input').onchange = async e => {
@@ -1892,12 +1904,134 @@ function openFileList(msg) {
   });
 }
 
-async function undoImport(msg) {
-  const list = allTx().filter(t => t.msg === msg);
-  for (const t of list) await db.delTx(t.id);
-  S.tx = S.tx.filter(t => t.msg !== msg); S.skip = S.skip.filter(t => t.msg !== msg);
-  renderAll(); toast(`↩️ בוטל ייבוא של ${list.length} תנועות`);
+// ---------- 📂 הרשימות שלי: כל העלאה = רשימה (שם, סיכום, ⋯), וסל מחזור ל-30 יום ----------
+// S.lists = { msg: { name?, kind, bank, files, created } } — מסונכרן למשפחה
+const TRASH_DAYS = 30;
+const listTx = msg => allTx().filter(t => t.msg === msg);
+const listKind = (msg, l = listTx(msg)) => S.lists?.[msg]?.kind || l.find(t => t.fileKind)?.fileKind || (l.some(t => t.pay === 'credit') ? 'card' : 'bank');
+const KIND_IC = { bank: '🏦', card: '💳', multi: '📚', image: '📸' };
+function listName(msg, l = listTx(msg).concat(S.trash.filter(t => t.msg === msg))) {
+  const m = S.lists?.[msg] || {}; if (m.name) return m.name;
+  const k = listKind(msg, l), type = k === 'card' ? 'אשראי' : k === 'bank' ? 'עו"ש' : k === 'image' ? 'צילום מסך' : 'קבצים';
+  const bank = m.bank && !/לא זוהה/.test(m.bank) ? ' ' + m.bank : '';
+  return `${type}${bank} · ${monthsSpan(l.map(t => new Date(t.date)))}`;
 }
+function listStats(l) {
+  const on = l.filter(t => !t.skip), d = l.map(t => t.date).sort();
+  return { n: l.length, off: l.length - on.length, exp: on.filter(t => t.cat !== 'income').reduce((s, t) => s + t.amount, 0), inc: on.filter(t => t.cat === 'income').reduce((s, t) => s + t.amount, 0),
+    from: d[0], to: d[d.length - 1], created: l.map(t => t.created).sort()[0] || '' };
+}
+const dm = d => new Date(d).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' });
+const allMsgs = () => [...new Set(allTx().filter(t => t.source === 'file').map(t => t.msg))];
+async function saveListMeta(msg, patch) { await saveKV('lists', { ...S.lists, [msg]: { ...(S.lists?.[msg] || {}), ...patch } }); }
+
+async function trashList(msg) {
+  const now = new Date().toISOString(), l = listTx(msg);
+  for (const t of l) { t.trashWas = !!t.skip; t.skip = true; t.trash = now; await db.putTx(t); }
+  setAllTx([...S.tx, ...S.skip, ...S.trash]); renderAll();
+  toastAction(`🗑️ הרשימה עברה לסל המחזור (${l.length} תנועות)`, '↩️ בטל', () => restoreList(msg));
+}
+async function restoreList(msg) {
+  const l = S.trash.filter(t => t.msg === msg);
+  for (const t of l) { if (t.trashWas) t.skip = true; else delete t.skip; delete t.trash; delete t.trashWas; await db.putTx(t); }
+  setAllTx([...S.tx, ...S.skip, ...S.trash]); renderAll(); toast(`♻️ שוחזרו ${l.length} תנועות`);
+}
+async function purgeList(msg) {
+  for (const t of S.trash.filter(t => t.msg === msg)) await db.delTx(t.id);
+  S.trash = S.trash.filter(t => t.msg !== msg);
+  if (S.lists?.[msg]) { const L = { ...S.lists }; delete L[msg]; await saveKV('lists', L); }
+}
+// נמחקו לפני יותר מ-30 יום — נמחקים לגמרי
+async function purgeOldTrash() {
+  const old = [...new Set(S.trash.filter(t => Date.now() - new Date(t.trash) > TRASH_DAYS * 864e5).map(t => t.msg))];
+  for (const m of old) await purgeList(m);
+}
+
+function openListsSheet() {
+  const msgs = allMsgs().map(m => ({ m, l: listTx(m) })).map(x => ({ ...x, st: listStats(x.l) })).sort((a, b) => b.st.created.localeCompare(a.st.created));
+  const trashN = new Set(S.trash.map(t => t.msg)).size;
+  openSheet(`<!--page--><h3>📂 הרשימות שלי</h3>
+    <div class="sub" style="margin:-6px 0 12px">כל קובץ שהעליתם — רשימה. נגיעה ← כל התנועות שלה. ⋯ ← שינוי שם, לא לספור, מחיקה.</div>
+    ${msgs.length ? msgs.map(({ m, l, st }) => `<div class="card lst" data-msg="${m}">
+      <div class="lst-top"><div class="lst-ic">${KIND_IC[listKind(m, l)] || '📄'}</div>
+        <div class="lst-nm"><b class="lst-name">${esc(listName(m, l))}</b><small>📅 ${dm(st.from) === dm(st.to) ? dm(st.from) : `מ־${dm(st.from)} עד ${dm(st.to)}`} · ${st.n} תנועות · הועלה ${dm(st.created)}</small></div>
+        ${sync.isParent() ? '<button class="lst-more" aria-label="עוד פעולות">⋯</button>' : ''}</div>
+      <div class="lst-sums">${st.exp ? `<span>💸 ${fmt(st.exp)}</span>` : ''}${st.inc ? `<span class="inc">💰 ${fmt(st.inc)}</span>` : ''}${st.off ? `<span class="off">⏸️ ${st.off} לא נספרו</span>` : ''}</div>
+      <div class="lst-menu" hidden><button data-a="ren">✏️ שינוי שם</button><button data-a="cnt">${st.off === st.n ? '✅ לספור את כל הרשימה' : '⏸️ לא לספור את כל הרשימה'}</button><button data-a="del" class="del">🗑️ מחיקה</button></div>
+    </div>`).join('') : `<div class="card tip"><div class="em">📎</div><p>עוד לא העליתם קבצים. לוחצים על 📎 ליד שורת הכתיבה ← קובץ מהבנק או מהאשראי.</p></div>`}
+    ${trashN ? `<button class="btn ghost full" id="toTrash" style="margin-top:6px">🗑️ סל מחזור (${trashN})</button>` : ''}
+    <button class="btn grad full" id="lstAdd" style="margin-top:10px">📎 העלאת קובץ חדש</button>`, sh => {
+    sh.querySelector('#lstAdd').onclick = openAttachSheet;
+    sh.querySelector('#toTrash')?.addEventListener('click', openTrashSheet);
+    sh.querySelectorAll('.lst').forEach(c => {
+      const m = c.dataset.msg, menu = c.querySelector('.lst-menu');
+      if (!c.querySelector('.lst-more')) { c.addEventListener('click', () => openFileList(m)); return; }
+      c.querySelector('.lst-more').onclick = e => { e.stopPropagation(); sh.querySelectorAll('.lst-menu').forEach(x => { if (x !== menu) x.hidden = true; }); menu.hidden = !menu.hidden; };
+      c.addEventListener('click', e => { if (e.target.closest('.lst-menu, .lst-more, input')) return; openFileList(m); });
+      menu.querySelector('[data-a="ren"]').onclick = () => {
+        menu.hidden = true; const b = c.querySelector('.lst-name');
+        b.outerHTML = `<input class="imp-name lst-in" value="${esc(listName(m))}" maxlength="40" aria-label="שם הרשימה">`;
+        const inp = c.querySelector('.lst-in'); inp.focus(); inp.select();
+        let saved = false;
+        const save = async () => { if (saved) return; saved = true; const v = inp.value.replace(/[<>]/g, '').trim(); if (v && v !== listName(m)) { await saveListMeta(m, { name: v }); renderAll(); toast('✅ השם נשמר'); } openListsSheet(); };
+        inp.addEventListener('keydown', e => { if (e.key === 'Enter') inp.blur(); }); inp.addEventListener('blur', save); inp.addEventListener('change', save);
+      };
+      menu.querySelector('[data-a="cnt"]').onclick = async () => {
+        const l = listTx(m), on = l.every(t => t.skip);
+        for (const t of l) if (!!t.skip === on) await setCounted(t, on);
+        renderAll(); toast(on ? `✅ כל ${l.length} התנועות נספרות` : `⏸️ הרשימה לא נספרת (${l.length} תנועות נשמרו באפור)`); openListsSheet();
+      };
+      menu.querySelector('[data-a="del"]').onclick = async () => {
+        const n = listTx(m).length;
+        const a = await confirmBox({ e: '🗑️', title: 'למחוק את הרשימה?', text: `<b>${esc(listName(m))}</b> — ${n} תנועות.<br>הן עוברות ל<b>סל המחזור ל־30 יום</b>, ולא נספרות. אפשר לשחזר.`, ok: '🗑️ להעביר לסל', no: 'ביטול' });
+        if (a.ok) { await trashList(m); openListsSheet(); }
+      };
+    });
+  });
+}
+
+function openTrashSheet() {
+  const msgs = [...new Set(S.trash.map(t => t.msg))].map(m => ({ m, l: S.trash.filter(t => t.msg === m) }));
+  openSheet(`<!--page--><h3>🗑️ סל מחזור</h3>
+    <div class="sub" style="margin:-6px 0 12px">רשימות שנמחקו נשמרות כאן ${TRASH_DAYS} יום, ואז נמחקות לגמרי. בזמן הזה הן לא נספרות.</div>
+    ${msgs.length ? msgs.map(({ m, l }) => { const left = Math.max(0, TRASH_DAYS - Math.floor((Date.now() - new Date(l[0].trash)) / 864e5));
+      return `<div class="card lst" data-msg="${m}"><div class="lst-top"><div class="lst-ic">${KIND_IC[listKind(m, l)] || '📄'}</div>
+        <div class="lst-nm"><b>${esc(listName(m, l))}</b><small>${l.length} תנועות · נמחק ${dm(l[0].trash)} · יימחק לגמרי בעוד ${left} ימים</small></div></div>
+        <div class="row2" style="margin-top:10px"><button class="btn ghost tr-del">מחיקה לגמרי</button><button class="btn grad tr-res">♻️ שחזור</button></div></div>`; }).join('')
+      : '<div class="card tip"><div class="em">✨</div><p>הסל ריק.</p></div>'}`, sh => {
+    sh.querySelectorAll('.lst').forEach(c => {
+      const m = c.dataset.msg;
+      c.querySelector('.tr-res').onclick = async () => { await restoreList(m); openTrashSheet(); };
+      c.querySelector('.tr-del').onclick = async () => {
+        const a = await confirmBox({ e: '⚠️', title: 'למחוק לגמרי?', text: 'אי אפשר יהיה לשחזר את הרשימה הזו.', ok: 'למחוק לגמרי', no: 'ביטול' });
+        if (a.ok) { await purgeList(m); toast('🗑️ נמחק'); openTrashSheet(); }
+      };
+    });
+  });
+}
+
+// 📂 קובץ שכבר הועלה? — מציעים לפתוח את הרשימה (או לשחזר מהסל) במקום לייבא שוב
+async function alreadyUploaded(items) {
+  const fpMsg = l => { const m = new Map(); for (const t of l) if (t.fp) m.set(t.fp, t); return m; };
+  const live = fpMsg(allTx()), bin = fpMsg(S.trash);
+  const inLive = items.filter(i => live.has(i.fp)), inBin = items.filter(i => bin.has(i.fp));
+  if (inBin.length >= Math.max(1, items.length * .8)) {
+    const t = bin.get(inBin[0].fp);
+    const a = await confirmBox({ e: '🗑️', title: 'הקובץ הזה בסל המחזור', text: `<b>${esc(listName(t.msg))}</b> — נמחק ב־${dm(t.trash)}. לשחזר אותו?`, ok: '♻️ לשחזר', no: 'להעלות מחדש' });
+    if (a.how === 'ok') { await restoreList(t.msg); openFileList(t.msg); return true; }
+    if (a.how === 'out') return true;
+    await purgeList(t.msg); return false;
+  }
+  if (inLive.length >= Math.max(1, items.length * .8)) {
+    const t = live.get(inLive[0].fp);
+    const a = await confirmBox({ e: '📂', title: 'את הקובץ הזה כבר העלית', text: `ב־${dm(t.created)} — <b>${esc(listName(t.msg))}</b>.<br>לפתוח את הרשימה?`, ok: '📂 לפתוח את הרשימה', no: 'להמשיך בכל זאת' });
+    if (a.how === 'ok') { openFileList(t.msg); return true; }
+    return a.how === 'out';
+  }
+  return false;
+}
+
+async function undoImport(msg) { await trashList(msg); } // ↩️ ביטול ייבוא = לסל המחזור (אפשר לשחזר 30 יום)
 
 // גרירת קובץ לחלון (במחשב)
 document.addEventListener('dragover', e => e.preventDefault());
@@ -2758,6 +2892,7 @@ const TOUR = [
   { v: 'chat', sel: '#viewCard', open: () => openSettings(), t: '🎨 תצוגה', d: 'גודל כתב (רגיל/גדול/ענק), אנימציות פועל/כבוי, חודש עברי ליד הלועזי, ו📱 המסך שנפתח ראשון (צ\'אט / תקציב / תנועות / תובנות).' },
   { v: 'chat', sel: '#pushCard', open: () => openSettings(), t: '🔔 התראה לפני חריגה', d: 'ההורים מקבלים התראה בטלפון כשקטגוריה מגיעה ל-90% או עוברת 100%. לא בשבת.' },
   { v: 'chat', sel: '#toCats', open: () => openSettings(), t: '🏷️ קטגוריות משלכם', d: 'מוסיפים קטגוריה עם שם, אייקון וצבע, או משנים שם לקיימת. מגיע לכל המשפחה.' },
+  { v: 'chat', sel: '#sheet', open: () => openListsSheet(), t: '📂 הרשימות שלי', d: 'כל קובץ שהעליתם — כרטיס עם שם (אפשר לשנות), תאריכים, כמה יצא וכמה נכנס. ⋯ ← שינוי שם, "לא לספור את כל הרשימה", מחיקה לסל המחזור (30 יום, אפשר לשחזר). אותו קובץ פעמיים? — האפליקציה תציע לפתוח את הרשימה.' },
   { v: 'chat', sel: '#sheet', open: () => openRulesSheet(), t: '📏 כללים שלמדתי', d: 'בבנק כתוב "הו"ק פלאפון 4101"? משנים פעם אחת ל"פלאפון של נועה" — ובכל קובץ הבא זה קורה לבד. כאן רואים, משנים ומוחקים. ובכל תנועה מקובץ: "🏦 בבנק כתוב" עם הטקסט המקורי.' },
   { v: 'chat', sel: '#lockCard', open: () => openSettings(), t: '🔒 נעילה', d: 'טביעת אצבע, Face ID או קוד — לכל טלפון בנפרד.' },
   { v: 'chat', sel: null, t: '👨‍👩‍👧 המשפחה, QR והזמנות', d: 'ב-⚙️ (כשמחוברים): קוד להורה וקוד לילד, ריבועי QR לסריקה, הזמנה בוואטסאפ, ותפקיד הורה/ילד. (במצב הדגמה הכרטיס מוסתר.)' },
@@ -3108,6 +3243,7 @@ function openSettings() {
   <button class="btn ghost full parent-only" id="toRec" style="margin-bottom:10px">🔁 הכנסות והוצאות קבועות</button>
   <button class="btn ghost full parent-only" id="toCal" style="margin-bottom:10px">📅 חיבור ליומן של הטלפון</button>
   <button class="btn ghost full parent-only" id="toCats" style="margin-bottom:10px">🏷️ קטגוריות — להוסיף / לשנות שם</button>
+  <button class="btn ghost full" id="toLists" style="margin-bottom:10px">📂 הרשימות שלי${allMsgs().length ? ` (${allMsgs().length})` : ''}</button>
   <button class="btn ghost full parent-only" id="toRules" style="margin-bottom:10px">📏 כללים שלמדתי${Object.keys(S.rules || {}).length ? ` (${Object.keys(S.rules).length})` : ''}</button>
   <button class="btn grad full parent-only" id="toExcel" style="margin-bottom:10px">📊 הורדת סיכום לאקסל</button>
   <div class="row2" style="margin-bottom:10px"><button class="btn ghost" id="exp">⬇️ גיבוי</button><button class="btn ghost" id="imp">⬆️ שחזור מגיבוי</button></div>
@@ -3126,6 +3262,7 @@ function openSettings() {
   sh.querySelector('#toExcel').onclick = () => openExportSheet();
   sh.querySelector('#toCats').onclick = () => openCatsSheet();
   sh.querySelector('#toRules').onclick = () => openRulesSheet();
+  sh.querySelector('#toLists').onclick = () => openListsSheet();
   sh.querySelector('#toNews').onclick = () => openNews(true);
   sh.querySelector('#toCal').onclick = () => openCalendarSub();
   sh.querySelector('#toRec').onclick = () => openRecurring();
@@ -3675,7 +3812,7 @@ async function reloadFromDb() {
   S.cats = await db.getKV('cats', {}); applyCustomCats(S.cats);
   S.goals = await db.getKV('goals', {}); S.maaser = await db.getKV('maaser', {}); S.pocket = await db.getKV('pocket', {}); S.debts = await db.getKV('debts', {}); S.recurring = await db.getKV('recurring', {});
   S.budgets = await db.getKV('budgets', {});
-  S.learned = await db.getKV('learned', {}); S.rules = await db.getKV('rules', {});
+  S.learned = await db.getKV('learned', {}); S.rules = await db.getKV('rules', {}); S.lists = await db.getKV('lists', {});
   S.people = cleanPeople(await db.getKV('people', []));
   renderAll();
 }
@@ -3686,13 +3823,13 @@ async function load() {
   S.cats = await db.getKV('cats', {}); applyCustomCats(S.cats);
   S.goals = await db.getKV('goals', {}); S.maaser = await db.getKV('maaser', {}); S.pocket = await db.getKV('pocket', {});
   S.budgets = await db.getKV('budgets', {});
-  S.learned = await db.getKV('learned', {}); S.rules = await db.getKV('rules', {});
+  S.learned = await db.getKV('learned', {}); S.rules = await db.getKV('rules', {}); S.lists = await db.getKV('lists', {});
   S.people = cleanPeople(await db.getKV('people', []));
   S.me = await db.getKV('me', null);
   renderAll();
 }
 load().then(async () => {
-  if (db.DEMO) { await demoStart(); fixedReminder(); ccReminder(); if (UITEST) maybeNews(); return; } // 🎭 בלי סנכרון, בלי שרת
+  if (db.DEMO) { await demoStart(); purgeOldTrash(); fixedReminder(); ccReminder(); if (UITEST) maybeNews(); return; } // 🎭 בלי סנכרון, בלי שרת
   const r = await sync.start({
     onRemoteChange: () => reloadFromDb(),
     onStatus: st => { const el = document.querySelector('#syncState'); if (el) el.textContent = st === 'ok' ? '· מסונכרן ✓' : '· ממתין לרשת…'; },
@@ -3714,7 +3851,7 @@ load().then(async () => {
   if (new URLSearchParams(location.search).get('v') === 'rec') { go('budget'); setTimeout(openRecurring, 400); } // לחיצה על תזכורת לפני תשלום
   await postRecurring();
   starsLink(); addLink(); if (!$('#sheet').classList.contains('on')) maybeOnboard();
-  debtReminder(); fixedReminder(); await loadBdikaApproved(); maybeNews(); ccReminder();
+  purgeOldTrash(); debtReminder(); fixedReminder(); await loadBdikaApproved(); maybeNews(); ccReminder();
 });
 
 // 🔑 הקישור מהמייל לא עבד (פג תוקף / כבר נפתח) — מסבירים ומאפשרים לשלוח שוב
