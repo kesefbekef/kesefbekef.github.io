@@ -41,7 +41,7 @@ const thisMonth = () => ym(new Date());
 const RECOVERY = /type=recovery/.test(location.hash);
 // קישור מהמייל שכבר לא תקף (פג תוקף / נפתח כבר — לפעמים Gmail "בודק" קישורים מראש)
 const LINK_ERR = /error_code=|error=access_denied/.test(location.hash) ? decodeURIComponent((location.hash.match(/error_code=([^&]+)/) || [])[1] || 'error') : '';
-const S = { tx: [], budgets: {}, learned: {}, cats: {}, goals: {}, maaser: {}, pocket: {}, debts: {}, recurring: {}, people: [], me: null, month: thisMonth(), view: 'chat', catFilter: null, whoFilter: null, search: '' };
+const S = { tx: [], budgets: {}, learned: {}, cats: {}, goals: {}, maaser: {}, pocket: {}, debts: {}, recurring: {}, rules: {}, people: [], me: null, month: thisMonth(), view: 'chat', catFilter: null, whoFilter: null, search: '' };
 
 // ---------- בני הבית ----------
 const FACES = ['🧔', '👩', '👦', '👧', '👴', '👵', '🧑', '👶'];
@@ -580,6 +580,7 @@ const NEWS_GO = {
   budget: () => go('budget'),
   bmode: () => { go('budget'); spot('.bmode'); },
   cats: () => { go('budget'); openCatsSheet(); },
+  rules: () => openRulesSheet(),
   expenses: () => { go('budget'); openExpenses(); },
   maaser: () => { go('budget'); openMaaser(); },
   goals: () => { go('budget'); openGoals(); },
@@ -1006,7 +1007,7 @@ $('#txList').addEventListener('click', e => {
 function openEditSheet(t) {
   let cat = t.cat, pay = t.pay || null, who = t.who || null, armed = false;
   openSheet(`<h3>✏️ עריכה</h3>
-    ${t.raw && t.raw !== t.desc ? `<div class="sub" style="margin:-6px 0 12px">📝 נכתב במקור: "${esc(t.raw)}"</div>` : ''}
+    ${bankOf(t) ? `<div class="bank-line">🏦 בבנק כתוב: <b><bdi>${esc(bankOf(t))}</bdi></b></div>` : t.raw && t.raw !== t.desc && t.source !== 'file' ? `<div class="sub" style="margin:-6px 0 12px">📝 נכתב במקור: "${esc(t.raw)}"</div>` : ''}
     <label class="field"><span>תיאור (מה זה היה)</span><input id="eDesc" value="${esc(t.desc)}"></label>
     <div class="row2">
       <label class="field"><span>${t.inst > 1 ? 'סכום כולל' : 'סכום'}</span><input id="eAmt" type="number" inputmode="decimal" value="${t.inst > 1 ? t.total : t.amount}"></label>
@@ -1066,6 +1067,7 @@ function openEditSheet(t) {
       if (!(v > 0)) { sh.querySelector('#eErr').textContent = 'צריך להזין סכום גדול מ-0'; return; }
       if (!d) { sh.querySelector('#eErr').textContent = 'צריך לבחור תאריך'; return; }
       const desc = sh.querySelector('#eDesc').value.trim() || t.desc;
+      const bank = bankOf(t), rl = bank && ruleFor(bank), nmCh = desc !== t.desc && desc !== rl?.name, ctCh = cat !== t.cat && cat !== rl?.cat;
       if (cat !== t.cat) { const key = desc.toLowerCase(); if (key.length >= 2) { S.learned[key] = cat; await db.setKV('learned', S.learned); } }
       Object.assign(t, { desc, cat, pay, who, date: new Date(d + 'T12:00:00').toISOString() });
       const tg = readTags(sh, 'eTag'); if (tg.length) t.tags = tg; else delete t.tags;
@@ -1073,6 +1075,7 @@ function openEditSheet(t) {
       if (cat === 'give' && gx) t.extraGive = true; else delete t.extraGive;
       if (t.inst > 1) { t.total = v; t.amount = Math.round(v / t.inst * 100) / 100; } else { t.amount = v; t.total = v; }
       await db.putTx(t); closeSheet(); renderAll(); toast('✅ נשמר');
+      if (bank && (nmCh || ctCh) && sync.isParent()) setTimeout(() => askRules([{ bank, except: t.id, ...(nmCh ? { name: desc } : {}), ...(ctCh ? { cat } : {}) }]), 350);
     };
     sh.querySelector('#eDel').onclick = async e => {
       if (!armed) { armed = true; e.target.textContent = 'בטוח? לחץ שוב'; return; }
@@ -1254,6 +1257,7 @@ function markDuplicates(items) {
   const fps = new Set(S.tx.map(t => t.fp).filter(Boolean));
   const used = new Set();
   for (const it of items) {
+    if (it.kind !== 'image') it.bankDesc = it.desc; // 🏦 הטקסט המקורי מהבנק — לא משתנה גם אם משנים שם
     it.fp = fpOf(it.date, it.amount, it.desc);
     if (fps.has(it.fp)) { it.status = 'dup-file'; continue; }
     fps.add(it.fp); // אותו קובץ שהועלה פעמיים באותה העלאה
@@ -1262,7 +1266,102 @@ function markDuplicates(items) {
     if (manual) { used.add(manual.id); it.status = 'dup-manual'; it.match = manual.desc; continue; }
     it.status = it.ccCharge ? 'cc' : it.atm ? 'atm' : 'new';
   }
-  for (const it of items) it.on = it.status === 'new';
+  for (const it of items) { it.on = it.status === 'new'; applyRule(it); }
+}
+
+// 📏 כללים שלמדתי: "כשבבנק כתוב X — לקרוא לזה Y / קטגוריה Z"
+// ההתאמה לפי המילים, בלי ספרות (מספר סניף, תאריך, אסמכתא) — כך זה עובד גם בחודש הבא
+// S.rules = { id: { match, bank (דוגמה), name?, cat?, created } }
+const ruleKey = s => String(s || '').toLowerCase().replace(/[\u200E\u200F\u202A-\u202E"'`״׳]/g, '').replace(/\d+/g, ' ').replace(/[^\p{L}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+const bankOf = t => t.bankDesc || (t.source === 'file' && t.fp ? t.fp.split('|').slice(2).join('|') : '');
+function ruleFor(text) {
+  const k = ' ' + ruleKey(text) + ' ';
+  let best = null;
+  for (const [id, r] of Object.entries(S.rules || {}))
+    if (r?.match && k.includes(' ' + r.match + ' ') && (!best || r.match.length > best.match.length)) best = { id, ...r };
+  return best;
+}
+function applyRule(it) {
+  const r = it.bankDesc && ruleFor(it.bankDesc); if (!r) return;
+  it.rule = r.id;
+  if (r.name) it.desc = r.name;
+  if (r.cat && (r.cat === 'income') === !!it.income) it.cat = r.cat; // כלל לא הופך הוצאה להכנסה
+}
+async function saveRuleFor(bank, patch) {
+  const match = ruleKey(bank); if (match.length < 2) return null;
+  const rules = { ...(S.rules || {}) };
+  const id = Object.keys(rules).find(k => rules[k].match === match) || db.newId();
+  rules[id] = { ...(rules[id] || { created: new Date().toISOString() }), match, bank: String(bank).slice(0, 80), ...patch };
+  await saveKV('rules', rules);
+  return id;
+}
+// טקסט כללי (העברה, ביט, משיכה…) — כלל עליו יחול על הרבה שורות שונות, לכן לא מסומן מראש
+const genericBank = b => /(^| )(העב|העברה|העברת|ביט|bit|pay ?box|פייבוקס|משיכ\S*|כספומט|שיק|צק|הפקד\S*|זיכוי|חיוב|מזומן)( |$)/.test(ruleKey(b));
+// תנועות קודמות עם אותו טקסט בבנק (כדי להציע לתקן גם אותן)
+const sameBank = (bank, except) => { const k = ruleKey(bank); return k.length < 2 ? [] : S.tx.filter(t => t.id !== except && ruleKey(bankOf(t)) === k); };
+
+// ❓ "גם בפעם הבאה?" — אחרי שינוי שם / קטגוריה של תנועה מקובץ
+function askRules(list, onDone = () => {}) {
+  // list = [{ bank, name?, cat? }]
+  const label = r => [r.name ? `✏️ "${esc(r.name)}"` : '', r.cat ? `${catOf(r.cat).e} ${esc(catOf(r.cat).n)}` : ''].filter(Boolean).join(' · ');
+  const gen = list.map(r => genericBank(r.bank)), anyGen = gen.some(Boolean);
+  const one = list.length === 1, r0 = list[0], past = one ? sameBank(r0.bank, r0.except).filter(t => (r0.name && t.desc !== r0.name) || (r0.cat && t.cat !== r0.cat && (r0.cat === 'income') === (t.cat === 'income'))) : [];
+  openSheet(`<h3>📏 גם בפעם הבאה?</h3>
+    <div class="sub" style="margin:-6px 0 12px">${one ? 'כשזה יופיע שוב בקובץ מהבנק — לעשות את זה לבד:' : 'כשהשורות האלה יופיעו שוב בקובץ מהבנק — לעשות את זה לבד:'}</div>
+    <div class="card rule-ask" style="padding:4px 12px">${list.map((r, i) => `
+      <label class="rule-row"><input type="checkbox" data-r="${i}" ${gen[i] ? '' : 'checked'} ${one && !anyGen ? 'hidden' : ''}>
+        <span><small>🏦 בבנק כתוב: <bdi>${esc(r.bank)}</bdi></small><b>← ${label(r)}</b>
+        ${gen[i] ? `<em class="rule-warn">⚠️ זה טקסט כללי — הכלל יחול על <b>כל</b> השורות עם "${esc(ruleKey(r.bank))}". לסמן רק אם זה תמיד אותו דבר.</em>` : ''}</span></label>`).join('')}</div>
+    ${past.length ? `<label class="rule-past"><input type="checkbox" id="rqPast" ${anyGen ? '' : 'checked'}> לתקן גם את <b>${past.length}</b> התנועות הקודמות עם אותו טקסט</label>` : ''}
+    <div class="row2" style="margin-top:14px"><button class="btn ghost" id="rqOnce">רק הפעם</button><button class="btn grad" id="rqAlways">💾 כן, תמיד</button></div>
+    <div class="sub" style="text-align:center;margin-top:10px">אפשר לראות, לשנות ולמחוק ב⚙️ הגדרות ← 📏 כללים שלמדתי</div>`, sh => {
+    sh.querySelector('#rqOnce').onclick = () => { closeSheet(); onDone(); };
+    sh.querySelector('#rqAlways').onclick = async () => {
+      let n = 0;
+      for (const [i, r] of list.entries()) {
+        if (!sh.querySelector(`[data-r="${i}"]`).checked) continue;
+        const patch = {}; if (r.name) patch.name = r.name; if (r.cat) patch.cat = r.cat;
+        if (await saveRuleFor(r.bank, patch)) n++;
+      }
+      let fixed = 0;
+      if (sh.querySelector('#rqPast')?.checked) for (const t of past) {
+        if (r0.name) t.desc = r0.name;
+        if (r0.cat && (r0.cat === 'income') === (t.cat === 'income')) t.cat = r0.cat;
+        await db.putTx(t); fixed++;
+      }
+      closeSheet(); renderAll();
+      toast(n ? `📏 ${n === 1 ? 'הכלל נשמר' : n + ' כללים נשמרו'}${fixed ? ` · ✏️ ${fixed} תנועות קודמות תוקנו` : ''}` : 'לא נשמרו כללים');
+      onDone();
+    };
+  });
+}
+
+// ⚙️ 📏 כללים שלמדתי — לראות, לשנות, למחוק
+function openRulesSheet() {
+  const list = Object.entries(S.rules || {}).sort((a, b) => (b[1].created || '').localeCompare(a[1].created || ''));
+  const catOpts = sel => ['', ...Object.keys(CATS), 'income'].map(id => `<option value="${id}" ${id === (sel || '') ? 'selected' : ''}>${id ? catOf(id).e + ' ' + catOf(id).n : '— בלי לשנות קטגוריה —'}</option>`).join('');
+  openSheet(`<h3>📏 כללים שלמדתי</h3>
+    <div class="sub" style="margin:-6px 0 12px">כשמשנים שם או קטגוריה של תנועה מקובץ הבנק, אפשר לבקש "גם בפעם הבאה". הכללים כאן מופעלים לבד בכל העלאה.</div>
+    ${list.length ? list.map(([id, r]) => `<div class="card rule-card" data-id="${id}">
+      <small>🏦 כשבבנק כתוב:</small><div class="rule-bank"><bdi>${esc(r.bank || r.match)}</bdi></div><small class="rule-hint">🔢 מתאים גם כשהמספרים שונים (סניף, אסמכתא)</small>
+      <label class="field"><span>✏️ לקרוא לזה</span><input class="rName" value="${esc(r.name || '')}" placeholder="(בלי לשנות שם)"></label>
+      <select class="rCat">${catOpts(r.cat)}</select>
+      <div class="row2" style="margin-top:8px"><button class="btn danger rDel">🗑️ מחיקה</button><button class="btn grad rSave">שמירה</button></div>
+    </div>`).join('') : `<div class="card tip"><div class="em">💡</div><p>עוד אין כללים. משנים שם או קטגוריה של תנועה שהגיעה מקובץ — והאפליקציה תשאל "גם בפעם הבאה?"</p></div>`}`, sh => {
+    sh.querySelectorAll('.rule-card').forEach(c => {
+      const id = c.dataset.id;
+      c.querySelector('.rSave').onclick = async () => {
+        const name = c.querySelector('.rName').value.trim(), cat = c.querySelector('.rCat').value;
+        if (!name && !cat) { toast('צריך שם או קטגוריה — או למחוק את הכלל', true); return; }
+        const r = { ...S.rules[id] }; if (name) r.name = name; else delete r.name; if (cat) r.cat = cat; else delete r.cat;
+        await saveKV('rules', { ...S.rules, [id]: r }); toast('✅ הכלל עודכן');
+      };
+      c.querySelector('.rDel').onclick = async e => {
+        if (!e.target.dataset.armed) { e.target.dataset.armed = 1; e.target.textContent = 'בטוח? לחץ שוב'; return; }
+        const rules = { ...S.rules }; delete rules[id]; await saveKV('rules', rules); c.remove(); toast('🗑️ הכלל נמחק');
+      };
+    });
+  });
 }
 
 const STATUS = {
@@ -1454,6 +1553,7 @@ function openImportSheet(name, { kind, items, files = [name] }) {
       ${count('dup-file') + count('dup-manual') + count('cc') + count('atm') ? `<div class="stat" style="background:var(--card2)"><small>דילגתי (כפילויות)</small><div>${count('dup-file') + count('dup-manual') + count('cc') + count('atm')}</div></div>` : ''}
     </div>
     <div class="dup-note" style="margin-bottom:12px">✋ מה שכבר רשמתם ידנית יזוהה ולא ייספר פעמיים</div>
+    <div class="sub" style="margin:-4px 0 12px">✏️ שם לא ברור? נוגעים בו ומשנים — והאפליקציה תשאל אם לזכור לפעם הבאה</div>
     ${S.people.length ? `<div class="sub" style="margin-bottom:6px">של מי ${kind === 'bank' ? 'החשבון' : kind === 'multi' ? 'הקבצים' : 'הכרטיס'}?</div><div class="chips" id="impWho" style="flex-wrap:wrap;margin-bottom:12px">${whoChips(fileWho)}</div>` : ''}
     ${count('dup-manual') ? `<div class="card tip" style="margin-bottom:10px"><div class="em">🧠</div><p><b>${count('dup-manual')} תנועות כבר רשמת בצ'אט</b> — סימנתי אותן כדי שלא ייספרו פעמיים.</p></div>` : ''}
     ${count('cc') ? `<div class="card tip" style="margin-bottom:10px"><div class="em">💳</div><p><b>${count('cc')} חיובי כרטיס אשראי</b> לא סומנו. את הפירוט שלהם עדיף להעלות מקובץ חברת האשראי.</p></div>` : ''}
@@ -1461,7 +1561,8 @@ function openImportSheet(name, { kind, items, files = [name] }) {
     <div class="card" style="padding:4px 12px">${sorted.map(({ it, i }) => `
       <div class="tx imp-row" style="cursor:default;${it.on ? '' : 'opacity:.55'}" data-i="${i}">
         <input type="checkbox" ${it.on ? 'checked' : ''} style="width:20px;height:20px;accent-color:#EC4899;flex:none">
-        <div class="nm">${it.kind === 'image' ? `<input class="imp-desc" value="${esc(it.desc)}" placeholder="✏️ מה זה היה? (שופרסל, דלק…)" style="width:100%;background:var(--card2);border:1px solid ${it.needsDesc ? '#EC4899' : 'var(--line)'};border-radius:10px;padding:6px 8px;outline:none">` : `<div>${esc(it.desc)}</div>`}
+        <div class="nm">${it.kind === 'image' ? `<input class="imp-desc" value="${esc(it.desc)}" placeholder="✏️ מה זה היה? (שופרסל, דלק…)" style="width:100%;background:var(--card2);border:1px solid ${it.needsDesc ? '#EC4899' : 'var(--line)'};border-radius:10px;padding:6px 8px;outline:none">` : `<input class="imp-desc imp-name" value="${esc(it.desc)}" aria-label="שם התנועה — אפשר לשנות">`}
+          ${it.bankDesc ? `<small class="imp-bank" ${it.desc === it.bankDesc ? 'hidden' : ''}>${it.rule ? '📏 לפי כלל · ' : ''}🏦 בבנק: <bdi>${esc(it.bankDesc)}</bdi></small>` : ''}
           <small>${it.date.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric', year: '2-digit' })}${it.note ? ' · ' + esc(it.note) : ''}${files.length > 1 ? ' · 📄 ' + esc(it.file) : ''}</small>
           ${it.status !== 'new' ? `<small style="color:#F9A8D4">${it.status === 'dup-manual' ? '✋ כבר רשום: "' + esc(it.match) + '"' : STATUS[it.status]}</small>` : ''}
           <select class="imp-cat" style="margin-top:6px;background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:4px 6px;max-width:100%">${catOptions(it.cat)}</select>
@@ -1484,6 +1585,7 @@ function openImportSheet(name, { kind, items, files = [name] }) {
       if (di) {
         di.oninput = () => {
           it.desc = di.value.trim();
+          const bk = row.querySelector('.imp-bank'); if (bk) bk.hidden = it.desc === it.bankDesc;
           if (!it.catChanged && !it.income) { it.cat = classify(it.desc, S.learned); row.querySelector('.imp-cat').value = it.cat; }
         };
       }
@@ -1492,19 +1594,28 @@ function openImportSheet(name, { kind, items, files = [name] }) {
     });
     sh.querySelector('#impGo').onclick = async () => {
       const chosen = items.filter(i => i.on);
-      for (const it of chosen) if (!it.desc) it.desc = 'הוצאה מצילום מסך';
+      for (const it of chosen) if (!it.desc) it.desc = it.bankDesc || 'הוצאה מצילום מסך';
       if (!chosen.length) { toast('סמן לפחות תנועה אחת', true); return; }
       const msg = db.newId(), now = new Date().toISOString(), ids = [];
       for (const it of chosen) {
         const t = { id: db.newId(), msg, raw: files.join(', '), desc: it.desc, cat: it.cat, source: 'file', created: now,
-          date: it.date.toISOString(), amount: it.amount, total: it.amount, inst: 0, fp: it.fp, note: it.note || '',
+          date: it.date.toISOString(), amount: it.amount, total: it.amount, inst: 0, fp: it.fp, note: it.note || '', ...(it.bankDesc ? { bankDesc: it.bankDesc } : {}),
           pay: it.kind === 'card' || it.ccCharge ? 'credit' : it.kind === 'image' ? detectPay(it.desc) : (detectPay(it.desc + ' ' + (it.note || '')) || 'transfer'),
           who: fileWho || null };
         S.tx.push(t); await db.putTx(t); ids.push(t.id);
-        if (it.catChanged) S.learned[it.desc.toLowerCase()] = it.cat;
+        if (it.catChanged) { S.learned[it.desc.toLowerCase()] = it.cat; if (it.bankDesc) S.learned[it.bankDesc.toLowerCase()] = it.cat; }
       }
       if (chosen.some(i => i.catChanged)) await db.setKV('learned', S.learned);
       closeSheet(); go('chat'); renderAll(ids); confetti();
+      // 📏 שינית שם / קטגוריה? — לשאול "גם בפעם הבאה?" (פעם אחת לכל טקסט בנק)
+      const seenK = new Set(), ask = [];
+      for (const it of chosen) {
+        if (!it.bankDesc) continue;
+        const r = it.rule && S.rules[it.rule], nm = it.desc !== it.bankDesc && it.desc !== r?.name, ct = it.catChanged && it.cat !== r?.cat;
+        const k = ruleKey(it.bankDesc); if ((!nm && !ct) || k.length < 2 || seenK.has(k)) continue;
+        seenK.add(k); ask.push({ bank: it.bankDesc, ...(nm ? { name: it.desc } : {}), ...(ct ? { cat: it.cat } : {}) });
+      }
+      if (ask.length && sync.isParent()) setTimeout(() => askRules(ask.slice(0, 12)), 900);
       const had = count('dup-manual') + count('dup-file');
       toast(`✅ ${chosen.length} חדשות${had ? ` · ${had} כבר היו רשומות` : ''}`);
       const b = document.createElement('div'); b.className = 'bot new';
@@ -2359,6 +2470,7 @@ const TOUR = [
   { v: 'chat', sel: '#viewCard', open: () => openSettings(), t: '🎨 תצוגה', d: 'גודל כתב (רגיל/גדול/ענק), אנימציות פועל/כבוי, חודש עברי ליד הלועזי, ו📱 המסך שנפתח ראשון (צ\'אט / תקציב / תנועות / תובנות).' },
   { v: 'chat', sel: '#pushCard', open: () => openSettings(), t: '🔔 התראה לפני חריגה', d: 'ההורים מקבלים התראה בטלפון כשקטגוריה מגיעה ל-90% או עוברת 100%. לא בשבת.' },
   { v: 'chat', sel: '#toCats', open: () => openSettings(), t: '🏷️ קטגוריות משלכם', d: 'מוסיפים קטגוריה עם שם, אייקון וצבע, או משנים שם לקיימת. מגיע לכל המשפחה.' },
+  { v: 'chat', sel: '#sheet', open: () => openRulesSheet(), t: '📏 כללים שלמדתי', d: 'בבנק כתוב "הו"ק פלאפון 4101"? משנים פעם אחת ל"פלאפון של נועה" — ובכל קובץ הבא זה קורה לבד. כאן רואים, משנים ומוחקים. ובכל תנועה מקובץ: "🏦 בבנק כתוב" עם הטקסט המקורי.' },
   { v: 'chat', sel: '#lockCard', open: () => openSettings(), t: '🔒 נעילה', d: 'טביעת אצבע, Face ID או קוד — לכל טלפון בנפרד.' },
   { v: 'chat', sel: null, t: '👨‍👩‍👧 המשפחה, QR והזמנות', d: 'ב-⚙️ (כשמחוברים): קוד להורה וקוד לילד, ריבועי QR לסריקה, הזמנה בוואטסאפ, ותפקיד הורה/ילד. (במצב הדגמה הכרטיס מוסתר.)' },
   { v: 'chat', sel: '#toFeedback', open: () => openSettings(), t: '💌 משוב', d: 'משוב, רעיון או תקלה — ישר אליך במייל. גם בצ\'אט: "משוב: …".' },
@@ -2706,6 +2818,7 @@ function openSettings() {
   <button class="btn ghost full parent-only" id="toRec" style="margin-bottom:10px">🔁 הכנסות והוצאות קבועות</button>
   <button class="btn ghost full parent-only" id="toCal" style="margin-bottom:10px">📅 חיבור ליומן של הטלפון</button>
   <button class="btn ghost full parent-only" id="toCats" style="margin-bottom:10px">🏷️ קטגוריות — להוסיף / לשנות שם</button>
+  <button class="btn ghost full parent-only" id="toRules" style="margin-bottom:10px">📏 כללים שלמדתי${Object.keys(S.rules || {}).length ? ` (${Object.keys(S.rules).length})` : ''}</button>
   <button class="btn grad full parent-only" id="toExcel" style="margin-bottom:10px">📊 הורדת סיכום לאקסל</button>
   <div class="row2" style="margin-bottom:10px"><button class="btn ghost" id="exp">⬇️ גיבוי</button><button class="btn ghost" id="imp">⬆️ שחזור מגיבוי</button></div>
   <input type="file" id="impFile" accept="application/json,.json" hidden>
@@ -2722,6 +2835,7 @@ function openSettings() {
   sh.querySelector('#demoExit')?.addEventListener('click', exitDemo);
   sh.querySelector('#toExcel').onclick = () => openExportSheet();
   sh.querySelector('#toCats').onclick = () => openCatsSheet();
+  sh.querySelector('#toRules').onclick = () => openRulesSheet();
   sh.querySelector('#toNews').onclick = () => openNews(true);
   sh.querySelector('#toCal').onclick = () => openCalendarSub();
   sh.querySelector('#toRec').onclick = () => openRecurring();
@@ -3271,7 +3385,7 @@ async function reloadFromDb() {
   S.cats = await db.getKV('cats', {}); applyCustomCats(S.cats);
   S.goals = await db.getKV('goals', {}); S.maaser = await db.getKV('maaser', {}); S.pocket = await db.getKV('pocket', {}); S.debts = await db.getKV('debts', {}); S.recurring = await db.getKV('recurring', {});
   S.budgets = await db.getKV('budgets', {});
-  S.learned = await db.getKV('learned', {});
+  S.learned = await db.getKV('learned', {}); S.rules = await db.getKV('rules', {});
   S.people = cleanPeople(await db.getKV('people', []));
   renderAll();
 }
@@ -3282,7 +3396,7 @@ async function load() {
   S.cats = await db.getKV('cats', {}); applyCustomCats(S.cats);
   S.goals = await db.getKV('goals', {}); S.maaser = await db.getKV('maaser', {}); S.pocket = await db.getKV('pocket', {});
   S.budgets = await db.getKV('budgets', {});
-  S.learned = await db.getKV('learned', {});
+  S.learned = await db.getKV('learned', {}); S.rules = await db.getKV('rules', {});
   S.people = cleanPeople(await db.getKV('people', []));
   S.me = await db.getKV('me', null);
   renderAll();

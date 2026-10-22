@@ -587,3 +587,23 @@ body.over-gate .sheet{z-index:111}
 @keyframes catshine{0%,60%{transform:translateX(100%)}100%{transform:translateX(-100%)}}
 .catbtn.cat-new .cat-ic{background:conic-gradient(from var(--a,0deg),#7C3AED,#EC4899,#F97316,#FACC15,#7C3AED);animation:catspin 3s linear infinite;font-size:22px}
 .catbtn.cat-new{border-style:dashed!important;color:#F9A8D4}
+
+/* 📏 כללים שלמדתי + 🏦 בבנק כתוב */
+.imp-name { width: 100%; background: transparent; border: 0; border-bottom: 1px dashed var(--line); color: inherit; font: inherit; font-weight: 600; padding: 2px 0 3px; outline: none; border-radius: 0; }
+.imp-name:focus { border-bottom: 1px solid #EC4899; background: var(--card2); border-radius: 8px 8px 0 0; padding-inline: 6px; }
+.imp-bank { display: block; color: var(--muted); font-size: 11.5px; margin-top: 2px; overflow-wrap: anywhere; }
+.imp-bank[hidden] { display: none; }
+.bank-line { background: var(--card2); border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; margin: -4px 0 12px; font-size: 13.5px; overflow-wrap: anywhere; }
+.rule-row { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+.rule-row:last-child { border-bottom: 0; }
+.rule-row input { width: 20px; height: 20px; accent-color: #EC4899; flex: none; margin-top: 2px; }
+.rule-row span { display: flex; flex-direction: column; gap: 3px; min-width: 0; overflow-wrap: anywhere; }
+.rule-row small { color: var(--muted); }
+.rule-past { display: flex; gap: 8px; align-items: center; margin-top: 12px; font-size: 14px; }
+.rule-past input { width: 20px; height: 20px; accent-color: #EC4899; flex: none; }
+.rule-card { padding: 12px; margin-bottom: 10px; }
+.rule-card > small { color: var(--muted); }
+.rule-bank { font-weight: 700; margin: 2px 0 2px; overflow-wrap: anywhere; }
+.rule-card select { width: 100%; background: var(--card2); border: 1px solid var(--line); border-radius: 12px; padding: 10px; color: inherit; font: inherit; }
+.rule-warn { font-style: normal; font-size: 12.5px; color: #FCD34D; line-height: 1.45; }
+.rule-hint { display: block; color: var(--muted); font-size: 12px; margin-bottom: 10px; }
