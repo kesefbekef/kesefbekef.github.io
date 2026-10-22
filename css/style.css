@@ -748,3 +748,4 @@ body.over-gate .sheet{z-index:111}
 .dup-see { display: block; font-size: 12.5px; margin-top: 2px; }
 .bank-ok { padding: 12px; margin: 4px 0 10px; }
 .bank-ok .sub { line-height: 1.6; }
+.cb-steps { display: block; text-align: start; background: rgba(255,255,255,.05); border-radius: 12px; padding: 8px 10px; margin: 8px 0; font-size: 14px; line-height: 1.7; }
