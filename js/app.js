@@ -1361,15 +1361,41 @@ function confirmBox({ e = '📏', title, text = '', warn = '', past = 0, ok = '�
   });
 }
 // 💳 חיוב כרטיס אשראי בעו"ש — לספור את הסכום הכולל כאן, או לחכות לפירוט מחברת האשראי?
-// S.budgets._ccMode = 'total' | 'detail' (נשמר למשפחה; אין = לשאול). בחרו "פירוט" והוא לא הגיע? — תזכורת
-const ccMode = () => S.budgets?._ccMode || '';
-async function setCcMode(m) { const b = { ...S.budgets }; if (m) b._ccMode = m; else delete b._ccMode; await saveKV('budgets', b); }
+// כל חיוב בנפרד; הבחירה נזכרת ככלל לכל כרטיס. בחרו "פירוט" והוא לא הגיע? — תזכורת
 const ccSum = list => list.map(x => `<b>${esc((x.bankDesc || x.desc || '').split(/\s+/).slice(0, 2).join(' '))} ${fmt(x.amount)}</b>`).slice(0, 3).join(', ') + (list.length > 3 ? ` ועוד ${list.length - 3}` : '');
-function askCc(list) {
-  return confirmBox({ e: '💳', title: 'חיוב של כרטיס אשראי',
-    text: `בדף הבנק יש ${list.length > 1 ? `${list.length} חיובים` : 'חיוב'} של כרטיס אשראי: ${ccSum(list)}.<br>זה הסכום החודשי של הכרטיס — בלי פירוט מה קניתם. איך לספור?`,
-    opt: '🔒 לזכור את הבחירה לפעם הבאה <small>(אפשר לשנות ב⚙️ ← 📏 כללים שלמדתי)</small>', optOn: true,
-    ok: '✅ לספור את הסכום הכולל<small>כהוצאה אחת</small>', no: '📄 אעלה פירוט מחברת האשראי<small>ואז כל קנייה בקטגוריה שלה</small>' });
+// 💳 חלון: כל חיוב אשראי בנפרד — "✅ סכום כולל" או "📄 מחכה לפירוט". מחזיר { how, pick: [bool לספור], remember }
+const ccName = x => esc((x.bankDesc || x.desc || '').replace(/\d{3,}/g, '').split(/\s+/).filter(Boolean).slice(0, 3).join(' '));
+function askCc(list, { title = '', upload = false } = {}) {
+  return new Promise(res => {
+    const pick = list.map(x => x.on ?? !x.skip);
+    const ov = document.createElement('div'); ov.className = 'cbox-ov';
+    ov.innerHTML = `<div class="cbox cc-box" role="dialog" aria-modal="true"><div class="cbox-e">💳</div>
+      <h4>${title || (list.length > 1 ? `${list.length} חיובי כרטיס אשראי` : 'חיוב כרטיס אשראי')}</h4>
+      <p>זה הסכום החודשי של הכרטיס, בלי פירוט מה קניתם. לכל חיוב בוחרים:<br><small>✅ <b>סכום כולל</b> = נספר כהוצאה אחת · 📄 <b>פירוט</b> = מעלים את הקובץ של חברת האשראי, וכל קנייה בקטגוריה שלה</small></p>
+      <div class="ccl">${list.map((x, i) => `<div class="ccl-row" data-i="${i}"><div class="ccl-nm"><b>${ccName(x)}</b><small>${fmt(x.amount)} · ${new Date(x.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}</small></div>
+        <div class="bmode ccl-seg"><button data-v="1">✅ סכום כולל</button><button data-v="0">📄 פירוט</button></div></div>`).join('')}</div>
+      ${list.length > 1 ? `<div class="ccl-all">לכולם: <button class="chip" data-all="1">✅ סכום כולל</button><button class="chip" data-all="0">📄 פירוט</button></div>` : ''}
+      <label class="cbox-past cbox-opt"><input type="checkbox" checked><span>🔒 לזכור לכל כרטיס בנפרד <small>(אפשר לשנות ב⚙️ ← 📏 כללים שלמדתי)</small></span></label>
+      ${upload ? '<button class="btn ghost full" data-up style="height:46px;margin-bottom:8px">📎 יש לי פירוט — להעלות עכשיו</button>' : ''}
+      <button class="btn grad full" data-ok style="height:50px">✅ אישור</button></div>`;
+    const draw = () => ov.querySelectorAll('.ccl-row').forEach(r => r.querySelectorAll('[data-v]').forEach(b => b.classList.toggle('on', (b.dataset.v === '1') === pick[r.dataset.i])));
+    const done = how => { ov.classList.add('out'); setTimeout(() => ov.remove(), 180); res({ how, pick, remember: ov.querySelector('.cbox-opt input').checked }); };
+    ov.addEventListener('click', e => {
+      const v = e.target.closest('[data-v]'); if (v) { pick[v.closest('.ccl-row').dataset.i] = v.dataset.v === '1'; draw(); return; }
+      const al = e.target.closest('[data-all]'); if (al) { pick.fill(al.dataset.all === '1'); draw(); return; }
+      if (e.target.closest('[data-up]')) done('upload'); else if (e.target.closest('[data-ok]')) done('ok'); else if (e.target === ov) done('out');
+    });
+    document.body.appendChild(ov); draw();
+  });
+}
+// שומר את הבחירה כ"כלל" לכל כרטיס (skip: true = מחכה לפירוט)
+// שני כרטיסים שנראים אותו דבר חוץ מהמספר ובחרתם אחרת לכל אחד? — כלל מדויק (עם המספר) לכל אחד
+async function rememberCc(list, pick) {
+  for (const [i, x] of list.entries()) {
+    if (!x.bankDesc) continue;
+    const clash = list.some((y, j) => j !== i && y.bankDesc && ruleKey(y.bankDesc) === ruleKey(x.bankDesc) && pick[j] !== pick[i]);
+    await saveRuleFor(x.bankDesc, { skip: !pick[i] }, clash);
+  }
 }
 // חיוב שמחכה לפירוט: אין עדיין תנועות מקובץ אשראי ב-45 הימים שלפניו
 const ccWaiting = () => S.skip.filter(t => t.skipWhy === 'cc' && !allTx().some(x => x.msg !== t.msg && x.source === 'file' && (x.fileKind ? x.fileKind === 'card' : x.pay === 'credit' && x.skipWhy !== 'cc') && dayDist(x.date, t.date) <= 45 && x.date <= t.date));
@@ -1378,11 +1404,12 @@ async function ccReminder() {
   const list = ccWaiting().filter(t => Date.now() - new Date(t.created) > 5 * 864e5); if (!list.length) return;
   lsSet('ccRemind', ymd(new Date()));
   await new Promise(r => setTimeout(r, 3500)); if ($('#sheet').classList.contains('on')) return;
-  const a = await confirmBox({ e: '💳', title: 'חסר פירוט של כרטיס האשראי',
-    text: `${list.length > 1 ? `${list.length} חיובי אשראי` : 'חיוב אשראי'} מהבנק עדיין לא נספר${list.length > 1 ? 'ו' : ''}, כי חיכינו לפירוט מחברת האשראי: ${ccSum(list)}.`,
-    ok: '✅ לספור את הסכום הכולל', no: '📎 אעלה פירוט עכשיו' });
-  if (a.how === 'ok') { for (const t of list) await setCounted(t, true); renderAll(); toast(`✅ ${list.length} חיובי אשראי נספרו`); }
-  else if (a.how === 'no') openAttachSheet();
+  const a = await askCc(list, { title: 'חסר פירוט של כרטיס אשראי', upload: true });
+  if (a.how === 'upload') { openAttachSheet(); return; }
+  if (a.how !== 'ok') return;
+  let n = 0; for (const [i, t] of list.entries()) if (a.pick[i]) { await setCounted(t, true); n++; }
+  if (a.remember) await rememberCc(list, a.pick);
+  renderAll(); if (n) toast(`✅ ${n} חיובי אשראי נספרו`);
 }
 
 // 📏 "תמיד ככה?" על שורה אחת — חלון קטן. patch = { name?, cat?, skip? }
@@ -1457,8 +1484,7 @@ function openRulesSheet() {
   openSheet(`<h3>📏 כללים שלמדתי</h3>
     <div class="sub" style="margin:-6px 0 12px">כשמשנים שם או קטגוריה של תנועה מקובץ הבנק, אפשר לבקש "גם בפעם הבאה". הכללים כאן מופעלים לבד בכל העלאה.</div>
     <div class="card cc-card" style="margin-bottom:12px"><b>💳 חיוב כרטיס אשראי בדף הבנק</b>
-      <div class="sub">ההחלטה הזו חלה על כל ההעלאות</div>
-      <div class="chips" id="ccMode" style="flex-wrap:wrap;margin-top:8px"><button class="chip" data-m="total">✅ לספור סכום כולל</button><button class="chip" data-m="detail">📄 מחכים לפירוט</button><button class="chip" data-m="">❓ לשאול כל פעם</button></div>
+      <div class="sub">הבחירה נשמרת לכל כרטיס בנפרד — כאן למטה, ככלל עם "⏸️ לא לספור" (= מחכה לפירוט) או בלי (= סכום כולל). מוחקים את הכלל — ובפעם הבאה נשאל שוב.</div>
       ${ccWaiting().length ? `<button class="btn ghost full" id="ccCountNow" style="margin-top:8px">⏳ ${ccWaiting().length} חיובים מחכים לפירוט — לספור אותם עכשיו</button>` : ''}</div>
     ${list.length ? list.map(([id, r]) => `<div class="card rule-card" data-id="${id}">
       <small>🏦 כשבבנק כתוב:</small><div class="rule-bank"><bdi>${esc(r.bank || r.match)}</bdi></div><small class="rule-hint">${r.exact ? '🔢 רק כשגם המספר זהה' : '🔢 מתאים גם כשהמספרים שונים (סניף, אסמכתא)'}</small>
@@ -1467,9 +1493,6 @@ function openRulesSheet() {
       <label class="rule-past"><input type="checkbox" class="rSkip" ${r.skip ? 'checked' : ''}> ⏸️ לא לספור (נשמר, אבל לא נכנס לחישובים)</label>
       <div class="row2" style="margin-top:8px"><button class="btn danger rDel">🗑️ מחיקה</button><button class="btn grad rSave">שמירה</button></div>
     </div>`).join('') : `<div class="card tip"><div class="em">💡</div><p>עוד אין כללים. משנים שם או קטגוריה של תנועה שהגיעה מקובץ — והאפליקציה תשאל "גם בפעם הבאה?"</p></div>`}`, sh => {
-    const drawCc = () => sh.querySelectorAll('#ccMode [data-m]').forEach(b => b.classList.toggle('on', b.dataset.m === ccMode()));
-    drawCc();
-    sh.querySelectorAll('#ccMode [data-m]').forEach(b => b.onclick = async () => { await setCcMode(b.dataset.m); drawCc(); toast('✅ נשמר'); });
     sh.querySelector('#ccCountNow')?.addEventListener('click', async e => { const l = ccWaiting(); for (const t of l) await setCounted(t, true); renderAll(); e.target.remove(); toast(`✅ ${l.length} חיובי אשראי נספרו`); });
     sh.querySelectorAll('.rule-card').forEach(c => {
       const id = c.dataset.id;
@@ -1671,7 +1694,6 @@ function monthsSpan(dates) {
 function openImportSheet(name, { kind, items, files = [name] }) {
   let fileWho = S.me, filter = 'all', sel = null; // sel = מצב בחירה של כמה שורות (Set של אינדקסים)
   const ccRows = items.filter(i => i.status === 'cc');
-  if (ccMode() === 'total') for (const it of ccRows) if (!it.ruleSkip) it.on = true;
   const count = s => items.filter(i => i.status === s).length;
   const catOptions = (sel, inc) => (inc ? ['income'] : Object.keys(CATS)).map(id => `<option value="${id}" ${id === sel ? 'selected' : ''}>${catOf(id).e} ${catOf(id).n}</option>`).join('');
   const sorted = items.map((it, i) => ({ it, i })).sort((a, b) => b.it.date - a.it.date);
@@ -1694,7 +1716,7 @@ function openImportSheet(name, { kind, items, files = [name] }) {
     ${count('atm') ? `<div class="card atm-all"><b>💵 ${count('atm')} משיכות מזומן</b><div class="sub">אפשר לבחור לכל משיכה בנפרד ברשימה, או לכולן יחד:</div>
       <div class="row2"><button class="btn ghost" data-atmall="skip">⏸️ לכולן: לא לספור<small>אני רושם את ההוצאות במזומן</small></button><button class="btn ghost" data-atmall="count">✅ לכולן: לספור<small>כהוצאה, עם קטגוריה</small></button></div></div>` : ''}
     ${ccRows.length ? `<div class="card cc-card"><b>💳 ${ccRows.length > 1 ? `${ccRows.length} חיובי כרטיס אשראי` : 'חיוב כרטיס אשראי'}</b>
-      <div class="sub" id="ccNow"></div><div class="row2" style="margin-top:8px"><button class="btn ghost" data-cc="detail">📄 אעלה פירוט</button><button class="btn ghost" data-cc="total">✅ לספור סכום כולל</button></div></div>` : ''}
+      <div class="sub" id="ccNow"></div><button class="btn ghost full" id="ccPick" style="margin-top:8px">💳 לבחור לכל חיוב</button></div>` : ''}
     <div class="chips imp-filter" id="impFilter"><button class="chip on" data-f="all">הכל</button><button class="chip" data-f="on">✅ נספרות</button><button class="chip" data-f="off">⏸️ לא נספרות</button><button class="chip" id="impSel">☑️ בחירה</button></div>
     <div class="card imp-list" style="padding:4px 12px">${sorted.map(({ it, i }) => `
       <div class="tx imp-row" data-i="${i}">
@@ -1726,7 +1748,7 @@ function openImportSheet(name, { kind, items, files = [name] }) {
       for (const row of rows) { const it = items[row.dataset.i]; if (it.status === 'cc') { const w = row.querySelector('.imp-why'); if (w) w.innerHTML = why(it); } }
       const ccOn = ccRows.filter(i => i.on).length, cn = sh.querySelector('#ccNow');
       if (cn) { cn.textContent = !ccOn ? '⏳ לא נספר — מחכה לפירוט מחברת האשראי' : ccOn === ccRows.length ? '✅ נספר כסכום כולל' : `✅ ${ccOn} נספרים · ⏳ ${ccRows.length - ccOn} מחכים לפירוט`;
-        sh.querySelectorAll('[data-cc]').forEach(b => b.classList.toggle('on', b.dataset.cc === (!ccOn ? 'detail' : ccOn === ccRows.length ? 'total' : ''))); }
+      }
       const n = items.filter(i => i.on).length, e = sum(false, true), e0 = sum(false), inc = sum(true, true), inc0 = sum(true);
       sh.querySelector('#impCount').textContent = n;
       sh.querySelector('#totE').textContent = fmt(e); sh.querySelector('#totE0').textContent = e0 !== e ? `במקום ${fmt(e0)}` : '';
@@ -1745,13 +1767,15 @@ function openImportSheet(name, { kind, items, files = [name] }) {
       filter = b.dataset.f; sh.querySelectorAll('#impFilter [data-f]').forEach(x => x.classList.toggle('on', x === b)); refresh();
     });
     sh.querySelector('#impSel').onclick = () => { sel = sel ? null : new Set(); refresh(); };
-    const ccSet = on => { for (const it of ccRows) { it.on = on; it.touched = true; } refresh(); };
-    sh.querySelectorAll('[data-cc]').forEach(b => b.onclick = () => ccSet(b.dataset.cc === 'total'));
-    // ❓ אין עדיין בחירה — שואלים מיד, בחלון ברור
-    if (ccRows.length && !ccMode() && sync.isParent()) setTimeout(async () => {
-      const a = await askCc(ccRows); if (a.how === 'out') return;
-      ccSet(a.ok); if (a.opt) { await setCcMode(a.ok ? 'total' : 'detail'); toast('🔒 נזכור את הבחירה · אפשר לשנות ב⚙️ ← 📏 כללים שלמדתי'); }
-    }, 450);
+    // 💳 חלון: בחירה לכל חיוב בנפרד. נפתח לבד כשיש חיוב שעוד לא בחרתם לגביו
+    const ccAsk = async list => {
+      const a = await askCc(list); if (a.how !== 'ok') return;
+      list.forEach((it, i) => { it.on = a.pick[i]; it.touched = true; }); refresh();
+      if (a.remember && sync.isParent()) { await rememberCc(list, a.pick); toast('🔒 נזכור לכל כרטיס · אפשר לשנות ב⚙️ ← 📏 כללים שלמדתי'); }
+    };
+    sh.querySelector('#ccPick')?.addEventListener('click', () => ccAsk(ccRows));
+    const ccNew = ccRows.filter(it => ruleFor(it.bankDesc)?.skip === undefined);
+    if (ccNew.length && sync.isParent()) setTimeout(() => ccAsk(ccNew), 450);
     sh.querySelectorAll('[data-atmall]').forEach(b => b.onclick = () => {
       const on = b.dataset.atmall === 'count';
       for (const it of items) if (it.status === 'atm') setOn(it, on);
