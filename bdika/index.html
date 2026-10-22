@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>עמדת בדיקה</title>
+<link rel="icon" href="../icons/icon-192.png">
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0B0712;--card:#15101F;--card2:#1C1530;--line:#2A2238;--ink:#F5F0FF;--soft:#B9AED6;--g:linear-gradient(135deg,#7C3AED,#EC4899 55%,#F97316)}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Rubik,system-ui,sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;overflow-x:hidden}
+button,textarea,select{font:inherit;color:inherit}
+.top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 18px;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5;background:rgba(11,7,18,.92);backdrop-filter:blur(10px)}
+h1{font-size:24px;font-weight:800;background:var(--g);-webkit-background-clip:text;background-clip:text;color:transparent}
+.apps{display:flex;gap:8px}
+.apps button{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:9px 16px;font-weight:700;font-size:16px;cursor:pointer}
+.apps button.on{background:var(--g);border-color:transparent;color:#fff}
+select{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:8px 10px;font-size:15px}
+.sub{color:var(--soft);font-size:14px}
+.main{display:grid;grid-template-columns:minmax(340px,440px) 1fr;gap:18px;padding:16px 18px;align-items:start}
+@media(max-width:1000px){.main{grid-template-columns:1fr}}
+/* רשימת "מה השתנה" */
+.side{display:flex;flex-direction:column;gap:10px;max-height:calc(100vh - 90px);overflow-y:auto;padding-left:4px}
+.phonebox{background:linear-gradient(135deg,rgba(249,115,22,.22),rgba(236,72,153,.18));border:2px solid #F97316;border-radius:18px;padding:12px 14px;animation:pop .4s both}
+.phonebox b{font-size:17px}.phonebox ul{margin:6px 18px 0 0;font-size:15px;line-height:1.6}
+.item{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:12px 14px;animation:pop .35s both;transition:border-color .2s}
+.item.cur{border-color:#EC4899;box-shadow:0 0 0 2px rgba(236,72,153,.25)}
+.item.ok{border-color:rgba(34,197,94,.6)}.item.bad{border-color:rgba(249,115,22,.7)}
+.item .h{display:flex;gap:10px;align-items:flex-start}
+.item .e{font-size:26px;line-height:1}
+.item b{font-size:16.5px;display:block}
+.item p{color:var(--soft);font-size:14.5px;margin-top:3px;line-height:1.45}
+.ph{margin-top:8px;background:rgba(249,115,22,.15);border:1px dashed #F97316;border-radius:12px;padding:8px 10px;font-size:14px;line-height:1.5;color:#FED7AA}
+.ph b{display:inline;font-size:14px;color:#FDBA74}
+.acts{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+.acts button{border:1px solid var(--line);background:var(--card2);border-radius:12px;padding:8px 12px;font-weight:700;font-size:14.5px;cursor:pointer;transition:transform .12s}
+.acts button:active{transform:scale(.95)}
+.acts .show{background:var(--g);border-color:transparent;color:#fff}
+.acts .vok.on{background:linear-gradient(135deg,#22C55E,#14B8A6);border-color:transparent;color:#05210F}
+.acts .vbad.on{background:linear-gradient(135deg,#F59E0B,#F97316);border-color:transparent;color:#1F1300}
+textarea{width:100%;margin-top:8px;background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:8px 10px;font-size:15px;resize:vertical;min-height:44px}
+.send{position:sticky;bottom:0;background:var(--g);border-radius:18px;padding:12px 14px;display:flex;gap:10px;align-items:center;box-shadow:0 10px 30px rgba(236,72,153,.35)}
+.send div{flex:1;font-weight:700}
+.send button{border:none;border-radius:12px;padding:10px 16px;background:#fff;color:#7C3AED;font-weight:800;font-size:16px;cursor:pointer}
+.send button:disabled{opacity:.6}
+/* הטלפונים */
+.phones{display:flex;gap:22px;justify-content:center;flex-wrap:wrap}
+.dev{display:flex;flex-direction:column;align-items:center;gap:8px}
+.dev .lbl{display:flex;gap:8px;align-items:center;font-weight:700}
+.frame{background:#0E0A1A;border:6px solid #3B2A63;border-radius:38px;padding:14px 8px;box-shadow:0 24px 60px rgba(124,58,237,.35);position:relative}
+.frame.ios{border-color:#4B5563}
+.frame::before{content:'';position:absolute;top:5px;left:50%;transform:translateX(-50%);width:70px;height:5px;border-radius:5px;background:#2A2238}
+.screen{overflow:hidden;border-radius:24px;background:#000;position:relative}
+.screen iframe{border:0;transform-origin:top right;display:block;background:#0A0A12}
+.reload{border:1px solid var(--line);background:var(--card);border-radius:10px;padding:5px 10px;font-size:13px;cursor:pointer}
+.empty{color:var(--soft);text-align:center;padding:30px}
+.login{max-width:360px;margin:12vh auto 0;background:var(--card);border:1px solid var(--line);border-radius:24px;padding:24px}
+.login input{width:100%;height:48px;border-radius:14px;border:1px solid var(--line);background:var(--card2);color:var(--ink);padding:0 14px;font-size:16px;margin-bottom:10px}
+.login .go{width:100%;border:none;border-radius:14px;padding:14px;background:var(--g);color:#fff;font-weight:800;font-size:17px;cursor:pointer}
+.err{color:#FDA4AF;min-height:22px;font-size:14px}
+.toast{position:fixed;top:16px;left:50%;transform:translate(-50%,-150px);background:var(--g);padding:12px 18px;border-radius:16px;font-weight:700;z-index:20;transition:transform .4s}
+.toast.show{transform:translate(-50%,0)}
+@keyframes pop{from{opacity:0;transform:translateY(10px)}}
+</style>
+</head>
+<body>
+<div id="root"><div class="empty">טוען…</div></div>
+<div class="toast" id="toast"></div>
+<script src="../vendor/supabase.js"></script>
+<script type="module">
+import { CONFIG } from '../js/config.js';
+const sb = window.supabase.createClient(CONFIG.url, CONFIG.key, { auth: { persistSession: true, autoRefreshToken: true } });
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const toast = t => { const el = $('#toast'); el.textContent = t; el.classList.add('show'); setTimeout(() => el.classList.remove('show'), 2600); };
+const ls = { get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
+
+const APPS = {
+  kesef: { name: '💰 כסף בכיף', url: 'https://kesefbekef.github.io/', news: 'https://kesefbekef.github.io/js/whats-new.js', fb: 'kesef-bekef' },
+  zman: { name: '⏰ זמן בכיף', url: 'https://zmanbekef.github.io/', news: 'https://zmanbekef.github.io/js/whats-new.js', fb: 'zman-bekef' },
+  lomdim: { name: '🎮 לומדים בכיף', url: 'https://lomdimbekef.github.io/', news: 'https://lomdimbekef.github.io/js/news.js', fb: 'lomdim' },
+};
+const DEVICES = { a360: ['🤖 אנדרואיד', 360, 760], a412: ['🤖 אנדרואיד גדול', 412, 880], i375: ['🍏 אייפון', 375, 812], i430: ['🍏 אייפון גדול', 430, 900] };
+let app = ls.get('bdika-app', 'kesef'), NEWS = [], ver = null, cur = -1, devs = ls.get('bdika-devs', ['a360', 'i375']);
+
+// מחלצים את המערך NEWS מתוך הקובץ של האפליקציה (בלי להריץ את שאר הקוד שלה)
+function extractNews(src) {
+  const at = src.search(/NEWS\s*=\s*\[/); if (at < 0) throw new Error('לא נמצא NEWS');
+  let i = src.indexOf('[', at), depth = 0, q = null, start = i;
+  for (; i < src.length; i++) {
+    const c = src[i];
+    if (q) { if (c === '\\') { i++; continue; } if (c === q) q = null; continue; }
+    if (c === '/' && src[i + 1] === '/') { i = src.indexOf('\n', i); continue; }
+    if (c === '"' || c === "'" || c === '`') { q = c; continue; }
+    if (c === '[') depth++; else if (c === ']' && --depth === 0) break;
+  }
+  return new Function('"use strict"; return (' + src.slice(start, i + 1) + ');')();
+}
+
+async function start() {
+  if (location.hostname === 'localhost' && location.search.includes('test')) { draw(); loadApp(); return; } // בדיקת עיצוב במחשב בלבד
+  const { data } = await sb.auth.getSession();
+  if (!data.session) return login();
+  const { data: ok } = await sb.rpc('is_app_admin');
+  if (ok !== true) { await sb.auth.signOut(); return login('אין הרשאה לחשבון הזה'); }
+  draw(); loadApp();
+}
+function login(msg = '') {
+  $('#root').innerHTML = `<div class="login"><h2>📱 עמדת בדיקה</h2><p class="sub" style="margin:4px 0 14px">כניסה עם החשבון של כסף בכיף</p>
+    <input id="em" type="email" autocomplete="email" placeholder="מייל"><input id="pw" type="password" autocomplete="current-password" placeholder="סיסמה">
+    <div class="err" id="er">${esc(msg)}</div><button class="go" id="go">כניסה</button></div>`;
+  $('#go').onclick = async () => {
+    const { error } = await sb.auth.signInWithPassword({ email: $('#em').value.trim(), password: $('#pw').value });
+    if (error) { $('#er').textContent = /Invalid/.test(error.message) ? 'המייל או הסיסמה לא נכונים' : error.message; return; }
+    start();
+  };
+  $('#pw').onkeydown = e => { if (e.key === 'Enter') $('#go').click(); };
+}
+
+function draw() {
+  $('#root').innerHTML = `<div class="top"><h1>📱 עמדת בדיקה</h1>
+      <div class="apps">${Object.entries(APPS).map(([k, a]) => `<button data-app="${k}" class="${k === app ? 'on' : ''}">${a.name}</button>`).join('')}</div>
+      <label class="sub">עדכון: <select id="ver"></select></label>
+      <span class="sub" id="hint">לוחצים "👀 להראות" ליד כל שינוי. הטלפונים קופצים למסך שלו.</span></div>
+    <div class="main"><div class="side" id="side"><div class="empty">טוען את "מה חדש"…</div></div>
+      <div class="phones" id="phones"></div></div>`;
+  document.querySelectorAll('[data-app]').forEach(b => b.onclick = () => { app = b.dataset.app; ls.set('bdika-app', app); ver = null; cur = -1; draw(); loadApp(); });
+  drawPhones();
+}
+
+function drawPhones() {
+  $('#phones').innerHTML = devs.map((d, k) => `<div class="dev"><div class="lbl"><select data-dev="${k}">${Object.entries(DEVICES).map(([id, [n, w]]) => `<option value="${id}" ${id === d ? 'selected' : ''}>${n} · ${w}</option>`).join('')}</select>
+      <button class="reload" data-reload="${k}" title="טעינה מחדש">🔄</button></div>
+      <div class="frame ${d.startsWith('i') ? 'ios' : ''}"><div class="screen" id="scr${k}"><iframe id="f${k}" title="טלפון ${k + 1}" allow="clipboard-write"></iframe></div></div></div>`).join('');
+  document.querySelectorAll('[data-dev]').forEach(s => s.onchange = () => { devs[+s.dataset.dev] = s.value; ls.set('bdika-devs', devs); drawPhones(); });
+  document.querySelectorAll('[data-reload]').forEach(b => b.onclick = () => showAt(cur, true));
+  fit(); showAt(cur, true);
+}
+// מקטינים את הטלפונים כך ששניהם ייכנסו במסך
+function fit() {
+  const avail = Math.max(260, ($('#phones').clientWidth - 60) / 2), maxH = innerHeight - 170;
+  devs.forEach((d, k) => {
+    const [, w, h] = DEVICES[d], s = Math.min(1, avail / (w + 16), maxH / h);
+    const f = $('#f' + k), scr = $('#scr' + k);
+    f.style.width = w + 'px'; f.style.height = h + 'px'; f.style.transform = `scale(${s})`;
+    scr.style.width = w * s + 'px'; scr.style.height = h * s + 'px';
+  });
+}
+addEventListener('resize', () => { if ($('#phones')) fit(); });
+
+function showAt(i, force = false) {
+  cur = i;
+  const it = NEWS.find(n => n.v === ver), q = i >= 0 && it ? `&news=${encodeURIComponent(ver + '|' + i)}` : '';
+  devs.forEach((d, k) => {
+    const f = $('#f' + k); if (!f) return;
+    const src = `${APPS[app].url}?bdika=1${q}&t=${Date.now()}`;
+    if (!force && f.dataset.loaded === app) { try { f.contentWindow.postMessage({ bdika: 'news', v: ver, i }, '*'); } catch {} }
+    f.src = src; f.dataset.loaded = app;
+  });
+  document.querySelectorAll('.item').forEach(el => el.classList.toggle('cur', +el.dataset.i === i));
+}
+
+async function loadApp() {
+  try {
+    const src = await (await fetch(APPS[app].news + '?t=' + Date.now(), { cache: 'no-store' })).text();
+    NEWS = extractNews(src);
+  } catch (e) { $('#side').innerHTML = `<div class="empty">⚠️ לא הצלחתי לקרוא את "מה חדש" של ${esc(APPS[app].name)}</div>`; return; }
+  ver = ver || NEWS[0]?.v;
+  $('#ver').innerHTML = NEWS.map(n => `<option value="${esc(n.v)}" ${n.v === ver ? 'selected' : ''}>${esc(n.v.slice(0, 10).split('-').reverse().join('.'))} · ${n.items.length} שינויים</option>`).join('');
+  $('#ver').onchange = () => { ver = $('#ver').value; cur = -1; drawSide(); showAt(-1, true); };
+  drawSide(); showAt(-1, true);
+}
+
+const key = () => `bdika-${app}-${ver}`;
+function drawSide() {
+  const entry = NEWS.find(n => n.v === ver); if (!entry) return;
+  const st = ls.get(key(), {}), items = entry.items;
+  const phones = items.map((x, i) => [x, i]).filter(([x]) => x.phone);
+  const counts = () => { const s = ls.get(key(), {}); const v = Object.values(s); return [v.filter(x => x.v === 'ok').length, v.filter(x => x.v === 'bad').length, v.filter(x => x.n).length]; };
+  $('#side').innerHTML = (phones.length ? `<div class="phonebox"><b>📱 בעדכון הזה תבדוק בטלפון (${phones.length}):</b><ul>${phones.map(([x]) => `<li>${esc(x.e)} ${esc(x.t)}</li>`).join('')}</ul></div>` : '')
+    + items.map((x, i) => { const s = st[i] || {}; return `<div class="item ${s.v || ''}" data-i="${i}" style="animation-delay:${Math.min(i, 12) * .04}s">
+      <div class="h"><div class="e">${esc(x.e)}</div><div><b>${esc(x.t)}</b><p>${esc(x.d)}</p></div></div>
+      ${x.phone ? `<div class="ph"><b>📱 את זה צריך לבדוק בטלפון:</b> ${esc(x.phone)}</div>` : ''}
+      <div class="acts"><button class="show" data-show="${i}">👀 להראות</button><button class="vok ${s.v === 'ok' ? 'on' : ''}" data-v="ok" data-i="${i}">✅ מאשר</button><button class="vbad ${s.v === 'bad' ? 'on' : ''}" data-v="bad" data-i="${i}">🔧 עוד לא טוב</button></div>
+      <textarea data-n="${i}" rows="1" placeholder="הערה (לא חובה)">${esc(s.n || '')}</textarea></div>`; }).join('')
+    + `<div class="send"><div id="cnt"></div><button id="snd">📤 שליחה</button></div>`;
+  const upd = () => { const [o, b, n] = counts(); $('#cnt').textContent = `✅ ${o} · 🔧 ${b} · 📝 ${n} מתוך ${items.length}`; };
+  upd();
+  document.querySelectorAll('[data-show]').forEach(b => b.onclick = () => showAt(+b.dataset.show));
+  document.querySelectorAll('[data-v]').forEach(b => b.onclick = () => {
+    const s = ls.get(key(), {}), i = +b.dataset.i; s[i] = s[i] || {}; s[i].v = s[i].v === b.dataset.v ? undefined : b.dataset.v; ls.set(key(), s);
+    const el = b.closest('.item'); el.classList.remove('ok', 'bad'); if (s[i].v) el.classList.add(s[i].v);
+    el.querySelectorAll('[data-v]').forEach(x => x.classList.toggle('on', x.dataset.v === s[i].v)); upd();
+  });
+  document.querySelectorAll('[data-n]').forEach(t => t.oninput = () => { const s = ls.get(key(), {}), i = +t.dataset.n; s[i] = s[i] || {}; s[i].n = t.value; ls.set(key(), s); upd(); });
+  $('#snd').onclick = send;
+}
+
+async function send() {
+  const entry = NEWS.find(n => n.v === ver), s = ls.get(key(), {});
+  const rows = entry.items.map((x, i) => [x, s[i] || {}]).filter(([, r]) => r.v || (r.n || '').trim());
+  if (!rows.length) return toast('עוד לא סימנת כלום');
+  const msg = `[עמדת בדיקה] ${APPS[app].name} · עדכון ${ver}\n` + rows.map(([x, r], k) => `${k + 1}. ${r.v === 'ok' ? '✅' : r.v === 'bad' ? '🔧' : '📝'} ${x.e} ${x.t}${(r.n || '').trim() ? '\n   ' + r.n.trim() : ''}`).join('\n');
+  const b = $('#snd'); b.disabled = true; b.textContent = 'שולח…';
+  const { data: u } = await sb.auth.getUser();
+  const { error } = await sb.from('feedback').insert({ user_id: u.user?.id, app: APPS[app].fb, kind: 'idea', message: msg.slice(0, 4990), device: 'עמדת בדיקה · מחשב' });
+  b.disabled = false; b.textContent = '📤 שליחה';
+  if (error) return toast('⚠️ לא נשלח: ' + error.message);
+  ls.set(key(), {}); drawSide(); toast(`📤 נשלח! ${rows.length} פריטים הגיעו לשיחה של ${APPS[app].name}`);
+}
+start();
+</script>
+</body>
+</html>
