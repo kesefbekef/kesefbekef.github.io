@@ -295,6 +295,7 @@ const BANKS = [['לאומי קארד|max|מקס', 'מקס'], ['ישראכרט', 
   ['הבינלאומי|fibi|beinleumi', 'הבינלאומי'], ['לאומי|leumi', 'לאומי'], ['הפועלים|poalim', 'הפועלים'], ['מרכנתיל|mercantile', 'מרכנתיל'], ['דיסקונט|discount', 'דיסקונט'],
   ['מזרחי|טפחות|mizrahi', 'מזרחי טפחות'], ['ירושלים|jerusalem', 'ירושלים'], ['וואן.?זירו|one.?zero', 'וואן זירו'],
   ['יהב|yahav', 'יהב'], ['אוצר החייל|otsar', 'אוצר החייל'], ['מסד|massad', 'מסד'], ['פאגי|pagi', 'פאגי']];
+export const BANK_NAMES = BANKS.map(b => b[1]);
 export function detectBank(sheets, fileName = '') {
   const rows = (sheets?.[0] || []).map(r => (Array.isArray(r) ? r : [r]).join(' '));
   // 1) "בנק יהב" שחוזר בכותרת / בתחתית כל עמוד — הכי אמין (תנועה בודדת כמו "העברה לבנק לאומי" לא מנצחת)

@@ -749,3 +749,5 @@ body.over-gate .sheet{z-index:111}
 .bank-ok { padding: 12px; margin: 4px 0 10px; }
 .bank-ok .sub { line-height: 1.6; }
 .cb-steps { display: block; text-align: start; background: rgba(255,255,255,.05); border-radius: 12px; padding: 8px 10px; margin: 8px 0; font-size: 14px; line-height: 1.7; }
+.bank-sel { width: 100%; margin-top: 8px; background: var(--card2); border: 1px solid var(--line); border-radius: 12px; padding: 10px; color: inherit; font: inherit; font-size: 16px; }
+.cbox .cb-steps + .cb-steps { margin-top: 0; }
