@@ -154,14 +154,17 @@ function openSheet(html, mount, fromBack = false) {
     } // אותו חלון בדיוק (רענון אחרי שמירה) — לא נרשם צעד חדש
   }
   curSheet = next;
+  const page = html.startsWith('<!--page-->'); // מסך מלא שגוללים בו (רשימות ארוכות) — עם ✕ למעלה
   $('#sheet').classList.toggle('full', html.startsWith('<!--full-->')); // מסך מלא (✨ מה חדש)
-  $('#sheet').innerHTML = '<div class="grip"></div>' + html;
+  $('#sheet').classList.toggle('page', page);
+  $('#sheet').innerHTML = (page ? '<div class="pg-top"><button class="pg-x" aria-label="סגירה">✕</button></div>' : '<div class="grip"></div>') + html;
+  if (page) $('#sheet .pg-x').onclick = () => closeSheet();
   $('#sheet').scrollTop = 0;
   $('#overlay').classList.add('on'); $('#sheet').classList.add('on');
   mount?.($('#sheet'));
 }
 function closeSheet(fromPop) {
-  $('#overlay').classList.remove('on'); $('#sheet').classList.remove('on', 'full'); clearTimeout(nxTimer);
+  $('#overlay').classList.remove('on'); $('#sheet').classList.remove('on', 'full', 'page'); clearTimeout(nxTimer);
   document.querySelector('.tour-card')?.classList.remove('hide'); // כרטיס הסיור חוזר
   document.body.classList.remove('noting', 'over-gate');
   if (fromPop !== true) { let k = 0; for (let i = nav.length - 1; i >= 0 && nav[i].t === 'sheet'; i--) k++; hDrop(k); }
@@ -1088,7 +1091,7 @@ function openEditSheet(t) {
       if (t.inst > 1) { t.total = v; t.amount = Math.round(v / t.inst * 100) / 100; } else { t.amount = v; t.total = v; }
       if (cntCh) await setCounted(t, counted); else await db.putTx(t);
       closeSheet(); renderAll(); toast(cntCh ? (counted ? '✅ נשמר — ונספר' : '⏸️ נשמר — לא נספר') : '✅ נשמר');
-      if (bank && (nmCh || ctCh || skCh) && sync.isParent()) setTimeout(() => askRules([{ bank, except: t.id, ...(nmCh ? { name: desc } : {}), ...(ctCh ? { cat } : {}), ...(skCh ? { skip: !counted } : {}) }]), 350);
+      if (bank && (nmCh || ctCh || skCh) && sync.isParent()) setTimeout(() => ruleBox(bank, { ...(nmCh ? { name: desc } : {}), ...(ctCh ? { cat } : {}), ...(skCh ? { skip: !counted } : {}) }, t.id), 350);
     };
     sh.querySelector('#eDel').onclick = async e => {
       if (!armed) { armed = true; e.target.textContent = 'בטוח? לחץ שוב'; return; }
@@ -1287,13 +1290,19 @@ function markDuplicates(items) {
 // ההתאמה לפי המילים, בלי ספרות (מספר סניף, תאריך, אסמכתא) — כך זה עובד גם בחודש הבא
 // S.rules = { id: { match, bank (דוגמה), name?, cat?, created } }
 const ruleKey = s => String(s || '').toLowerCase().replace(/[\u200E\u200F\u202A-\u202E"'`״׳]/g, '').replace(/\d+/g, ' ').replace(/[^\p{L}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+// 🔢 התאמה מדויקת (גם המספרים) — למשל שתי משכנתאות: "הו"ק משכנתא 55123" ו-"…55999"
+const exactKey = s => String(s || '').toLowerCase().replace(/[\u200E\u200F\u202A-\u202E"'`״׳]/g, '').replace(/[^\p{L}\d\s]/gu, ' ').replace(/\s+/g, ' ').trim();
 const bankOf = t => t.bankDesc || (t.source === 'file' && t.fp ? t.fp.split('|').slice(2).join('|') : '');
 function ruleFor(text) {
   const k = ' ' + ruleKey(text) + ' ';
   let best = null;
-  for (const [id, r] of Object.entries(S.rules || {}))
-    if (r?.match && k.includes(' ' + r.match + ' ') && (!best || r.match.length > best.match.length)) best = { id, ...r };
-  return best;
+  const ek = exactKey(text); let ex = null;
+  for (const [id, r] of Object.entries(S.rules || {})) {
+    if (!r?.match) continue;
+    if (r.exact) { if (ek === r.match) ex = { id, ...r }; continue; }
+    if (k.includes(' ' + r.match + ' ') && (!best || r.match.length > best.match.length)) best = { id, ...r };
+  }
+  return ex ? { ...(best || {}), ...ex } : best; // מדויק קודם; מה שחסר בו — מהכלל לפי מילים
 }
 function applyRule(it) {
   const r = it.bankDesc && ruleFor(it.bankDesc); if (!r) return;
@@ -1303,18 +1312,62 @@ function applyRule(it) {
   if (r.skip === true && it.status === 'new') { it.on = false; it.ruleSkip = true; }
   if (r.skip === false && ['cc', 'own', 'atm'].includes(it.status)) { it.on = true; it.atmAns = it.status === 'atm' ? 'count' : it.atmAns; }
 }
-async function saveRuleFor(bank, patch) {
-  const match = ruleKey(bank); if (match.length < 2) return null;
+async function saveRuleFor(bank, patch, exact = false) {
+  const match = exact ? exactKey(bank) : ruleKey(bank); if (match.length < 2) return null;
   const rules = { ...(S.rules || {}) };
-  const id = Object.keys(rules).find(k => rules[k].match === match) || db.newId();
-  rules[id] = { ...(rules[id] || { created: new Date().toISOString() }), match, bank: String(bank).slice(0, 80), ...patch };
+  const id = Object.keys(rules).find(k => rules[k].match === match && !!rules[k].exact === exact) || db.newId();
+  rules[id] = { ...(rules[id] || { created: new Date().toISOString() }), match, bank: String(bank).slice(0, 80), ...patch, ...(exact ? { exact: true } : {}) };
   await saveKV('rules', rules);
   return id;
 }
 // טקסט כללי (העברה, ביט, משיכה…) — כלל עליו יחול על הרבה שורות שונות, לכן לא מסומן מראש
 const genericBank = b => /(^| )(העב|העברה|העברת|ביט|bit|pay ?box|פייבוקס|משיכ\S*|כספומט|שיק|צק|הפקד\S*|זיכוי|חיוב|מזומן)( |$)/.test(ruleKey(b));
 // תנועות קודמות עם אותו טקסט בבנק (כדי להציע לתקן גם אותן)
-const sameBank = (bank, except) => { const k = ruleKey(bank); return k.length < 2 ? [] : allTx().filter(t => t.id !== except && ruleKey(bankOf(t)) === k); };
+const sameBank = (bank, except, exact = false) => { const f = exact ? exactKey : ruleKey, k = f(bank); return k.length < 2 ? [] : allTx().filter(t => t.id !== except && f(bankOf(t)) === k); };
+
+// 💬 חלון קטן באמצע המסך (מעל הכל) — מחזיר { ok, past }
+function confirmBox({ e = '📏', title, text = '', warn = '', past = 0, ok = '✅ אישור', no = 'לא, רק הפעם', opt = '', optOn = false, onOpt = null }) {
+  return new Promise(res => {
+    const ov = document.createElement('div'); ov.className = 'cbox-ov';
+    ov.innerHTML = `<div class="cbox" role="dialog" aria-modal="true"><div class="cbox-e">${e}</div><h4>${title}</h4>${text ? `<p>${text}</p>` : ''}
+      ${warn ? `<p class="cbox-warn">⚠️ ${warn}</p>` : ''}
+      ${opt ? `<label class="cbox-past cbox-opt"><input type="checkbox" ${optOn ? 'checked' : ''}><span>${opt}</span></label>` : ''}
+      <label class="cbox-past" ${past ? '' : 'hidden'}><input type="checkbox" checked><span>לעשות את זה גם ל־<b class="cb-n">${past}</b> השורות הקודמות עם אותו טקסט</span></label>
+      <div class="cbox-btns"><button class="btn ghost" data-r="0">${no}</button><button class="btn grad" data-r="1">${ok}</button></div></div>`;
+    const pl = () => ov.querySelector('.cbox-past:not(.cbox-opt)');
+    const done = r => { ov.classList.add('out'); setTimeout(() => ov.remove(), 180); res({ ok: r, past: !pl().hidden && pl().querySelector('input').checked, opt: !!ov.querySelector('.cbox-opt input')?.checked }); };
+    ov.querySelector('.cbox-opt input')?.addEventListener('change', e => { const n = onOpt?.(e.target.checked); if (n != null) { pl().hidden = !n; pl().querySelector('.cb-n').textContent = n; } });
+    ov.addEventListener('click', ev => { const b = ev.target.closest('[data-r]'); if (b) done(b.dataset.r === '1'); else if (ev.target === ov) done(false); });
+    document.body.appendChild(ov); setTimeout(() => ov.querySelector('[data-r="1"]').focus(), 50);
+  });
+}
+// 📏 "תמיד ככה?" על שורה אחת — חלון קטן. patch = { name?, cat?, skip? }
+async function ruleBox(bank, patch, except) {
+  if (!bank || !sync.isParent() || ruleKey(bank).length < 2) return false;
+  const r = ruleFor(bank);
+  if (r && Object.entries(patch).every(([k, v]) => k === 'skip' ? !!r.skip === v : r[k] === v)) return false; // כבר כלל כזה
+  const what = patch.skip === true ? '⏸️ <b>לא לספור</b>' : patch.skip === false ? '✅ <b>לספור</b>' : patch.name ? `לקרוא לזה <b>"${esc(patch.name)}"</b>` : `קטגוריה <b>${catOf(patch.cat).e} ${esc(catOf(patch.cat).n)}</b>`;
+  const need = t => (patch.name && t.desc !== patch.name) || (patch.cat && t.cat !== patch.cat && (patch.cat === 'income') === (t.cat === 'income')) || (patch.skip !== undefined && !!t.skip !== patch.skip);
+  const pastW = sameBank(bank, except).filter(need), pastE = sameBank(bank, except, true).filter(need);
+  // אותן מילים אבל מספר אחר (למשל שתי משכנתאות)? — מציעים "רק כשגם המספר זהה", ומסמנים מראש כשמשנים שם
+  const nums = /\d{3,}/.test(bank), split = nums && allTx().some(t => t.id !== except && ruleKey(bankOf(t)) === ruleKey(bank) && exactKey(bankOf(t)) !== exactKey(bank));
+  const exact0 = split && !!patch.name;
+  const a = await confirmBox({ opt: nums ? '🔢 רק כשגם המספר זהה <small>(למשל שתי משכנתאות של שתי דירות)</small>' : '', optOn: exact0, onOpt: on => (on ? pastE : pastW).length, title: patch.skip === true ? 'לא נספר — תמיד ככה?' : patch.skip === false ? 'נספר — תמיד ככה?' : 'גם בפעם הבאה?',
+    text: `בכל פעם שבקובץ מהבנק יופיע <b><bdi>${esc(bank)}</bdi></b> — ${what}.`,
+    warn: genericBank(bank) ? `"${esc(ruleKey(bank))}" זה טקסט כללי — הכלל יחול על כל השורות שכתוב בהן כך.` : '',
+    past: (exact0 ? pastE : pastW).length, ok: '✅ כן, תמיד ככה', no: 'לא, רק הפעם' });
+  if (!a.ok) return false;
+  const id = await saveRuleFor(bank, patch, a.opt), past = a.opt ? pastE : pastW;
+  let n = 0;
+  if (a.past) for (const t of past) {
+    if (patch.name) t.desc = patch.name;
+    if (patch.cat && (patch.cat === 'income') === (t.cat === 'income')) t.cat = patch.cat;
+    if (patch.skip !== undefined) await setCounted(t, !patch.skip); else await db.putTx(t);
+    n++;
+  }
+  renderAll(); toast(`📏 נשמר כלל${n ? ` · עודכנו עוד ${n}` : ''}`);
+  return id;
+}
 
 // ❓ "גם בפעם הבאה?" — אחרי שינוי שם / קטגוריה של תנועה מקובץ
 function askRules(list, onDone = () => {}) {
@@ -1360,7 +1413,7 @@ function openRulesSheet() {
   openSheet(`<h3>📏 כללים שלמדתי</h3>
     <div class="sub" style="margin:-6px 0 12px">כשמשנים שם או קטגוריה של תנועה מקובץ הבנק, אפשר לבקש "גם בפעם הבאה". הכללים כאן מופעלים לבד בכל העלאה.</div>
     ${list.length ? list.map(([id, r]) => `<div class="card rule-card" data-id="${id}">
-      <small>🏦 כשבבנק כתוב:</small><div class="rule-bank"><bdi>${esc(r.bank || r.match)}</bdi></div><small class="rule-hint">🔢 מתאים גם כשהמספרים שונים (סניף, אסמכתא)</small>
+      <small>🏦 כשבבנק כתוב:</small><div class="rule-bank"><bdi>${esc(r.bank || r.match)}</bdi></div><small class="rule-hint">${r.exact ? '🔢 רק כשגם המספר זהה' : '🔢 מתאים גם כשהמספרים שונים (סניף, אסמכתא)'}</small>
       <label class="field"><span>✏️ לקרוא לזה</span><input class="rName" value="${esc(r.name || '')}" placeholder="(בלי לשנות שם)"></label>
       <select class="rCat">${catOpts(r.cat)}</select>
       <label class="rule-past"><input type="checkbox" class="rSkip" ${r.skip ? 'checked' : ''}> ⏸️ לא לספור (נשמר, אבל לא נכנס לחישובים)</label>
@@ -1572,7 +1625,7 @@ function openImportSheet(name, { kind, items, files = [name] }) {
   const why = it => it.status === 'dup-manual' ? `✋ כבר רשום ידנית: "${esc(it.match)}" — כדי שלא ייספר פעמיים`
     : it.ruleSkip ? '📏 לפי כלל: לא לספור' : STATUS[it.status] || '';
   const amt = it => it.amount < 0 ? `−${fmt(-it.amount)}` : (it.income ? '+' : '') + fmt(it.amount);
-  openSheet(`<!--full--><h3>📄 ${esc(name)}</h3>
+  openSheet(`<!--page--><h3>📄 ${esc(name)}</h3>
     <div class="sub" style="margin:-6px 0 10px">${kind === 'multi' ? '📚 ' + files.map(esc).join(' · ') : kind === 'bank' ? '🏦 דף חשבון בנק' : kind === 'image' ? '📸 צילום מסך — כדאי לעבור על השורות, הזיהוי לא תמיד מדויק' : '💳 פירוט כרטיס אשראי'} · ${items.length} תנועות · ${monthsSpan(items.map(i => i.date))}</div>
     <div class="imp-tot">
       <div><small>💸 הוצאות שנספרות</small><b id="totE"></b><s id="totE0"></s></div>
@@ -1641,7 +1694,13 @@ function openImportSheet(name, { kind, items, files = [name] }) {
     });
     for (const row of rows) {
       const it = items[row.dataset.i];
-      row.querySelector('.cnt input').onchange = e => { setOn(it, e.target.checked); refresh(); };
+      row.querySelector('.cnt input').onchange = async e => {
+        setOn(it, e.target.checked); refresh();
+        if (it.bankDesc && ['new', 'cc', 'own'].includes(it.status)) {
+          const id = await ruleBox(it.bankDesc, { skip: !it.on });
+          if (id) { for (const x of items) if (x.bankDesc && ruleFor(x.bankDesc)?.id === id && ['new', 'cc', 'own'].includes(x.status)) { x.on = it.on; x.rule = id; } refresh(); }
+        }
+      };
       row.querySelectorAll('[data-atm]').forEach(b => b.onclick = () => { setOn(it, b.dataset.atm === 'count'); refresh(); });
       // ☑️ לחיצה ארוכה = בחירה של כמה שורות
       let tm = null;
@@ -1698,14 +1757,14 @@ function openFileList(msg) {
   const list = () => allTx().filter(t => t.msg === msg).sort((a, b) => b.date.localeCompare(a.date));
   const l0 = list(); if (!l0.length) return;
   const sum = (inc, onOnly) => list().filter(t => (t.cat === 'income') === inc && (!onOnly || !t.skip)).reduce((s, t) => s + t.amount, 0);
-  openSheet(`<!--full--><h3>📄 ${esc(l0[0].raw)}</h3>
+  openSheet(`<!--page--><h3>📄 ${esc(l0[0].raw)}</h3>
     <div class="sub" style="margin:-6px 0 10px">${l0.length} תנועות · ${monthsSpan(l0.map(t => t.date))}</div>
     <div class="imp-tot" id="flTot"></div>
     <div class="chips imp-filter" id="flFilter"><button class="chip on" data-f="all">הכל</button><button class="chip" data-f="on">✅ נספרות</button><button class="chip" data-f="off">⏸️ לא נספרות</button></div>
     <div class="card imp-list" style="padding:4px 12px">${l0.map(t => `
       <div class="tx imp-row fl-row" data-id="${t.id}">
         <label class="cnt"><input type="checkbox" ${t.skip ? '' : 'checked'}><span>נספר</span></label>
-        <div class="nm"><b>${catOf(t.cat).e} ${esc(t.desc)}</b>
+        <div class="nm"><div class="fl-name"><span>${catOf(t.cat).e}</span><input class="imp-name fl-in" value="${esc(t.desc)}" aria-label="שם — אפשר לשנות" placeholder="✏️ מה זה? (למשל: משכנתא — דירה ברחוב…)"></div>
           ${bankOf(t) && bankOf(t) !== t.desc ? `<small class="imp-bank">🏦 בבנק: <bdi>${esc(bankOf(t))}</bdi></small>` : ''}
           <small>${new Date(t.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric', year: '2-digit' })}</small></div>
         <div class="am ${t.cat === 'income' || t.amount < 0 ? 'plus' : ''}">${t.amount < 0 ? '−' + fmt(-t.amount) : (t.cat === 'income' ? '+' : '') + fmt(t.amount)}</div>
@@ -1723,17 +1782,21 @@ function openFileList(msg) {
     sh.querySelectorAll('.fl-row').forEach(row => {
       row.querySelector('input').onchange = async e => {
         const t = allTx().find(x => x.id === row.dataset.id); await setCounted(t, e.target.checked); draw(); renderAll();
-        const bank = bankOf(t); if (bank && !genericBank(bank) && sync.isParent()) toastAsk(t, bank);
+        const bank = bankOf(t); if (bank) { await ruleBox(bank, { skip: !!t.skip }, t.id); draw(); }
       };
-      row.addEventListener('click', e => { if (e.target.closest('.cnt')) return; const t = allTx().find(x => x.id === row.dataset.id); if (t) openEditSheet(t); });
+      // ✏️ שם לכל שורה — "משכנתא — דירה ברחוב הרצל"
+      const inp = row.querySelector('.fl-in');
+      inp.addEventListener('keydown', e => { if (e.key === 'Enter') inp.blur(); });
+      inp.addEventListener('change', async () => {
+        const t = allTx().find(x => x.id === row.dataset.id), v = inp.value.replace(/[<>]/g, '').trim();
+        if (!t || !v || v === t.desc) { inp.value = t?.desc || ''; return; }
+        t.desc = v; await db.putTx(t); renderAll(); toast('✅ השם נשמר');
+        const bank = bankOf(t); if (bank) { await ruleBox(bank, { name: v }, t.id); sh.querySelectorAll('.fl-row').forEach(r2 => { const x = allTx().find(y => y.id === r2.dataset.id); if (x) r2.querySelector('.fl-in').value = x.desc; }); draw(); }
+      });
+      row.addEventListener('click', e => { if (e.target.closest('.cnt, .fl-in')) return; const t = allTx().find(x => x.id === row.dataset.id); if (t) openEditSheet(t); });
     });
     draw();
   });
-}
-// אחרי סימון / ביטול "נספר" ברשימה — הצעה קטנה "גם בפעם הבאה?"
-function toastAsk(t, bank) {
-  const r = ruleFor(bank); if (r && !!r.skip === !!t.skip) return;
-  toastAction(t.skip ? '⏸️ לא נספר' : '✅ נספר', '📏 תמיד ככה?', () => askRules([{ bank, except: t.id, skip: !!t.skip }]));
 }
 
 async function undoImport(msg) {
