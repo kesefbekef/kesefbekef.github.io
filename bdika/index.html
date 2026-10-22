@@ -192,7 +192,7 @@ function setUrl() { history.replaceState(null, '', mode === 'day' ? `?day=${day}
 function drawPhones() {
   if (MOBILE) return;
   $('#phones').innerHTML = devs.map((d, k) => `<div class="dev"><div class="lbl"><select data-dev="${k}">${Object.entries(DEVICES).map(([id, [n, w]]) => `<option value="${id}" ${id === d ? 'selected' : ''}>${n} · ${w}</option>`).join('')}</select>
-      <button class="reload" data-reload="${k}" title="טעינה מחדש">🔄</button></div>
+      <button class="reload" data-reload="${k}" title="טעינה מחדש">🔄</button><span class="sub" id="st${k}">⏳ טוען…</span></div>
       <div class="frame ${d.startsWith('i') ? 'ios' : ''}"><div class="screen" id="scr${k}"><iframe id="f${k}" title="טלפון ${k + 1}" allow="clipboard-write"></iframe></div></div></div>`).join('');
   document.querySelectorAll('[data-dev]').forEach(s => s.onchange = () => { devs[+s.dataset.dev] = s.value; ls.set('bdika-devs', devs); drawPhones(); showAt(cur, true); });
   document.querySelectorAll('[data-reload]').forEach(b => b.onclick = () => showAt(cur, true));
@@ -209,6 +209,15 @@ function fit() {
   });
 }
 addEventListener('resize', fit);
+// האפליקציה בתוך הטלפון מדווחת: "חי" או תקלה (אם היא תומכת בזה)
+addEventListener('message', e => {
+  const d = e.data; if (!d || !d.bdika) return;
+  devs.forEach((_, n) => {
+    const f = $('#f' + n), st = $('#st' + n); if (!f || !st || f.contentWindow !== e.source) return;
+    if (d.bdika === 'alive') { st.textContent = '✅ נטען'; st.style.color = '#86EFAC'; }
+    if (d.bdika === 'error') { st.textContent = '⚠️ תקלה'; st.style.color = '#FDA4AF'; st.title = d.msg || ''; toast('⚠️ תקלה באפליקציה: ' + String(d.msg || '').slice(0, 80)); }
+  });
+});
 
 // ---------- מה מוצג ----------
 async function refresh() {
@@ -283,7 +292,7 @@ function showAt(k, force = false) {
   devs.forEach((d, n) => {
     const f = $('#f' + n); if (!f) return;
     if (!force && f.dataset.app === a && x) { try { f.contentWindow.postMessage({ bdika: 'news', v: x.v, i: x.i }, '*'); return; } catch {} }
-    f.src = `${APPS[a].url}?bdika=1${q}&t=${Date.now()}`; f.dataset.app = a;
+    f.src = `${APPS[a].url}?bdika=1${q}&t=${Date.now()}`; f.dataset.app = a; const st = $('#st' + n); if (st) { st.textContent = '⏳ טוען…'; st.style.color = ''; }
   });
   document.querySelectorAll('.item').forEach(el => el.classList.toggle('cur', +el.dataset.k === k));
   drawBar();
