@@ -41,7 +41,15 @@ const thisMonth = () => ym(new Date());
 const RECOVERY = /type=recovery/.test(location.hash);
 // קישור מהמייל שכבר לא תקף (פג תוקף / נפתח כבר — לפעמים Gmail "בודק" קישורים מראש)
 const LINK_ERR = /error_code=|error=access_denied/.test(location.hash) ? decodeURIComponent((location.hash.match(/error_code=([^&]+)/) || [])[1] || 'error') : '';
-const S = { tx: [], budgets: {}, learned: {}, cats: {}, goals: {}, maaser: {}, pocket: {}, debts: {}, recurring: {}, rules: {}, people: [], me: null, month: thisMonth(), view: 'chat', catFilter: null, whoFilter: null, search: '' };
+const S = { tx: [], skip: [], budgets: {}, learned: {}, cats: {}, goals: {}, maaser: {}, pocket: {}, debts: {}, recurring: {}, rules: {}, people: [], me: null, month: thisMonth(), view: 'chat', catFilter: null, whoFilter: null, search: '' };
+// ⏸️ תנועות "לא נספרות" (מקובץ): נשמרות ולא נמחקות, אבל לא נכנסות לשום חישוב. S.tx = רק מה שנספר
+function setAllTx(all) { S.tx = all.filter(t => !t.skip); S.skip = all.filter(t => t.skip); }
+const allTx = () => [...S.tx, ...S.skip];
+async function setCounted(t, on) {
+  if (on) { delete t.skip; delete t.skipWhy; } else { t.skip = true; t.skipWhy = t.skipWhy || 'user'; }
+  S.tx = S.tx.filter(x => x.id !== t.id); S.skip = S.skip.filter(x => x.id !== t.id);
+  (on ? S.tx : S.skip).push(t); await db.putTx(t);
+}
 
 // ---------- בני הבית ----------
 const FACES = ['🧔', '👩', '👦', '👧', '👴', '👵', '🧑', '👶'];
@@ -213,13 +221,13 @@ function botHTML(t) {
     <div class="acts">${t.who && personOf(t.who) ? `<button data-act="who" data-id="${t.id}">${whoLabel(t.who)}</button>` : ''}${pay}${t.cat === 'give' ? `<button data-act="mx" data-id="${t.id}">${t.extraGive ? '➕ בנוסף למעשר' : '🤲 מתוך המעשר'}</button>` : ''}<button data-act="fix" data-id="${t.id}">✏️ עריכה</button><button data-act="undo" data-id="${t.id}">🗑️ מחיקה</button></div></div>`;
 }
 
-function fileSummaryHTML(list, msg) {
+function fileSummaryHTML(list, msg, off = 0) {
   const exp = list.filter(t => t.cat !== 'income').reduce((s, t) => s + t.amount, 0);
   const inc = list.filter(t => t.cat === 'income').reduce((s, t) => s + t.amount, 0);
   const top = Object.entries(list.filter(t => t.cat !== 'income').reduce((a, t) => (a[t.cat] = (a[t.cat] || 0) + t.amount, a), {}))
     .sort((a, b) => b[1] - a[1]).slice(0, 4).map(([c]) => catOf(c).e).join(' ');
   return `<div class="cat-ic" style="background:var(--g2)">📊</div>
-    <div><b>יובאו ${list.length} תנועות</b><div class="sub">📅 ${monthsSpan(list.map(t => t.date))}<br>${exp ? 'הוצאות ' + fmt(exp) : ''}${exp && inc ? ' · ' : ''}${inc ? 'הכנסות ' + fmt(inc) : ''} ${top}</div>
+    <div><b>יובאו ${list.length + off} תנועות</b><div class="sub">📅 ${monthsSpan(list.map(t => t.date))}${off ? `<br>✅ ${list.length} נספרו · ⏸️ ${off} לא נספרו` : ''}<br>${exp ? 'הוצאות ' + fmt(exp) : ''}${exp && inc ? ' · ' : ''}${inc ? 'הכנסות ' + fmt(inc) : ''} ${top}</div>
     <div class="acts"><button data-act="viewfile" data-msg="${msg}">👀 לצפייה</button><button data-act="undofile" data-msg="${msg}">↩️ ביטול ייבוא</button></div></div>`;
 }
 
@@ -241,7 +249,7 @@ window.visualViewport?.addEventListener('resize', fitChatPadding);
 function renderChat(newIds = []) {
   fitChatPadding();
   const since = Date.now() - 45 * 864e5;
-  const list = S.tx.filter(t => new Date(t.created) >= since).sort((a, b) => a.created.localeCompare(b.created));
+  const list = [...S.tx, ...S.skip.filter(t => t.source === 'file')].filter(t => new Date(t.created) >= since).sort((a, b) => a.created.localeCompare(b.created));
   let html = '', lastDay = '', lastMsg = '';
   if (!list.length) {
     html = `<div class="bot"><div class="cat-ic" style="background:var(--g1)">👋</div><div><b>היי! הכסף של הבית — סוף סוף בשליטה 💜</b>
@@ -256,7 +264,7 @@ function renderChat(newIds = []) {
       if (t.msg === lastMsg) continue;
       lastMsg = t.msg;
       html += `<div class="me${isNew}">📄 ${esc(t.raw)}<div class="time">${timeOf(t.created)}</div></div>`;
-      html += `<div class="bot${isNew}">${fileSummaryHTML(S.tx.filter(x => x.msg === t.msg), t.msg)}</div>`;
+      html += `<div class="bot${isNew}">${fileSummaryHTML(S.tx.filter(x => x.msg === t.msg), t.msg, S.skip.filter(x => x.msg === t.msg).length)}</div>`;
       continue;
     }
     if (t.msg !== lastMsg) {
@@ -400,8 +408,7 @@ function showTx(id) {
 $('#chat').addEventListener('click', e => {
   const b = e.target.closest('button[data-act]'); if (!b) return;
   if (b.dataset.act === 'viewfile') {
-    const first = S.tx.find(x => x.msg === b.dataset.msg); if (!first) return;
-    S.catFilter = null; S.month = ym(new Date(first.date)); go('tx'); return;
+    openFileList(b.dataset.msg); return;
   }
   if (b.dataset.act === 'undofile') {
     if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'בטוח? לחץ שוב'; return; }
@@ -424,12 +431,12 @@ $('#chat').addEventListener('click', e => {
 });
 
 async function removeTx(t) {
-  S.tx = S.tx.filter(x => x.id !== t.id); await db.delTx(t.id);
+  S.tx = S.tx.filter(x => x.id !== t.id); S.skip = S.skip.filter(x => x.id !== t.id); await db.delTx(t.id);
   // 🔁 קבוע שנמחק — לא נרשום אותו שוב באותו חודש
   const rr = t.rec && S.recurring?.[t.rec], rm = ym(new Date(t.date));
   if (rr && !(rr.skip || []).includes(rm)) await saveRule(t.rec, { ...rr, skip: [...(rr.skip || []), rm].slice(-24) });
   renderAll();
-  toastUndo(`🗑️ נמחק: ${t.desc}`, async () => { S.tx.push(t); await db.putTx(t); renderAll(); toast('↩️ הוחזר'); });
+  toastUndo(`🗑️ נמחק: ${t.desc}`, async () => { (t.skip ? S.skip : S.tx).push(t); await db.putTx(t); renderAll(); toast('↩️ הוחזר'); });
 }
 // הודעה עם כפתור "בטל" — 6 שניות להתחרט
 const toastUndo = (text, undo) => toastAction(text, '↩️ בטל', undo);
@@ -1011,7 +1018,7 @@ function openEditSheet(t) {
     ${bankOf(t) ? `<div class="bank-line">🏦 בבנק כתוב: <b><bdi>${esc(bankOf(t))}</bdi></b></div>` : t.raw && t.raw !== t.desc && t.source !== 'file' ? `<div class="sub" style="margin:-6px 0 12px">📝 נכתב במקור: "${esc(t.raw)}"</div>` : ''}
     <label class="field"><span>תיאור (מה זה היה)</span><input id="eDesc" value="${esc(t.desc)}"></label>
     <div class="row2">
-      <label class="field"><span>${t.inst > 1 ? 'סכום כולל' : 'סכום'}</span><input id="eAmt" type="number" inputmode="decimal" value="${t.inst > 1 ? t.total : t.amount}"></label>
+      <label class="field"><span>${t.amount < 0 ? '↩️ סכום הזיכוי' : t.inst > 1 ? 'סכום כולל' : 'סכום'}</span><input id="eAmt" type="number" inputmode="decimal" value="${Math.abs(t.inst > 1 ? t.total : t.amount)}"></label>
       <label class="field"><span>תאריך</span><input id="eDate" type="date" value="${ymd(new Date(t.date))}"></label>
     </div>
     ${t.inst > 1 ? `<div class="sub" style="margin:-4px 0 10px">${t.inst} תשלומים של ${fmt(t.amount)}</div>` : ''}
@@ -1021,6 +1028,7 @@ function openEditSheet(t) {
     <div class="chips" id="ePay" style="flex-wrap:wrap;margin-bottom:14px">${Object.entries(PAY).map(([id, p]) => `<button class="chip ${id === pay ? 'on' : ''}" data-p="${id}">${p.e} ${p.n}</button>`).join('')}</div>
     ${S.people.length ? `<div class="sub" style="margin-bottom:8px">של מי?</div><div class="chips" id="eWho" style="flex-wrap:wrap;margin-bottom:14px">${whoChips(who)}</div>` : ''}
     ${tagField('eTag', t.tags || [])}
+    ${t.source === 'file' || t.skip ? `<button class="chip cnt-chip ${t.skip ? '' : 'on'}" id="eCnt" style="margin-bottom:10px">${t.skip ? '⏸️ לא נספר — לא נכנס לתקציב ולסיכומים' : '✅ נספר בתקציב ובסיכומים'}</button>` : ''}
     ${t.cat !== 'income' && sync.isParent() ? '<button class="chip" id="eSplit" style="margin-bottom:10px">➗ לחלק את ההוצאה עם מישהו</button>' : ''}
     <div class="receipt" id="eRec">${t.receipt ? '<button class="chip" id="rShow">🧾 לראות את הקבלה</button> <button class="chip" id="rDel">🗑️ הסרה</button>' : '<button class="chip" id="rAdd">🧾 צילום קבלה</button>'}
       <input type="file" id="rFile" accept="image/*" capture="environment" hidden><input type="file" id="rGal" accept="image/*" hidden>${t.receipt ? '' : ' <button class="chip" id="rAddG">🖼️ מהגלריה</button>'}</div>
@@ -1060,23 +1068,27 @@ function openEditSheet(t) {
     });
     sh.querySelector('#rDel')?.addEventListener('click', async () => { await sync.deleteReceipt(t.receipt); delete t.receipt; await db.putTx(t); toast('🗑️ הקבלה הוסרה'); openEditSheet(t); });
     sh.querySelector('#eSplit')?.addEventListener('click', () => openDebtNew({ kind: 'split', dir: 'lent', total: t.inst > 1 ? t.total : t.amount, note: t.desc }));
+    let counted = !t.skip;
+    sh.querySelector('#eCnt')?.addEventListener('click', e => { counted = !counted; e.currentTarget.classList.toggle('on', counted); e.currentTarget.textContent = counted ? '✅ נספר בתקציב ובסיכומים' : '⏸️ לא נספר — לא נכנס לתקציב ולסיכומים'; });
     let noM = !!t.noMaaser;
     sh.querySelector('#eNoM')?.addEventListener('click', e => { noM = !noM; e.currentTarget.classList.toggle('on', noM); });
     sh.querySelector('#eAmt').oninput = () => sh.querySelector('#eErr').textContent = '';
     sh.querySelector('#eSave').onclick = async () => {
-      const v = parseFloat(sh.querySelector('#eAmt').value), d = sh.querySelector('#eDate').value;
-      if (!(v > 0)) { sh.querySelector('#eErr').textContent = 'צריך להזין סכום גדול מ-0'; return; }
+      const v0 = parseFloat(sh.querySelector('#eAmt').value), d = sh.querySelector('#eDate').value, v = t.amount < 0 ? -v0 : v0;
+      if (!(v0 > 0)) { sh.querySelector('#eErr').textContent = 'צריך להזין סכום גדול מ-0'; return; }
       if (!d) { sh.querySelector('#eErr').textContent = 'צריך לבחור תאריך'; return; }
       const desc = sh.querySelector('#eDesc').value.trim() || t.desc;
       const bank = bankOf(t), rl = bank && ruleFor(bank), nmCh = desc !== t.desc && desc !== rl?.name, ctCh = cat !== t.cat && cat !== rl?.cat;
+      const cntCh = counted === !!t.skip, skCh = cntCh && !!rl?.skip !== !counted && !genericBank(bank || '');
       if (cat !== t.cat) { const key = desc.toLowerCase(); if (key.length >= 2) { S.learned[key] = cat; await db.setKV('learned', S.learned); } }
       Object.assign(t, { desc, cat, pay, who, date: new Date(d + 'T12:00:00').toISOString() });
       const tg = readTags(sh, 'eTag'); if (tg.length) t.tags = tg; else delete t.tags;
       if (cat === 'income' && noM) t.noMaaser = true; else delete t.noMaaser;
       if (cat === 'give' && gx) t.extraGive = true; else delete t.extraGive;
       if (t.inst > 1) { t.total = v; t.amount = Math.round(v / t.inst * 100) / 100; } else { t.amount = v; t.total = v; }
-      await db.putTx(t); closeSheet(); renderAll(); toast('✅ נשמר');
-      if (bank && (nmCh || ctCh) && sync.isParent()) setTimeout(() => askRules([{ bank, except: t.id, ...(nmCh ? { name: desc } : {}), ...(ctCh ? { cat } : {}) }]), 350);
+      if (cntCh) await setCounted(t, counted); else await db.putTx(t);
+      closeSheet(); renderAll(); toast(cntCh ? (counted ? '✅ נשמר — ונספר' : '⏸️ נשמר — לא נספר') : '✅ נשמר');
+      if (bank && (nmCh || ctCh || skCh) && sync.isParent()) setTimeout(() => askRules([{ bank, except: t.id, ...(nmCh ? { name: desc } : {}), ...(ctCh ? { cat } : {}), ...(skCh ? { skip: !counted } : {}) }]), 350);
     };
     sh.querySelector('#eDel').onclick = async e => {
       if (!armed) { armed = true; e.target.textContent = 'בטוח? לחץ שוב'; return; }
@@ -1255,17 +1267,18 @@ const dayDist = (a, b) => Math.abs(new Date(a) - new Date(b)) / 864e5;
 function markDuplicates(items) {
   // הוצאה ידנית במזומן/ביט לא תופיע בפירוט אשראי — לא מתאימים אותה
   const payOk = (t, kind) => !t.pay || (kind !== 'bank' ? t.pay === 'credit' : t.pay !== 'cash');
-  const fps = new Set(S.tx.map(t => t.fp).filter(Boolean));
+  const fps = new Set(allTx().map(t => t.fp).filter(Boolean));
   const used = new Set();
   for (const it of items) {
     if (it.kind !== 'image') it.bankDesc = it.desc; // 🏦 הטקסט המקורי מהבנק — לא משתנה גם אם משנים שם
     it.fp = fpOf(it.date, it.amount, it.desc);
     if (fps.has(it.fp)) { it.status = 'dup-file'; continue; }
     fps.add(it.fp); // אותו קובץ שהועלה פעמיים באותה העלאה
+    if (it.ccCharge || it.atm || it.own) { it.status = it.ccCharge ? 'cc' : it.atm ? 'atm' : 'own'; continue; } // לא מתאימים להוצאה ידנית
     const manual = S.tx.find(t => t.source !== 'file' && !used.has(t.id) && payOk(t, it.kind) && (t.cat === 'income') === it.income &&
       Math.abs((t.inst > 1 ? t.amount : t.total ?? t.amount) - it.amount) <= 1 && dayDist(t.date, it.date) <= 3);
     if (manual) { used.add(manual.id); it.status = 'dup-manual'; it.match = manual.desc; continue; }
-    it.status = it.ccCharge ? 'cc' : it.atm ? 'atm' : 'new';
+    it.status = it.ccCharge ? 'cc' : it.atm ? 'atm' : it.own ? 'own' : 'new';
   }
   for (const it of items) { it.on = it.status === 'new'; applyRule(it); }
 }
@@ -1287,6 +1300,8 @@ function applyRule(it) {
   it.rule = r.id;
   if (r.name) it.desc = r.name;
   if (r.cat && (r.cat === 'income') === !!it.income) it.cat = r.cat; // כלל לא הופך הוצאה להכנסה
+  if (r.skip === true && it.status === 'new') { it.on = false; it.ruleSkip = true; }
+  if (r.skip === false && ['cc', 'own', 'atm'].includes(it.status)) { it.on = true; it.atmAns = it.status === 'atm' ? 'count' : it.atmAns; }
 }
 async function saveRuleFor(bank, patch) {
   const match = ruleKey(bank); if (match.length < 2) return null;
@@ -1299,14 +1314,14 @@ async function saveRuleFor(bank, patch) {
 // טקסט כללי (העברה, ביט, משיכה…) — כלל עליו יחול על הרבה שורות שונות, לכן לא מסומן מראש
 const genericBank = b => /(^| )(העב|העברה|העברת|ביט|bit|pay ?box|פייבוקס|משיכ\S*|כספומט|שיק|צק|הפקד\S*|זיכוי|חיוב|מזומן)( |$)/.test(ruleKey(b));
 // תנועות קודמות עם אותו טקסט בבנק (כדי להציע לתקן גם אותן)
-const sameBank = (bank, except) => { const k = ruleKey(bank); return k.length < 2 ? [] : S.tx.filter(t => t.id !== except && ruleKey(bankOf(t)) === k); };
+const sameBank = (bank, except) => { const k = ruleKey(bank); return k.length < 2 ? [] : allTx().filter(t => t.id !== except && ruleKey(bankOf(t)) === k); };
 
 // ❓ "גם בפעם הבאה?" — אחרי שינוי שם / קטגוריה של תנועה מקובץ
 function askRules(list, onDone = () => {}) {
   // list = [{ bank, name?, cat? }]
-  const label = r => [r.name ? `✏️ "${esc(r.name)}"` : '', r.cat ? `${catOf(r.cat).e} ${esc(catOf(r.cat).n)}` : ''].filter(Boolean).join(' · ');
+  const label = r => [r.name ? `✏️ "${esc(r.name)}"` : '', r.cat ? `${catOf(r.cat).e} ${esc(catOf(r.cat).n)}` : '', r.skip === true ? '⏸️ לא לספור' : r.skip === false ? '✅ לספור' : ''].filter(Boolean).join(' · ');
   const gen = list.map(r => genericBank(r.bank)), anyGen = gen.some(Boolean);
-  const one = list.length === 1, r0 = list[0], past = one ? sameBank(r0.bank, r0.except).filter(t => (r0.name && t.desc !== r0.name) || (r0.cat && t.cat !== r0.cat && (r0.cat === 'income') === (t.cat === 'income'))) : [];
+  const one = list.length === 1, r0 = list[0], past = one ? sameBank(r0.bank, r0.except).filter(t => (r0.name && t.desc !== r0.name) || (r0.cat && t.cat !== r0.cat && (r0.cat === 'income') === (t.cat === 'income')) || (r0.skip !== undefined && !!t.skip !== r0.skip)) : [];
   openSheet(`<h3>📏 גם בפעם הבאה?</h3>
     <div class="sub" style="margin:-6px 0 12px">${one ? 'כשזה יופיע שוב בקובץ מהבנק — לעשות את זה לבד:' : 'כשהשורות האלה יופיעו שוב בקובץ מהבנק — לעשות את זה לבד:'}</div>
     <div class="card rule-ask" style="padding:4px 12px">${list.map((r, i) => `
@@ -1321,14 +1336,15 @@ function askRules(list, onDone = () => {}) {
       let n = 0;
       for (const [i, r] of list.entries()) {
         if (!sh.querySelector(`[data-r="${i}"]`).checked) continue;
-        const patch = {}; if (r.name) patch.name = r.name; if (r.cat) patch.cat = r.cat;
+        const patch = {}; if (r.name) patch.name = r.name; if (r.cat) patch.cat = r.cat; if (r.skip !== undefined) patch.skip = r.skip;
         if (await saveRuleFor(r.bank, patch)) n++;
       }
       let fixed = 0;
       if (sh.querySelector('#rqPast')?.checked) for (const t of past) {
         if (r0.name) t.desc = r0.name;
         if (r0.cat && (r0.cat === 'income') === (t.cat === 'income')) t.cat = r0.cat;
-        await db.putTx(t); fixed++;
+        if (r0.skip !== undefined) await setCounted(t, !r0.skip); else await db.putTx(t);
+        fixed++;
       }
       closeSheet(); renderAll();
       toast(n ? `📏 ${n === 1 ? 'הכלל נשמר' : n + ' כללים נשמרו'}${fixed ? ` · ✏️ ${fixed} תנועות קודמות תוקנו` : ''}` : 'לא נשמרו כללים');
@@ -1347,14 +1363,15 @@ function openRulesSheet() {
       <small>🏦 כשבבנק כתוב:</small><div class="rule-bank"><bdi>${esc(r.bank || r.match)}</bdi></div><small class="rule-hint">🔢 מתאים גם כשהמספרים שונים (סניף, אסמכתא)</small>
       <label class="field"><span>✏️ לקרוא לזה</span><input class="rName" value="${esc(r.name || '')}" placeholder="(בלי לשנות שם)"></label>
       <select class="rCat">${catOpts(r.cat)}</select>
+      <label class="rule-past"><input type="checkbox" class="rSkip" ${r.skip ? 'checked' : ''}> ⏸️ לא לספור (נשמר, אבל לא נכנס לחישובים)</label>
       <div class="row2" style="margin-top:8px"><button class="btn danger rDel">🗑️ מחיקה</button><button class="btn grad rSave">שמירה</button></div>
     </div>`).join('') : `<div class="card tip"><div class="em">💡</div><p>עוד אין כללים. משנים שם או קטגוריה של תנועה שהגיעה מקובץ — והאפליקציה תשאל "גם בפעם הבאה?"</p></div>`}`, sh => {
     sh.querySelectorAll('.rule-card').forEach(c => {
       const id = c.dataset.id;
       c.querySelector('.rSave').onclick = async () => {
-        const name = c.querySelector('.rName').value.trim(), cat = c.querySelector('.rCat').value;
-        if (!name && !cat) { toast('צריך שם או קטגוריה — או למחוק את הכלל', true); return; }
-        const r = { ...S.rules[id] }; if (name) r.name = name; else delete r.name; if (cat) r.cat = cat; else delete r.cat;
+        const name = c.querySelector('.rName').value.trim(), cat = c.querySelector('.rCat').value, skip = c.querySelector('.rSkip').checked;
+        if (!name && !cat && !skip) { toast('צריך שם, קטגוריה או "לא לספור" — או למחוק את הכלל', true); return; }
+        const r = { ...S.rules[id] }; if (name) r.name = name; else delete r.name; if (cat) r.cat = cat; else delete r.cat; if (skip) r.skip = true; else delete r.skip;
         await saveKV('rules', { ...S.rules, [id]: r }); toast('✅ הכלל עודכן');
       };
       c.querySelector('.rDel').onclick = async e => {
@@ -1367,8 +1384,9 @@ function openRulesSheet() {
 
 const STATUS = {
   'dup-file': '🔁 כבר יובא בעבר',
-  'cc': '💳 חיוב כרטיס אשראי — אם תעלה גם את פירוט הכרטיס זה ייספר פעמיים',
-  'atm': '💵 משיכת מזומן — את ההוצאות עצמן רושמים כשמשלמים במזומן',
+  'cc': '💳 חיוב כרטיס אשראי — כבר נספר בפירוט של הכרטיס',
+  'own': '🔄 העברה בין החשבונות שלכם — הכסף לא יצא מהבית',
+  'atm': '💵 משיכת מזומן — מה לעשות איתה?',
 };
 
 // 📎 — תפריט: קובץ מהבנק / צילום מסך מהגלריה / לצלם עכשיו
@@ -1546,93 +1564,182 @@ function monthsSpan(dates) {
 }
 
 function openImportSheet(name, { kind, items, files = [name] }) {
-  let fileWho = S.me;
+  let fileWho = S.me, filter = 'all', sel = null; // sel = מצב בחירה של כמה שורות (Set של אינדקסים)
   const count = s => items.filter(i => i.status === s).length;
-  const catOptions = sel => [...Object.keys(CATS), 'income'].map(id => `<option value="${id}" ${id === sel ? 'selected' : ''}>${catOf(id).e} ${catOf(id).n}</option>`).join('');
+  const catOptions = (sel, inc) => (inc ? ['income'] : Object.keys(CATS)).map(id => `<option value="${id}" ${id === sel ? 'selected' : ''}>${catOf(id).e} ${catOf(id).n}</option>`).join('');
   const sorted = items.map((it, i) => ({ it, i })).sort((a, b) => b.it.date - a.it.date);
-  openSheet(`<h3>📄 ${esc(name)}</h3>
-    <div class="sub" style="margin:-6px 0 12px">${kind === 'multi' ? '📚 ' + files.map(esc).join(' · ') : kind === 'bank' ? '🏦 דף חשבון בנק' : kind === 'image' ? '📸 צילום מסך — כדאי לעבור על השורות, הזיהוי לא תמיד מדויק' : '💳 פירוט כרטיס אשראי'}<br>${items.length} תנועות · ${monthsSpan(items.map(i => i.date))}</div>
-    <div class="duo" style="padding:0 0 12px;grid-template-columns:repeat(${count('dup-file') + count('dup-manual') + count('cc') + count('atm') ? 2 : 1},1fr)">
-      <div class="stat" style="background:var(--g3)"><small>חדשות לייבוא</small><div id="impCount">${count('new')}</div></div>
-      ${count('dup-file') + count('dup-manual') + count('cc') + count('atm') ? `<div class="stat" style="background:var(--card2)"><small>דילגתי (כפילויות)</small><div>${count('dup-file') + count('dup-manual') + count('cc') + count('atm')}</div></div>` : ''}
+  const off0 = items.filter(i => !i.on).length;
+  const why = it => it.status === 'dup-manual' ? `✋ כבר רשום ידנית: "${esc(it.match)}" — כדי שלא ייספר פעמיים`
+    : it.ruleSkip ? '📏 לפי כלל: לא לספור' : STATUS[it.status] || '';
+  const amt = it => it.amount < 0 ? `−${fmt(-it.amount)}` : (it.income ? '+' : '') + fmt(it.amount);
+  openSheet(`<!--full--><h3>📄 ${esc(name)}</h3>
+    <div class="sub" style="margin:-6px 0 10px">${kind === 'multi' ? '📚 ' + files.map(esc).join(' · ') : kind === 'bank' ? '🏦 דף חשבון בנק' : kind === 'image' ? '📸 צילום מסך — כדאי לעבור על השורות, הזיהוי לא תמיד מדויק' : '💳 פירוט כרטיס אשראי'} · ${items.length} תנועות · ${monthsSpan(items.map(i => i.date))}</div>
+    <div class="imp-tot">
+      <div><small>💸 הוצאות שנספרות</small><b id="totE"></b><s id="totE0"></s></div>
+      <div><small>💰 הכנסות שנספרות</small><b id="totI"></b><s id="totI0"></s></div>
+      <div><small>✅ נספרות</small><b id="impCount"></b><s>מתוך ${items.length}</s></div>
     </div>
-    <div class="dup-note" style="margin-bottom:12px">✋ מה שכבר רשמתם ידנית יזוהה ולא ייספר פעמיים</div>
-    <div class="sub" style="margin:-4px 0 12px">✏️ שם לא ברור? נוגעים בו ומשנים — והאפליקציה תשאל אם לזכור לפעם הבאה</div>
-    ${S.people.length ? `<div class="sub" style="margin-bottom:6px">של מי ${kind === 'bank' ? 'החשבון' : kind === 'multi' ? 'הקבצים' : 'הכרטיס'}?</div><div class="chips" id="impWho" style="flex-wrap:wrap;margin-bottom:12px">${whoChips(fileWho)}</div>` : ''}
-    ${count('dup-manual') ? `<div class="card tip" style="margin-bottom:10px"><div class="em">🧠</div><p><b>${count('dup-manual')} תנועות כבר רשמת בצ'אט</b> — סימנתי אותן כדי שלא ייספרו פעמיים.</p></div>` : ''}
-    ${count('cc') ? `<div class="card tip" style="margin-bottom:10px"><div class="em">💳</div><p><b>${count('cc')} חיובי כרטיס אשראי</b> לא סומנו. את הפירוט שלהם עדיף להעלות מקובץ חברת האשראי.</p></div>` : ''}
-    ${count('atm') ? `<div class="card tip" style="margin-bottom:10px"><div class="em">💵</div><p><b>${count('atm')} משיכות מזומן</b> לא סומנו — כדי שלא ייספרו פעמיים עם ההוצאות שתרשום במזומן.</p></div>` : ''}
-    <div class="card" style="padding:4px 12px">${sorted.map(({ it, i }) => `
-      <div class="tx imp-row" style="cursor:default;${it.on ? '' : 'opacity:.55'}" data-i="${i}">
-        <input type="checkbox" ${it.on ? 'checked' : ''} style="width:20px;height:20px;accent-color:#EC4899;flex:none">
+    <div class="card tip" style="margin-bottom:10px"><div class="em">✅</div><p><b>מה שמסומן — נספר.</b> מה שלא מסומן נשמר באפור, אבל לא נכנס לתקציב, לסיכומים ולאקסל. ✏️ נוגעים בשם כדי לשנות.</p></div>
+    ${S.people.length ? `<div class="sub" style="margin-bottom:6px">של מי ${kind === 'bank' ? 'החשבון' : kind === 'multi' ? 'הקבצים' : 'הכרטיס'}?</div><div class="chips" id="impWho" style="flex-wrap:wrap;margin-bottom:10px">${whoChips(fileWho)}</div>` : ''}
+    ${off0 ? `<div class="card tip" style="margin-bottom:10px"><div class="em">⏸️</div><p><b>${off0} שורות הגיעו בלי סימון</b> — ${[count('dup-manual') && `${count('dup-manual')} כבר רשומות ידנית`, count('cc') && `${count('cc')} חיובי אשראי (נספרים בפירוט הכרטיס)`, count('own') && `${count('own')} העברות בין החשבונות שלכם`, count('dup-file') && `${count('dup-file')} כבר יובאו בעבר`, count('atm') && `${count('atm')} משיכות מזומן`].filter(Boolean).join(' · ')}. אפשר לסמן כל אחת.</p></div>` : ''}
+    ${count('atm') ? `<div class="card atm-all"><b>💵 ${count('atm')} משיכות מזומן</b><div class="sub">אפשר לבחור לכל משיכה בנפרד ברשימה, או לכולן יחד:</div>
+      <div class="row2"><button class="btn ghost" data-atmall="skip">⏸️ לכולן: לא לספור<small>אני רושם את ההוצאות במזומן</small></button><button class="btn ghost" data-atmall="count">✅ לכולן: לספור<small>כהוצאה, עם קטגוריה</small></button></div></div>` : ''}
+    <div class="chips imp-filter" id="impFilter"><button class="chip on" data-f="all">הכל</button><button class="chip" data-f="on">✅ נספרות</button><button class="chip" data-f="off">⏸️ לא נספרות</button><button class="chip" id="impSel">☑️ בחירה</button></div>
+    <div class="card imp-list" style="padding:4px 12px">${sorted.map(({ it, i }) => `
+      <div class="tx imp-row" data-i="${i}">
+        <label class="cnt"><input type="checkbox" ${it.on ? 'checked' : ''}><span>נספר</span></label>
         <div class="nm">${it.kind === 'image' ? `<input class="imp-desc" value="${esc(it.desc)}" placeholder="✏️ מה זה היה? (שופרסל, דלק…)" style="width:100%;background:var(--card2);border:1px solid ${it.needsDesc ? '#EC4899' : 'var(--line)'};border-radius:10px;padding:6px 8px;outline:none">` : `<input class="imp-desc imp-name" value="${esc(it.desc)}" aria-label="שם התנועה — אפשר לשנות">`}
           ${it.bankDesc ? `<small class="imp-bank" ${it.desc === it.bankDesc ? 'hidden' : ''}>${it.rule ? '📏 לפי כלל · ' : ''}🏦 בבנק: <bdi>${esc(it.bankDesc)}</bdi></small>` : ''}
           <small>${it.date.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric', year: '2-digit' })}${it.note ? ' · ' + esc(it.note) : ''}${files.length > 1 ? ' · 📄 ' + esc(it.file) : ''}</small>
-          ${it.status !== 'new' ? `<small style="color:#F9A8D4">${it.status === 'dup-manual' ? '✋ כבר רשום: "' + esc(it.match) + '"' : STATUS[it.status]}</small>` : ''}
-          <select class="imp-cat" style="margin-top:6px;background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:4px 6px;max-width:100%">${catOptions(it.cat)}</select>
+          ${it.refund ? `<small class="imp-why ok">↩️ זיכוי — מוריד מההוצאות ב${esc(catOf(it.cat).n)}</small>` : ''}
+          ${why(it) ? `<small class="imp-why">${why(it)}</small>` : ''}
+          ${it.status === 'atm' ? `<div class="atm-q"><button data-atm="skip" class="${it.atmAns === 'skip' ? 'on' : ''}">⏸️ לא לספור<small>רושם ידנית</small></button><button data-atm="count" class="${it.atmAns === 'count' ? 'on' : ''}">✅ לספור כהוצאה</button></div>` : ''}
+          <select class="imp-cat" ${it.status === 'atm' && it.atmAns !== 'count' ? 'hidden' : ''}>${catOptions(it.cat, it.income)}</select>
         </div>
-        <div class="am ${it.income ? 'plus' : ''}">${it.income ? '+' : ''}${fmt(it.amount)}</div>
+        <div class="am ${it.income || it.amount < 0 ? 'plus' : ''}">${amt(it)}</div>
       </div>`).join('')}</div>
-    <button class="btn grad full" id="impGo" style="margin-top:14px;position:sticky;bottom:0">${count('new') ? `ייבוא ${count('new')} תנועות` : 'אין תנועות חדשות — הכל כבר רשום 👌'}</button>`, sh => {
+    <div class="imp-bar"><button class="btn grad full" id="impGo"></button>
+      <div class="imp-selbar" hidden><span id="selN"></span><button class="chip" data-bulk="on">✅ לספור</button><button class="chip" data-bulk="off">⏸️ לא לספור</button><button class="chip" data-bulk="x">✕</button></div></div>`, sh => {
+    const rows = [...sh.querySelectorAll('.imp-row')];
+    const sum = (inc, onOnly) => items.filter(i => i.status !== 'dup-file' && !!i.income === inc && (!onOnly || i.on)).reduce((s, i) => s + i.amount, 0);
     const refresh = () => {
-      const n = items.filter(i => i.on).length;
+      for (const row of rows) {
+        const it = items[row.dataset.i];
+        row.classList.toggle('off', !it.on);
+        row.querySelector('.cnt input').checked = it.on;
+        row.hidden = filter === 'on' ? !it.on : filter === 'off' ? it.on : false;
+        row.classList.toggle('picked', !!sel?.has(+row.dataset.i));
+        row.querySelectorAll('[data-atm]').forEach(b => b.classList.toggle('on', b.dataset.atm === it.atmAns));
+        const cs = row.querySelector('.imp-cat'); if (it.status === 'atm') cs.hidden = it.atmAns !== 'count';
+      }
+      const n = items.filter(i => i.on).length, e = sum(false, true), e0 = sum(false), inc = sum(true, true), inc0 = sum(true);
       sh.querySelector('#impCount').textContent = n;
-      sh.querySelector('#impGo').textContent = n ? `ייבוא ${n} תנועות` : 'לא נבחרו תנועות';
+      sh.querySelector('#totE').textContent = fmt(e); sh.querySelector('#totE0').textContent = e0 !== e ? `במקום ${fmt(e0)}` : '';
+      sh.querySelector('#totI').textContent = fmt(inc); sh.querySelector('#totI0').textContent = inc0 !== inc ? `במקום ${fmt(inc0)}` : '';
+      const save = items.filter(i => i.on || i.status !== 'dup-file').length;
+      sh.querySelector('#impGo').textContent = !save ? 'אין תנועות חדשות — הכל כבר רשום 👌' : n === save ? `שמירה · ${n} נספרות` : `שמירה · ${n} נספרות · ${save - n} בלי לספור`;
+      sh.querySelector('#impGo').hidden = !!sel; sh.querySelector('.imp-selbar').hidden = !sel;
+      if (sel) sh.querySelector('#selN').textContent = `${sel.size} נבחרו`;
+      sh.querySelector('#impSel').classList.toggle('on', !!sel);
     };
+    const setOn = (it, on) => { it.on = on; it.touched = true; if (it.status === 'atm') it.atmAns = on ? 'count' : 'skip'; };
     sh.querySelectorAll('#impWho [data-w]').forEach(b => b.onclick = () => {
       fileWho = b.dataset.w; sh.querySelectorAll('#impWho [data-w]').forEach(x => x.classList.toggle('on', x === b));
     });
-    sh.querySelectorAll('.imp-row').forEach(row => {
-      const it = items[row.dataset.i];
-      row.querySelector('input').onchange = e => { it.on = e.target.checked; row.style.opacity = it.on ? '' : '.55'; refresh(); };
-      const di = row.querySelector('.imp-desc');
-      if (di) {
-        di.oninput = () => {
-          it.desc = di.value.trim();
-          const bk = row.querySelector('.imp-bank'); if (bk) bk.hidden = it.desc === it.bankDesc;
-          if (!it.catChanged && !it.income) { it.cat = classify(it.desc, S.learned); row.querySelector('.imp-cat').value = it.cat; }
-        };
-      }
-      const sel = row.querySelector('.imp-cat');
-      sel.onchange = () => { it.cat = sel.value; it.income = sel.value === 'income'; it.catChanged = true; };
+    sh.querySelectorAll('#impFilter [data-f]').forEach(b => b.onclick = () => {
+      filter = b.dataset.f; sh.querySelectorAll('#impFilter [data-f]').forEach(x => x.classList.toggle('on', x === b)); refresh();
     });
+    sh.querySelector('#impSel').onclick = () => { sel = sel ? null : new Set(); refresh(); };
+    sh.querySelectorAll('[data-atmall]').forEach(b => b.onclick = () => {
+      const on = b.dataset.atmall === 'count';
+      for (const it of items) if (it.status === 'atm') setOn(it, on);
+      refresh(); toast(on ? '✅ כל המשיכות ייספרו — אפשר לבחור קטגוריה לכל אחת' : '⏸️ המשיכות לא ייספרו');
+    });
+    sh.querySelectorAll('[data-bulk]').forEach(b => b.onclick = () => {
+      if (b.dataset.bulk !== 'x') for (const i of sel) setOn(items[i], b.dataset.bulk === 'on');
+      sel = null; refresh();
+    });
+    for (const row of rows) {
+      const it = items[row.dataset.i];
+      row.querySelector('.cnt input').onchange = e => { setOn(it, e.target.checked); refresh(); };
+      row.querySelectorAll('[data-atm]').forEach(b => b.onclick = () => { setOn(it, b.dataset.atm === 'count'); refresh(); });
+      // ☑️ לחיצה ארוכה = בחירה של כמה שורות
+      let tm = null;
+      row.addEventListener('pointerdown', e => { if (sel || e.target.closest('input,select,button')) return; tm = setTimeout(() => { sel = new Set([+row.dataset.i]); navigator.vibrate?.(20); refresh(); }, 550); });
+      ['pointerup', 'pointerleave', 'pointercancel', 'pointermove'].forEach(ev => row.addEventListener(ev, e => { if (ev !== 'pointermove' || Math.abs(e.movementY) > 4) clearTimeout(tm); }));
+      row.addEventListener('click', e => {
+        if (!sel || e.target.closest('select')) return;
+        e.preventDefault(); const k = +row.dataset.i; sel.has(k) ? sel.delete(k) : sel.add(k); refresh();
+      }, true);
+      const di = row.querySelector('.imp-desc');
+      di.oninput = () => {
+        it.desc = di.value.trim();
+        const bk = row.querySelector('.imp-bank'); if (bk) bk.hidden = it.desc === it.bankDesc;
+        if (!it.catChanged && !it.income && !it.refund) { it.cat = classify(it.desc, S.learned); row.querySelector('.imp-cat').value = it.cat; }
+      };
+      const cs = row.querySelector('.imp-cat');
+      cs.onchange = () => { it.cat = cs.value; it.catChanged = true; };
+    }
+    refresh();
     sh.querySelector('#impGo').onclick = async () => {
-      const chosen = items.filter(i => i.on);
-      for (const it of chosen) if (!it.desc) it.desc = it.bankDesc || 'הוצאה מצילום מסך';
-      if (!chosen.length) { toast('סמן לפחות תנועה אחת', true); return; }
+      const keep = items.filter(i => i.on || i.status !== 'dup-file');
+      for (const it of keep) if (!it.desc) it.desc = it.bankDesc || 'הוצאה מצילום מסך';
+      if (!keep.length) { closeSheet(); return; }
       const msg = db.newId(), now = new Date().toISOString(), ids = [];
-      for (const it of chosen) {
+      for (const it of keep) {
         const t = { id: db.newId(), msg, raw: files.join(', '), desc: it.desc, cat: it.cat, source: 'file', created: now,
           date: it.date.toISOString(), amount: it.amount, total: it.amount, inst: 0, fp: it.fp, note: it.note || '', ...(it.bankDesc ? { bankDesc: it.bankDesc } : {}),
-          pay: it.kind === 'card' || it.ccCharge ? 'credit' : it.kind === 'image' ? detectPay(it.desc) : (detectPay(it.desc + ' ' + (it.note || '')) || 'transfer'),
-          who: fileWho || null };
-        S.tx.push(t); await db.putTx(t); ids.push(t.id);
+          pay: it.status === 'atm' ? 'cash' : it.kind === 'card' || it.ccCharge ? 'credit' : it.kind === 'image' ? detectPay(it.desc) : (detectPay(it.desc + ' ' + (it.note || '')) || 'transfer'),
+          who: fileWho || null, ...(it.on ? {} : { skip: true, skipWhy: it.ruleSkip ? 'rule' : it.status === 'new' ? 'user' : it.status }) };
+        (it.on ? S.tx : S.skip).push(t); await db.putTx(t); ids.push(t.id);
         if (it.catChanged) { S.learned[it.desc.toLowerCase()] = it.cat; if (it.bankDesc) S.learned[it.bankDesc.toLowerCase()] = it.cat; }
       }
-      if (chosen.some(i => i.catChanged)) await db.setKV('learned', S.learned);
+      if (keep.some(i => i.catChanged)) await db.setKV('learned', S.learned);
       closeSheet(); go('chat'); renderAll(ids); confetti();
-      // 📏 שינית שם / קטגוריה? — לשאול "גם בפעם הבאה?" (פעם אחת לכל טקסט בנק)
+      const nOn = keep.filter(i => i.on).length, nOff = keep.length - nOn, had = count('dup-file');
+      toast(`✅ ${nOn} נספרו${nOff ? ` · ⏸️ ${nOff} נשמרו בלי לספור` : ''}${had ? ` · ${had} כבר היו` : ''}`);
+      // 📏 שינית שם / קטגוריה / נספר? — לשאול "גם בפעם הבאה?" (פעם אחת לכל טקסט בנק)
       const seenK = new Set(), ask = [];
-      for (const it of chosen) {
+      for (const it of keep) {
         if (!it.bankDesc) continue;
         const r = it.rule && S.rules[it.rule], nm = it.desc !== it.bankDesc && it.desc !== r?.name, ct = it.catChanged && it.cat !== r?.cat;
-        const k = ruleKey(it.bankDesc); if ((!nm && !ct) || k.length < 2 || seenK.has(k)) continue;
-        seenK.add(k); ask.push({ bank: it.bankDesc, ...(nm ? { name: it.desc } : {}), ...(ct ? { cat: it.cat } : {}) });
+        const sk = it.touched && it.status !== 'dup-manual' && it.status !== 'atm' && (!it.on) !== (r?.skip ?? it.status !== 'new');
+        const k = ruleKey(it.bankDesc); if ((!nm && !ct && !sk) || k.length < 2 || seenK.has(k)) continue;
+        seenK.add(k); ask.push({ bank: it.bankDesc, ...(nm ? { name: it.desc } : {}), ...(ct ? { cat: it.cat } : {}), ...(sk ? { skip: !it.on } : {}) });
       }
       if (ask.length && sync.isParent()) setTimeout(() => askRules(ask.slice(0, 12)), 900);
-      const had = count('dup-manual') + count('dup-file');
-      toast(`✅ ${chosen.length} חדשות${had ? ` · ${had} כבר היו רשומות` : ''}`);
-      const b = document.createElement('div'); b.className = 'bot new';
-      b.innerHTML = `<div class="cat-ic" style="background:var(--g3)">📎</div><div><b>הייבוא הסתיים 🎉</b><div class="sub">✅ <b>${chosen.length}</b> תנועות חדשות נכנסו${had ? ` · 🔁 <b>${had}</b> כבר היו רשומות — לא נספרו פעמיים` : ''}${items.length - chosen.length - had > 0 ? ` · ⏭️ ${items.length - chosen.length - had} דילגת` : ''}</div></div>`;
-      $('#chat').appendChild(b); setTimeout(() => $('#main').scrollTo({ top: $('#main').scrollHeight, behavior: 'smooth' }), 300);
     };
   });
 }
 
+// 👀 רשימה של העלאה אחת — מה נספר ומה לא (נגיעה בשורה = עריכה)
+function openFileList(msg) {
+  let filter = 'all';
+  const list = () => allTx().filter(t => t.msg === msg).sort((a, b) => b.date.localeCompare(a.date));
+  const l0 = list(); if (!l0.length) return;
+  const sum = (inc, onOnly) => list().filter(t => (t.cat === 'income') === inc && (!onOnly || !t.skip)).reduce((s, t) => s + t.amount, 0);
+  openSheet(`<!--full--><h3>📄 ${esc(l0[0].raw)}</h3>
+    <div class="sub" style="margin:-6px 0 10px">${l0.length} תנועות · ${monthsSpan(l0.map(t => t.date))}</div>
+    <div class="imp-tot" id="flTot"></div>
+    <div class="chips imp-filter" id="flFilter"><button class="chip on" data-f="all">הכל</button><button class="chip" data-f="on">✅ נספרות</button><button class="chip" data-f="off">⏸️ לא נספרות</button></div>
+    <div class="card imp-list" style="padding:4px 12px">${l0.map(t => `
+      <div class="tx imp-row fl-row" data-id="${t.id}">
+        <label class="cnt"><input type="checkbox" ${t.skip ? '' : 'checked'}><span>נספר</span></label>
+        <div class="nm"><b>${catOf(t.cat).e} ${esc(t.desc)}</b>
+          ${bankOf(t) && bankOf(t) !== t.desc ? `<small class="imp-bank">🏦 בבנק: <bdi>${esc(bankOf(t))}</bdi></small>` : ''}
+          <small>${new Date(t.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric', year: '2-digit' })}</small></div>
+        <div class="am ${t.cat === 'income' || t.amount < 0 ? 'plus' : ''}">${t.amount < 0 ? '−' + fmt(-t.amount) : (t.cat === 'income' ? '+' : '') + fmt(t.amount)}</div>
+      </div>`).join('')}</div>`, sh => {
+    const draw = () => {
+      const e = sum(false, true), e0 = sum(false), inc = sum(true, true), inc0 = sum(true), n = list().filter(t => !t.skip).length;
+      sh.querySelector('#flTot').innerHTML = `<div><small>💸 הוצאות שנספרות</small><b>${fmt(e)}</b><s>${e0 !== e ? 'במקום ' + fmt(e0) : ''}</s></div>
+        <div><small>💰 הכנסות שנספרות</small><b>${fmt(inc)}</b><s>${inc0 !== inc ? 'במקום ' + fmt(inc0) : ''}</s></div><div><small>✅ נספרות</small><b>${n}</b><s>מתוך ${list().length}</s></div>`;
+      sh.querySelectorAll('.fl-row').forEach(row => {
+        const t = allTx().find(x => x.id === row.dataset.id); if (!t) { row.remove(); return; }
+        row.classList.toggle('off', !!t.skip); row.hidden = filter === 'on' ? !!t.skip : filter === 'off' ? !t.skip : false;
+      });
+    };
+    sh.querySelectorAll('#flFilter [data-f]').forEach(b => b.onclick = () => { filter = b.dataset.f; sh.querySelectorAll('#flFilter [data-f]').forEach(x => x.classList.toggle('on', x === b)); draw(); });
+    sh.querySelectorAll('.fl-row').forEach(row => {
+      row.querySelector('input').onchange = async e => {
+        const t = allTx().find(x => x.id === row.dataset.id); await setCounted(t, e.target.checked); draw(); renderAll();
+        const bank = bankOf(t); if (bank && !genericBank(bank) && sync.isParent()) toastAsk(t, bank);
+      };
+      row.addEventListener('click', e => { if (e.target.closest('.cnt')) return; const t = allTx().find(x => x.id === row.dataset.id); if (t) openEditSheet(t); });
+    });
+    draw();
+  });
+}
+// אחרי סימון / ביטול "נספר" ברשימה — הצעה קטנה "גם בפעם הבאה?"
+function toastAsk(t, bank) {
+  const r = ruleFor(bank); if (r && !!r.skip === !!t.skip) return;
+  toastAction(t.skip ? '⏸️ לא נספר' : '✅ נספר', '📏 תמיד ככה?', () => askRules([{ bank, except: t.id, skip: !!t.skip }]));
+}
+
 async function undoImport(msg) {
-  const list = S.tx.filter(t => t.msg === msg);
+  const list = allTx().filter(t => t.msg === msg);
   for (const t of list) await db.delTx(t.id);
-  S.tx = S.tx.filter(t => t.msg !== msg);
+  S.tx = S.tx.filter(t => t.msg !== msg); S.skip = S.skip.filter(t => t.msg !== msg);
   renderAll(); toast(`↩️ בוטל ייבוא של ${list.length} תנועות`);
 }
 
@@ -2439,7 +2546,7 @@ const cardWith = txt => () => [...document.querySelectorAll('#tips .card')].find
 const TOUR = [
   { v: 'chat', sel: '#inp', t: '💬 רושמים הוצאה כמו הודעה', d: 'כותבים "אושר עד 500" ושולחים — הקטגוריה נבחרת לבד. אפשר כמה ביחד, תאריך ("אתמול"), ושם ("רחל: …").' },
   { v: 'chat', sel: '#mic', t: '🎤 מדברים במקום להקליד', d: 'לחיצה קצרה — הקלטה עד ⏹️. החזקה — כמו בוואטסאפ: למעלה נועל, הצידה מבטל.' },
-  { v: 'chat', sel: '#attach', t: '📎 פירוט מהבנק / אשראי', d: 'אקסל, PDF או צילום מסך. ✋ מה שכבר רשמתם ידנית יזוהה ולא ייספר פעמיים — ובסוף: "12 חדשות · 3 כבר היו רשומות".' },
+  { v: 'chat', sel: '#attach', t: '📎 פירוט מהבנק / אשראי', d: 'אקסל, PDF או צילום מסך. כל שורה עם ✅ "נספר" — מה שלא מסומן נשמר באפור ולא נכנס לחישובים. חיובי אשראי, כפילויות והעברות בין החשבונות מגיעים בלי סימון, ולכל משיכת מזומן בוחרים מה לעשות. ☑️ בחירה (או לחיצה ארוכה) — כמה שורות יחד.' },
   { v: 'chat', sel: '#plusBtn', t: '➕ הוספה בלי צ\'אט', d: 'בוחרים קטגוריה (או 💰 הכנסה), סכום — ושמירה. אפשר גם תגית אירוע.' },
   { v: 'chat', sel: '.hero', t: '💜 כמה נשאר החודש', d: 'המספר "רץ" לערך החדש, והפס מראה כמה מהתקציב נוצל.' },
   { v: 'chat', sel: '#stories', t: '⭕ הטבעות של הקטגוריות', d: 'כל טבעת מתמלאת לפי התקציב, ונהיית אדומה כשחורגים. לחיצה — פירוט.' },
@@ -2737,7 +2844,7 @@ function openCatEdit(id, back = openCatsSheet) {
       const { [id]: _, ...rest } = S.cats; S.cats = rest;
       if (id in S.budgets) { delete S.budgets[id]; await db.setKV('budgets', S.budgets); }
       if (Object.values(S.learned).includes(id)) { for (const k of Object.keys(S.learned)) if (S.learned[k] === id) delete S.learned[k]; await db.setKV('learned', S.learned); }
-      await saveCats(); S.tx = await db.allTx(); renderAll();
+      await saveCats(); setAllTx(await db.allTx()); renderAll();
       toast('🗑️ הקטגוריה נמחקה'); back();
     });
   });
@@ -3189,7 +3296,7 @@ function drawMe(el) {
         if (!btn.dataset.armed) { btn.dataset.armed = '1'; btn.textContent = 'בטוח? לחץ שוב'; return; }
         if (UITEST) { toast('(בדיקה) היה עובר משפחה'); return; }
         await sync.leaveHousehold();
-        S.tx = []; S.people = []; S.me = null; S.budgets = {}; S.learned = {};
+        S.tx = []; S.skip = []; S.people = []; S.me = null; S.budgets = {}; S.learned = {};
         let joinErr = '';
         if (code) { try { await sync.joinHousehold(code); await sync.connected(); } catch (x) { joinErr = x.message; } }
         await reloadFromDb(); closeSheet(); showGate();
@@ -3386,7 +3493,7 @@ async function drawSync(el) {
 }
 
 async function reloadFromDb() {
-  S.tx = await db.allTx();
+  setAllTx(await db.allTx());
   S.cats = await db.getKV('cats', {}); applyCustomCats(S.cats);
   S.goals = await db.getKV('goals', {}); S.maaser = await db.getKV('maaser', {}); S.pocket = await db.getKV('pocket', {}); S.debts = await db.getKV('debts', {}); S.recurring = await db.getKV('recurring', {});
   S.budgets = await db.getKV('budgets', {});
@@ -3397,7 +3504,7 @@ async function reloadFromDb() {
 
 // ---------- הפעלה ----------
 async function load() {
-  S.tx = await db.allTx();
+  setAllTx(await db.allTx());
   S.cats = await db.getKV('cats', {}); applyCustomCats(S.cats);
   S.goals = await db.getKV('goals', {}); S.maaser = await db.getKV('maaser', {}); S.pocket = await db.getKV('pocket', {});
   S.budgets = await db.getKV('budgets', {});
