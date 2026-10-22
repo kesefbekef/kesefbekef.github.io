@@ -114,7 +114,10 @@ const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')
 const heDate = v => v.slice(0, 10).split('-').reverse().join('.');
 const MOBILE = matchMedia('(max-width: 760px)').matches;
 // מצב: 'app' (אפליקציה אחת, לפי עדכון) או 'day' (כל השינויים של יום אחד מכל האפליקציות)
-let mode = Q.has('day') ? 'day' : 'app';
+// 'todo' = כל מה שעוד מחכה לי (ברירת המחדל), 'day' = יום אחד, 'app' = אפליקציה אחת לפי עדכון
+let mode = Q.has('day') ? 'day' : Q.has('app') ? 'app' : 'todo';
+let REV = {}, admin = false, showAll = false; // REV: מה שכבר נבדק (מהשרת)
+const TODO_DAYS = 10;
 let day = (Q.get('day') && Q.get('day') !== 'today') ? Q.get('day') : ymd(new Date());
 let app = Q.get('app') && APPS[Q.get('app')] ? Q.get('app') : ls.get('bdika-app', 'kesef');
 let ver = null, devs = ls.get('bdika-devs', ['a360', 'i375']);
@@ -141,7 +144,16 @@ async function loadNews(a) {
   return NEWS[a];
 }
 
-async function start() { draw(); await refresh(); } // צפייה פתוחה (הכל במצב הדגמה). כניסה נדרשת רק לשליחה
+async function start() { await loadReviews(); draw(); await refresh(); }
+// מה כבר נבדק — נשמר בשרת (רק למנהל)
+async function loadReviews() {
+  REV = {}; admin = false;
+  const { data } = await sb.auth.getSession(); if (!data.session) return;
+  const { data: ok } = await sb.rpc('is_app_admin'); if (ok !== true) return;
+  admin = true;
+  const { data: rows } = await sb.from('bdika_reviews').select('item_key,status,note');
+  (rows || []).forEach(r => REV[r.item_key] = r);
+} // צפייה פתוחה (הכל במצב הדגמה). כניסה נדרשת רק לשליחה
 // לפני שליחה: מחובר + מנהל? אם לא — חלון כניסה
 async function ensureAdmin() {
   const { data } = await sb.auth.getSession();
@@ -178,16 +190,20 @@ function draw() {
     return;
   }
   $('#root').innerHTML = `<div class="top"><h1>📱 עמדת בדיקה</h1>
-      <div class="apps"><button data-mode="day" class="day ${mode === 'day' ? 'on' : ''}">📅 העדכונים של היום</button>
+      <div class="apps"><button data-mode="todo" class="day ${mode === 'todo' ? 'on' : ''}">📋 מה שמחכה לי</button><button data-mode="day" class="day ${mode === 'day' ? 'on' : ''}">📅 לפי יום</button>
         ${Object.entries(APPS).map(([k, a]) => `<button data-app="${k}" class="${mode === 'app' && k === app ? 'on' : ''}">${a.name}</button>`).join('')}</div>
       <label class="sub" id="pick"></label>
-      <span class="sub">"👀 להראות" ליד כל שינוי: הטלפונים קופצים למסך שלו.</span></div>
+      <label class="sub" style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="all" ${showAll ? 'checked' : ''}> להציג גם מה שכבר אישרתי</label>
+      ${admin ? '<span class="sub" style="color:#86EFAC">✓ מחובר: מה שאישרת לא חוזר</span>' : '<button class="reload" id="lgBtn">🔑 כניסה: כדי שמה שאישרת לא יחזור</button>'}</div>
     <div class="main"><div class="side" id="side"><div class="empty">טוען…</div></div><div class="phones" id="phones"></div></div>`;
   document.querySelectorAll('[data-app]').forEach(b => b.onclick = () => { mode = 'app'; app = b.dataset.app; ls.set('bdika-app', app); ver = null; setUrl(); draw(); refresh(); });
   $('[data-mode="day"]').onclick = () => { mode = 'day'; setUrl(); draw(); refresh(); };
+  $('[data-mode="todo"]').onclick = () => { mode = 'todo'; setUrl(); draw(); refresh(); };
+  $('#all').onchange = () => { showAll = $('#all').checked; refresh(); };
+  $('#lgBtn') && ($('#lgBtn').onclick = async () => { if (await ensureAdmin()) { await loadReviews(); draw(); refresh(); } });
   drawPhones();
 }
-function setUrl() { history.replaceState(null, '', mode === 'day' ? `?day=${day}` : `?app=${app}`); }
+function setUrl() { history.replaceState(null, '', mode === 'day' ? `?day=${day}` : mode === 'app' ? `?app=${app}` : '?todo=1'); }
 
 function drawPhones() {
   if (MOBILE) return;
@@ -209,7 +225,7 @@ function fit() {
   });
 }
 addEventListener('resize', fit);
-// האפליקציה בתוך הטלפון מדווחת: "חי" או תקלה (אם היא תומכת בזה)
+// האפליקציה בתוך הטלפון מדווחת: "חי" או תקלה
 addEventListener('message', e => {
   const d = e.data; if (!d || !d.bdika) return;
   devs.forEach((_, n) => {
@@ -221,7 +237,13 @@ addEventListener('message', e => {
 
 // ---------- מה מוצג ----------
 async function refresh() {
-  if (mode === 'day') {
+  if (mode === 'todo') {
+    await Promise.all(Object.keys(APPS).map(loadNews));
+    if (!MOBILE) $('#pick').innerHTML = `<span>כל מה שעוד לא אישרת, מ־${TODO_DAYS} הימים האחרונים</span>`;
+    const from = ymd(new Date(Date.now() - TODO_DAYS * 864e5));
+    LIST = [];
+    for (const a of Object.keys(APPS)) for (const n of NEWS[a]) if (n.v.slice(0, 10) >= from) n.items.forEach((it, i) => LIST.push({ app: a, v: n.v, i, it }));
+  } else if (mode === 'day') {
     await Promise.all(Object.keys(APPS).map(loadNews));
     const days = [...new Set(Object.values(NEWS).flat().map(n => n.v.slice(0, 10)))].sort().reverse();
     if (!MOBILE) {
@@ -240,31 +262,35 @@ async function refresh() {
     }
     LIST = N.find(n => n.v === ver).items.map((it, i) => ({ app, v: ver, i, it }));
   }
+  if (!showAll) LIST = LIST.filter(x => REV[kOf(x)]?.status !== 'ok'); // מה שאושר — לא חוזר
   cur = LIST.length ? 0 : -1;
   drawSide(); showAt(cur, true);
 }
 
-const SK = () => mode === 'day' ? `bdika-day-${day}` : `bdika-${app}-${ver}`;
-const kOf = x => `${x.app}|${x.v}|${x.i}`;
+const SK = () => 'bdika-marks'; // סימונים שעוד לא נשלחו (בדפדפן הזה)
+const kOf = x => `${x.app}|${x.v}|${x.it.t}`;
 const getS = () => ls.get(SK(), {}), putS = s => ls.set(SK(), s);
 function counts() { const v = Object.values(getS()); return [v.filter(x => x.v === 'ok').length, v.filter(x => x.v === 'bad').length, v.filter(x => (x.n || '').trim()).length]; }
 
 function itemHTML(x, k) {
   const s = getS()[kOf(x)] || {}, it = x.it;
   return `<div class="item ${s.v || ''} ${k === cur ? 'cur' : ''}" data-k="${k}" style="animation-delay:${Math.min(k, 12) * .04}s">
-    <div class="h"><div class="e">${esc(it.e)}</div><div><b>${esc(it.t)}${mode === 'day' ? `<span class="tagapp">${APPS[x.app].name}</span>` : ''}</b><p>${esc(it.d)}</p></div></div>
+    <div class="h"><div class="e">${esc(it.e)}</div><div><b>${esc(it.t)}${mode !== 'app' ? `<span class="tagapp">${heDate(x.v)}</span>` : ''}</b><p>${esc(it.d)}</p></div></div>
     ${it.phone ? `<div class="ph"><b>📱 את זה צריך לבדוק בטלפון:</b> ${esc(it.phone)}</div>` : ''}
+    ${REV[kOf(x)]?.status === 'bad' ? `<div class="ph" style="border-color:#F59E0B;color:#FDE68A"><b style="color:#FCD34D">🔧 סימנת שעוד לא טוב:</b> ${esc(REV[kOf(x)].note || '')} · אם תוקן, לסמן ✅</div>` : ''}
+    ${REV[kOf(x)]?.status === 'ok' ? `<div class="sub" style="margin-top:6px;color:#86EFAC">✅ כבר אישרת</div>` : ''}
     <div class="acts"><button class="show" data-show="${k}">👀 להראות</button><button class="vok ${s.v === 'ok' ? 'on' : ''}" data-v="ok" data-k="${k}">✅ מאשר</button><button class="vbad ${s.v === 'bad' ? 'on' : ''}" data-v="bad" data-k="${k}">🔧 עוד לא טוב</button></div>
     <textarea data-n="${k}" rows="1" placeholder="הערה (לא חובה)">${esc(s.n || '')}</textarea></div>`;
 }
 function drawSide() {
   const phones = LIST.filter(x => x.it.phone);
   let html = '';
-  if (MOBILE) html += `<div class="grp">${mode === 'day' ? `📅 העדכונים של ${heDate(day)}` : APPS[app].name + ' · ' + heDate(ver)}</div>`;
-  if (!LIST.length) html += `<div class="empty">${mode === 'day' ? `ב־${heDate(day)} לא היו עדכונים` : 'אין שינויים'}</div>`;
-  if (phones.length) html += `<div class="phonebox"><b>📱 ${MOBILE ? 'את אלה בודקים ישר כאן, בטלפון' : 'בעדכון הזה תבדוק בטלפון'} (${phones.length}):</b><ul>${phones.map(x => `<li>${esc(x.it.e)} ${esc(x.it.t)}${mode === 'day' ? ' · ' + APPS[x.app].name : ''}</li>`).join('')}</ul></div>`;
+  if (MOBILE) html += `<div class="grp">${mode === 'todo' ? '📋 מה שמחכה לי' : mode === 'day' ? `📅 העדכונים של ${heDate(day)}` : APPS[app].name + ' · ' + heDate(ver)}</div>`;
+  if (MOBILE && !admin) html += `<button class="reload" id="lgBtnM" style="padding:10px">🔑 כניסה: כדי שמה שאישרת לא יחזור</button>`;
+  if (!LIST.length) html += `<div class="empty">${mode === 'todo' ? '🎉 אין שום דבר שמחכה לך. הכל נבדק!' : mode === 'day' ? `ב־${heDate(day)} אין מה לבדוק` : 'אין שינויים שמחכים'}</div>`;
+  if (phones.length) html += `<div class="phonebox"><b>📱 ${MOBILE ? 'את אלה בודקים ישר כאן, בטלפון' : 'בעדכון הזה תבדוק בטלפון'} (${phones.length}):</b><ul>${phones.map(x => `<li>${esc(x.it.e)} ${esc(x.it.t)}${mode !== 'app' ? ' · ' + APPS[x.app].name : ''}</li>`).join('')}</ul></div>`;
   let last = null;
-  LIST.forEach((x, k) => { if (mode === 'day' && x.app !== last) { html += `<div class="grp">${APPS[x.app].name}</div>`; last = x.app; } html += itemHTML(x, k); });
+  LIST.forEach((x, k) => { if (mode !== 'app' && x.app !== last) { html += `<div class="grp">${APPS[x.app].name}</div>`; last = x.app; } html += itemHTML(x, k); });
   if (LIST.length) html += `<div class="send"><div id="cnt"></div><button id="snd">📤 שליחה</button></div>`;
   $('#side').innerHTML = html;
   upd();
@@ -272,6 +298,7 @@ function drawSide() {
   document.querySelectorAll('.item [data-v]').forEach(b => b.onclick = () => vote(+b.dataset.k, b.dataset.v));
   document.querySelectorAll('[data-n]').forEach(t => t.oninput = () => note(+t.dataset.n, t.value));
   $('#snd') && ($('#snd').onclick = send);
+  $('#lgBtnM') && ($('#lgBtnM').onclick = async () => { if (await ensureAdmin()) { await loadReviews(); refresh(); } });
   drawBar();
 }
 function upd() { const c = $('#cnt'); if (!c) return; const [o, b, n] = counts(); c.textContent = `✅ ${o} · 🔧 ${b} · 📝 ${n} מתוך ${LIST.length}`; }
@@ -324,16 +351,20 @@ async function send() {
   const b = $('#snd'); b.disabled = true; b.textContent = 'שולח…';
   const { data: u } = await sb.auth.getUser();
   const byApp = {}; rows.forEach(r => (byApp[r[0].app] = byApp[r[0].app] || []).push(r));
+  // שומרים בשרת מה נבדק — ✅ לא יחזור, 🔧 יחזור עם ההערה
+  const up = rows.filter(([, r]) => r.v).map(([x, r]) => ({ item_key: kOf(x), app: x.app, status: r.v, note: (r.n || '').trim() || null, updated_at: new Date().toISOString() }));
+  if (up.length) { const { error } = await sb.from('bdika_reviews').upsert(up); if (error) return toast('⚠️ לא נשמר: ' + error.message); }
   let sent = 0, fail = '';
   for (const [a, list] of Object.entries(byApp)) {
-    const head = `[עמדת בדיקה] ${APPS[a].name} · ${mode === 'day' ? 'העדכונים של ' + heDate(day) : 'עדכון ' + list[0][0].v}${MOBILE ? ' · מהטלפון' : ''}\n`;
+    const head = `[עמדת בדיקה] ${APPS[a].name} · ${mode === 'todo' ? 'מה שחיכה לבדיקה' : mode === 'day' ? 'העדכונים של ' + heDate(day) : 'עדכון ' + list[0][0].v}${MOBILE ? ' · מהטלפון' : ''}\n`;
     const msg = head + list.map(([x, r], k) => `${k + 1}. ${r.v === 'ok' ? '✅' : r.v === 'bad' ? '🔧' : '📝'} ${x.it.e} ${x.it.t}${(r.n || '').trim() ? '\n   ' + r.n.trim() : ''}`).join('\n');
     const { error } = await sb.from('feedback').insert({ user_id: u.user?.id, app: APPS[a].fb, kind: 'idea', message: msg.slice(0, 4990), device: MOBILE ? 'עמדת בדיקה · טלפון' : 'עמדת בדיקה · מחשב' });
     if (error) fail = error.message; else sent += list.length;
   }
   b.disabled = false; b.textContent = '📤 שליחה';
   if (fail) return toast('⚠️ חלק לא נשלח: ' + fail);
-  putS({}); drawSide(); toast(`📤 נשלח! ${sent} פריטים, לשיחה של כל אפליקציה`);
+  const s2 = getS(); rows.forEach(([x]) => delete s2[kOf(x)]); putS(s2);
+  await loadReviews(); await refresh(); toast(`📤 נשלח! ${sent} פריטים. מה שאישרת לא יחזור`);
   if (MOBILE) $('#msheet').classList.remove('on');
 }
 start();
