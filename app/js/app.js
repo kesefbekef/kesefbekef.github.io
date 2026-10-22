@@ -1686,10 +1686,11 @@ function openAddForm(cat) {
 $('#plusBtn').onclick = () => openAddSheet();
 
 // קורא קובץ אחד → { kind, items } או זורק שגיאה עם הודעה ידידותית
-async function readOne(file, label) {
-  if (imp.isImage(file.name) || file.type.startsWith('image/')) {
-    sync.trackFail('import', 'image (no longer supported)');
-    throw Object.assign(new Error('צילום מסך כבר לא נקרא — הוא לא מספיק מדויק. הורידו מאתר או מאפליקציית הבנק / האשראי קובץ אקסל או PDF (תנועות בחשבון ← "ייצוא" / "הורדה"), ואז 📎 ← קובץ.'), { how: 1 });
+const isImg = f => imp.isImage(f.name) || f.type.startsWith('image/');
+async function readOne(file, label, forceImage = false) {
+  if (isImg(file)) {
+    // 📸 תמונה: קודם מסבירים איך מורידים קובץ מהבנק; "לנסות בכל זאת" — קוראים אותה (פחות מדויק)
+    if (!forceImage) throw Object.assign(new Error('זו תמונה, לא קובץ מהבנק'), { image: true });
     let res;
     try { res = await imp.readImage(file, p => toast(`📸 ${label}קורא צילום מסך… ${p}%`), S.learned); }
     catch (err) { if (!err.offline) sync.trackFail('import', 'image unreadable'); throw new Error(err.offline ? 'כדי לקרוא צילומי מסך צריך חיבור לאינטרנט בפעם הראשונה' : 'לא הצלחתי לקרוא את התמונה'); }
@@ -1713,7 +1714,7 @@ async function readOne(file, label) {
 }
 
 async function importFiles(files) {
-  const all = [], kinds = new Set(), errors = [], ok = [];
+  const all = [], kinds = new Set(), errors = [], ok = [], images = [];
   for (const [i, f] of files.entries()) {
     const label = files.length > 1 ? `(${i + 1}/${files.length}) ` : '';
     toast(`📄 ${label}קורא את ${f.name}…`);
@@ -1721,8 +1722,20 @@ async function importFiles(files) {
       const res = await readOne(f, label);
       for (const it of res.items) { it.kind = res.kind; it.file = f.name; it.bank = res.bank; }
       all.push(...res.items); kinds.add(res.kind); ok.push(f.name);
-    } catch (e) { errors.push(`${f.name}: ${e.message}`); }
+    } catch (e) { if (e.image) images.push(f); else errors.push(`${f.name}: ${e.message}`); }
   }
+  // 📸 רק תמונות? — חלון: איך מורידים קובץ מהבנק, או "לנסות בכל זאת"
+  if (!all.length && images.length && !errors.length) {
+    const ios = /iPhone|iPad|Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1;
+    const a = await confirmBox({ e: '📸', title: images.length > 1 ? 'אלה תמונות, לא קבצים מהבנק' : 'זו תמונה, לא קובץ מהבנק',
+      text: `הכי מדויק — קובץ אקסל או PDF מהבנק. ${ios ? 'באייפד / אייפון' : 'בטלפון'}:<span class="cb-steps">1️⃣ אפליקציית הבנק (או האתר) ← <b>"תנועות בחשבון"</b> (באשראי: "פירוט חיובים")<br>2️⃣ <b>"ייצוא"</b> / <b>"שיתוף"</b> ← אקסל או PDF ← ${ios ? '<b>"שמירה בקבצים"</b>' : 'שמירה'}<br>3️⃣ כאן: 📎 ← "קובץ אקסל או PDF" ← ${ios ? '<b>"עיון"</b>' : 'הורדות'} ← הקובץ</span><small>אפשר גם לנסות לקרוא את התמונה — פחות מדויק, כדאי לעבור על כל שורה.</small>`,
+      ok: '📸 לנסות בכל זאת', no: 'הבנתי, אוריד קובץ' });
+    if (a.how !== 'ok') return;
+    for (const f of images) {
+      try { const res = await readOne(f, '', true); for (const it of res.items) { it.kind = res.kind; it.file = f.name; } all.push(...res.items); kinds.add(res.kind); ok.push(f.name); }
+      catch (e) { errors.push(`${f.name}: ${e.message}`); }
+    }
+  } else for (const f of images) errors.push(`${f.name}: תמונה — הכי טוב להעלות קובץ אקסל או PDF מהבנק`);
   // ❌ שום קובץ לא נקרא — חלון ברור עם מה לעשות (לא הודעה קטנה שנעלמת)
   if (!all.length) {
     const a = await confirmBox({ e: '📄', title: files.length > 1 ? 'הקבצים לא נקראו' : 'הקובץ לא נקרא', text: (files.length > 1 ? errors : errors.map(x => x.slice(files[0].name.length + 2))).map(x => esc(x)).join('<br><br>') || 'לא נמצאו תנועות', ok: 'הבנתי', no: '❓ איך מורידים קובץ מהבנק' });
