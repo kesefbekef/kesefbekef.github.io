@@ -1292,17 +1292,17 @@ const dayDist = (a, b) => Math.abs(new Date(a) - new Date(b)) / 864e5;
 function markDuplicates(items) {
   // הוצאה ידנית במזומן/ביט לא תופיע בפירוט אשראי — לא מתאימים אותה
   const payOk = (t, kind) => !t.pay || (kind !== 'bank' ? t.pay === 'credit' : t.pay !== 'cash');
-  const fps = new Set(allTx().map(t => t.fp).filter(Boolean));
+  const fps = new Set(allTx().map(t => t.fp).filter(Boolean)), fpTx = new Map(allTx().filter(t => t.fp).map(t => [t.fp, t]));
   const used = new Set();
   for (const it of items) {
     if (it.kind !== 'image') it.bankDesc = it.desc; // 🏦 הטקסט המקורי מהבנק — לא משתנה גם אם משנים שם
     it.fp = fpOf(it.date, it.amount, it.desc);
-    if (fps.has(it.fp)) { it.status = 'dup-file'; continue; }
+    if (fps.has(it.fp)) { it.status = 'dup-file'; it.matchId = fpTx.get(it.fp)?.id; continue; }
     fps.add(it.fp); // אותו קובץ שהועלה פעמיים באותה העלאה
     if (it.ccCharge || it.atm || it.own) { it.status = it.ccCharge ? 'cc' : it.atm ? 'atm' : 'own'; continue; } // לא מתאימים להוצאה ידנית
     const manual = S.tx.find(t => t.source !== 'file' && !used.has(t.id) && payOk(t, it.kind) && (t.cat === 'income') === it.income &&
       Math.abs((t.inst > 1 ? t.amount : t.total ?? t.amount) - it.amount) <= 1 && dayDist(t.date, it.date) <= 3);
-    if (manual) { used.add(manual.id); it.status = 'dup-manual'; it.match = manual.desc; continue; }
+    if (manual) { used.add(manual.id); it.status = 'dup-manual'; it.match = manual.desc; it.matchId = manual.id; continue; }
     it.status = it.ccCharge ? 'cc' : it.atm ? 'atm' : it.own ? 'own' : 'new';
   }
   for (const it of items) { it.on = it.status === 'new'; applyRule(it); }
@@ -1387,6 +1387,39 @@ function askCc(list, { title = '', upload = false } = {}) {
       const v = e.target.closest('[data-v]'); if (v) { pick[v.closest('.ccl-row').dataset.i] = v.dataset.v === '1'; draw(); return; }
       const al = e.target.closest('[data-all]'); if (al) { pick.fill(al.dataset.all === '1'); draw(); return; }
       if (e.target.closest('[data-up]')) done('upload'); else if (e.target.closest('[data-ok]')) done('ok'); else if (e.target === ov) done('out');
+    });
+    document.body.appendChild(ov); draw();
+  });
+}
+// 🔁 חלון: כל כפילות אפשרית בנפרד — "⏸️ כפילות, לא לספור" או "➕ הוצאה אחרת, לספור", ו-"👀 איפה זה בצ'אט"
+const isDup = it => it.status === 'dup-manual' || it.status === 'dup-file';
+function dupPreview(t) {
+  if (!t) return '<div class="dp-none">הרשומה המקורית כבר לא קיימת</div>';
+  const c = catOf(t.cat), when = new Date(t.created || t.date), who = t.who && personOf(t.who) ? ' · ' + whoLabel(t.who) : '';
+  const from = t.source === 'file' ? `📂 מהקובץ: ${esc(listName(t.msg))}` : t.source === 'voice' ? '🎤 נאמר בצ\'אט' : t.source === 'plus' ? '➕ נוסף ב-➕' : t.source === 'recurring' ? '🔁 תשלום קבוע' : '💬 נכתב בצ\'אט';
+  return `<div class="dp"><div class="dp-from">${from} · ${when.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric', year: '2-digit' })} ${timeOf(when.toISOString())}</div>
+    ${t.source !== 'file' && t.raw ? `<div class="dp-me">${esc(t.raw)}</div>` : ''}
+    <div class="dp-bot"><span class="cat-ic" style="background:${c.g}">${c.e}</span><span><b>${esc(t.desc)} · ${fmt(t.inst > 1 ? t.total : t.amount)}</b><small>${esc(c.n)}${who}${t.date !== t.created ? ' · תאריך ההוצאה ' + new Date(t.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' }) : ''}</small></span></div></div>`;
+}
+function askDup(list) {
+  return new Promise(res => {
+    const pick = list.map(x => !!x.on);
+    const ov = document.createElement('div'); ov.className = 'cbox-ov';
+    ov.innerHTML = `<div class="cbox cc-box" role="dialog" aria-modal="true"><div class="cbox-e">🔁</div>
+      <h4>${list.length > 1 ? `${list.length} שורות שאולי כבר רשומות` : 'שורה שאולי כבר רשומה'}</h4>
+      <p>מצאתי רשומה דומה (אותו סכום, תאריך קרוב). הזיהוי לא תמיד מדויק — לכל שורה בוחרים:<br><small>⏸️ <b>כפילות</b> = כבר רשום, לא לספור שוב · ➕ <b>אחרת</b> = זו הוצאה אחרת, לספור</small></p>
+      <div class="ccl">${list.map((x, i) => `<div class="ccl-row dup-row" data-i="${i}"><div class="ccl-nm"><b>${esc(x.desc)}</b><small>${fmt(x.amount)} · ${x.date.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })} · בקובץ</small></div>
+        <div class="bmode ccl-seg"><button data-v="0">⏸️ כפילות</button><button data-v="1">➕ אחרת</button></div>
+        <button class="linkbtn dp-tg" type="button">👀 ${x.status === 'dup-file' ? 'איפה זה כבר רשום' : 'איפה זה בצ\'אט'}</button><div class="dp-wrap" hidden>${dupPreview(allTx().find(t => t.id === x.matchId))}</div></div>`).join('')}</div>
+      ${list.length > 1 ? `<div class="ccl-all">לכולן: <button class="chip" data-all="0">⏸️ כפילות</button><button class="chip" data-all="1">➕ אחרת</button></div>` : ''}
+      <button class="btn grad full" data-ok style="height:50px">✅ אישור</button></div>`;
+    const draw = () => ov.querySelectorAll('.ccl-row').forEach(r => r.querySelectorAll('[data-v]').forEach(b => b.classList.toggle('on', (b.dataset.v === '1') === pick[r.dataset.i])));
+    const done = how => { ov.classList.add('out'); setTimeout(() => ov.remove(), 180); res({ how, pick }); };
+    ov.addEventListener('click', e => {
+      const tg = e.target.closest('.dp-tg'); if (tg) { const w = tg.nextElementSibling; w.hidden = !w.hidden; return; }
+      const v = e.target.closest('[data-v]'); if (v) { pick[v.closest('.ccl-row').dataset.i] = v.dataset.v === '1'; draw(); return; }
+      const al = e.target.closest('[data-all]'); if (al) { pick.fill(al.dataset.all === '1'); draw(); return; }
+      if (e.target.closest('[data-ok]')) done('ok'); else if (e.target === ov) done('out');
     });
     document.body.appendChild(ov); draw();
   });
@@ -1722,6 +1755,7 @@ function openImportSheet(name, { kind, items, files = [name] }) {
     ${off0 ? `<div class="card tip" style="margin-bottom:10px"><div class="em">⏸️</div><p><b>${off0} שורות הגיעו בלי סימון</b> — ${[count('dup-manual') && `${count('dup-manual')} כבר רשומות ידנית`, count('cc') && `${count('cc')} חיובי אשראי (נספרים בפירוט הכרטיס)`, count('own') && `${count('own')} העברות בין החשבונות שלכם`, count('dup-file') && `${count('dup-file')} כבר יובאו בעבר`, count('atm') && `${count('atm')} משיכות מזומן`].filter(Boolean).join(' · ')}. אפשר לסמן כל אחת.</p></div>` : ''}
     ${count('atm') ? `<div class="card atm-all"><b>💵 ${count('atm')} משיכות מזומן</b><div class="sub">אפשר לבחור לכל משיכה בנפרד ברשימה, או לכולן יחד:</div>
       <div class="row2"><button class="btn ghost" data-atmall="skip">⏸️ לכולן: לא לספור<small>אני רושם את ההוצאות במזומן</small></button><button class="btn ghost" data-atmall="count">✅ לכולן: לספור<small>כהוצאה, עם קטגוריה</small></button></div></div>` : ''}
+    ${items.some(isDup) ? `<div class="card cc-card"><b>🔁 ${items.filter(isDup).length} שורות שאולי כבר רשומות</b><div class="sub">הגיעו בלי סימון. הזיהוי לא תמיד מדויק — אפשר לבדוק כל אחת.</div><button class="btn ghost full" id="dupPick" style="margin-top:8px">🔁 לבחור לכל כפילות</button></div>` : ''}
     ${ccRows.length ? `<div class="card cc-card"><b>💳 ${ccRows.length > 1 ? `${ccRows.length} חיובי כרטיס אשראי` : 'חיוב כרטיס אשראי'}</b>
       <div class="sub" id="ccNow"></div><button class="btn ghost full" id="ccPick" style="margin-top:8px">💳 לבחור לכל חיוב</button></div>` : ''}
     <div class="chips imp-filter" id="impFilter"><button class="chip on" data-f="all">הכל</button><button class="chip" data-f="on">✅ נספרות</button><button class="chip" data-f="off">⏸️ לא נספרות</button><button class="chip" id="impSel">☑️ בחירה</button></div>
@@ -1733,6 +1767,7 @@ function openImportSheet(name, { kind, items, files = [name] }) {
           <small>${it.date.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric', year: '2-digit' })}${it.note ? ' · ' + esc(it.note) : ''}${files.length > 1 ? ' · 📄 ' + esc(it.file) : ''}</small>
           ${it.refund ? `<small class="imp-why ok">↩️ זיכוי — מוריד מההוצאות ב${esc(catOf(it.cat).n)}</small>` : ''}
           ${why(it) ? `<small class="imp-why">${why(it)}</small>` : ''}
+          ${isDup(it) ? '<button class="linkbtn dup-see" type="button">👀 איפה זה רשום? / לבחור</button>' : ''}
           ${it.status === 'atm' ? `<div class="atm-q"><button data-atm="skip" class="${it.atmAns === 'skip' ? 'on' : ''}">⏸️ לא לספור<small>רושם ידנית</small></button><button data-atm="count" class="${it.atmAns === 'count' ? 'on' : ''}">✅ לספור כהוצאה</button></div>` : ''}
           <select class="imp-cat" ${it.status === 'atm' && it.atmAns !== 'count' ? 'hidden' : ''}>${catOptions(it.cat, it.income)}</select>
         </div>
@@ -1782,7 +1817,17 @@ function openImportSheet(name, { kind, items, files = [name] }) {
     };
     sh.querySelector('#ccPick')?.addEventListener('click', () => ccAsk(ccRows));
     const ccNew = ccRows.filter(it => ruleFor(it.bankDesc)?.skip === undefined);
-    if (ccNew.length && sync.isParent()) setTimeout(() => ccAsk(ccNew), 450);
+    // 🔁 כפילויות: בחירה לכל אחת
+    const dupAsk = async list => {
+      const a = await askDup(list); if (a.how !== 'ok') return;
+      list.forEach((it, i) => { it.on = a.pick[i]; it.touched = true; }); refresh();
+    };
+    sh.querySelector('#dupPick')?.addEventListener('click', () => dupAsk(items.filter(isDup)));
+    // קודם אשראי, אחר כך כפילויות — חלון אחרי חלון
+    setTimeout(async () => {
+      if (ccNew.length && sync.isParent()) await ccAsk(ccNew);
+      const d = items.filter(isDup); if (d.length && $('#sheet').classList.contains('on')) await dupAsk(d);
+    }, 450);
     sh.querySelectorAll('[data-atmall]').forEach(b => b.onclick = () => {
       const on = b.dataset.atmall === 'count';
       for (const it of items) if (it.status === 'atm') setOn(it, on);
@@ -1802,6 +1847,7 @@ function openImportSheet(name, { kind, items, files = [name] }) {
         }
       };
       row.querySelectorAll('[data-atm]').forEach(b => b.onclick = () => { setOn(it, b.dataset.atm === 'count'); refresh(); });
+      row.querySelector('.dup-see')?.addEventListener('click', () => dupAsk([it]));
       // ☑️ לחיצה ארוכה = בחירה של כמה שורות
       let tm = null;
       row.addEventListener('pointerdown', e => { if (sel || e.target.closest('input,select,button')) return; tm = setTimeout(() => { sel = new Set([+row.dataset.i]); navigator.vibrate?.(20); refresh(); }, 550); });
