@@ -262,7 +262,8 @@ async function refresh() {
     }
     LIST = N.find(n => n.v === ver).items.map((it, i) => ({ app, v: ver, i, it }));
   }
-  if (!showAll) LIST = LIST.filter(x => REV[kOf(x)]?.status !== 'ok'); // מה שאושר — לא חוזר
+  // מה שאושר — לא חוזר: לפי השרת (אישורים מהעמדה) או לפי ok: 'תאריך' בקובץ של האפליקציה
+  if (!showAll) LIST = LIST.filter(x => REV[kOf(x)]?.status !== 'ok' && !x.it.ok);
   cur = LIST.length ? 0 : -1;
   drawSide(); showAt(cur, true);
 }
@@ -278,7 +279,7 @@ function itemHTML(x, k) {
     <div class="h"><div class="e">${esc(it.e)}</div><div><b>${esc(it.t)}${mode !== 'app' ? `<span class="tagapp">${heDate(x.v)}</span>` : ''}</b><p>${esc(it.d)}</p></div></div>
     ${it.phone ? `<div class="ph"><b>📱 את זה צריך לבדוק בטלפון:</b> ${esc(it.phone)}</div>` : ''}
     ${REV[kOf(x)]?.status === 'bad' ? `<div class="ph" style="border-color:#F59E0B;color:#FDE68A"><b style="color:#FCD34D">🔧 סימנת שעוד לא טוב:</b> ${esc(REV[kOf(x)].note || '')} · אם תוקן, לסמן ✅</div>` : ''}
-    ${REV[kOf(x)]?.status === 'ok' ? `<div class="sub" style="margin-top:6px;color:#86EFAC">✅ כבר אישרת</div>` : ''}
+    ${REV[kOf(x)]?.status === 'ok' || it.ok ? `<div class="sub" style="margin-top:6px;color:#86EFAC">✅ כבר אישרת${it.ok ? ' (' + esc(heDate(String(it.ok))) + ')' : ''}</div>` : ''}
     <div class="acts"><button class="show" data-show="${k}">👀 להראות</button><button class="vok ${s.v === 'ok' ? 'on' : ''}" data-v="ok" data-k="${k}">✅ מאשר</button><button class="vbad ${s.v === 'bad' ? 'on' : ''}" data-v="bad" data-k="${k}">🔧 עוד לא טוב</button></div>
     <textarea data-n="${k}" rows="1" placeholder="הערה (לא חובה)">${esc(s.n || '')}</textarea></div>`;
 }

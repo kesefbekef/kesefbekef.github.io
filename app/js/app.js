@@ -597,7 +597,13 @@ document.querySelector('#v-budget .duo').addEventListener('click', e => {
 // קופץ פעם אחת אחרי עדכון. 'kesef-news' = הגרסה האחרונה שראו בטלפון הזה. משתמש חדש — לא מקבל (יש לו את המדריך)
 const NEWS_KEY = 'kesef-news';
 const nKey = n => n ? n.v + (n.rev ? '.' + n.rev : '') : ''; // תאריך + מהדורה באותו יום
-const newsFor = items => items.filter(i => sync.isParent() || i.kids);
+const newsFor = items => items.filter(i => (sync.isParent() || i.kids) && !i._ok);
+// 📱 למנהל: מה שכבר אישר ✅ בעמדת הבדיקה לא מוצג לו שוב ב"מה חדש" (המפתח: kesef|v|כותרת — לא לשנות כותרת אחרי פרסום)
+async function loadBdikaApproved() {
+  if (!(await sync.isAdmin())) return;
+  const ok = new Set(await sync.bdikaApproved()); if (!ok.size) return;
+  for (const n of NEWS) for (const it of n.items) if (ok.has(`kesef|${n.v}|${it.t}`)) it._ok = true;
+}
 const NEWS_GO = {
   budget: () => go('budget'),
   bmode: () => { go('budget'); spot('.bmode'); },
@@ -3634,7 +3640,7 @@ load().then(async () => {
   if (new URLSearchParams(location.search).get('v') === 'rec') { go('budget'); setTimeout(openRecurring, 400); } // לחיצה על תזכורת לפני תשלום
   await postRecurring();
   starsLink(); addLink(); if (!$('#sheet').classList.contains('on')) maybeOnboard();
-  debtReminder(); fixedReminder(); maybeNews();
+  debtReminder(); fixedReminder(); await loadBdikaApproved(); maybeNews();
 });
 
 // 🔑 הקישור מהמייל לא עבד (פג תוקף / כבר נפתח) — מסבירים ומאפשרים לשלוח שוב
