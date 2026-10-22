@@ -7,7 +7,7 @@ import * as track from './track.js';
 // 📊 נתוני שימוש כלליים למפתח (בלי תוכן) — ראו track.js
 export const reportIssue = (m, s) => track.issue(m, s);
 export const trackFail = (kind, details) => track.fail(kind, details);
-track.init({ app: 'kesef', url: CONFIG.url, key: CONFIG.key });
+if (!new URLSearchParams(location.search).has('bdika')) track.init({ app: 'kesef', url: CONFIG.url, key: CONFIG.key }); // 📱 בעמדת בדיקה — בלי מעקב
 
 let sb = null, hh = null, channel = null, onRemote = null, flushing = false;
 export const enabled = () => !!(CONFIG.url && CONFIG.key);
