@@ -1,5 +1,5 @@
 // מאפשר לאפליקציה להיפתח גם בלי אינטרנט — ומהר
-const CACHE = 'kesef-20261022092228';
+const CACHE = 'kesef-20261022092435';
 // קבצים שנשמרים מיד בהתקנה (הספריות הכבדות — אקסל/PDF — נשמרות רק בפעם הראשונה שמשתמשים בהן)
 const FILES = ['./', 'index.html', 'css/style.css', 'js/app.js', 'js/db.js', 'js/parse.js', 'js/categories.js', 'js/importer.js', 'js/exporter.js', 'js/sync.js', 'js/lock.js', 'js/help.js', 'js/demo-data.js', 'js/fixed.js', 'js/whats-new.js', 'js/review.js', 'js/config.js', 'js/track.js', 'vendor/supabase.js',
   'manifest.webmanifest', 'guide/', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png', 'icons/icon-maskable-512.png'];
