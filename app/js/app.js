@@ -2219,6 +2219,38 @@ async function purgeOldTrash() {
 // 🏦 כפתור "דפי בנק ואשראי" — אותו כפתור בתנועות, בתקציב ובחלון ה-➕ (לא צריך לחפש)
 function bankCardHtml(id) { const n = allMsgs().length;
   return `<button class="card rec-card bk-card" id="${id}"><span class="plus">🏦</span><span><b>דפי בנק ואשראי${n ? ` · ${n}` : ''}</b><small>${n ? 'הקבצים שהעליתם — לראות, לערוך כל שורה, לשנות שם' : 'עוד לא העליתם — מעלים קובץ מהבנק או מהאשראי'}</small></span></button>`; };
+// 🔍 בדיקת הדפים שכבר הועלו: העברות בין החשבונות שלכם שנספרו (הכנסה בדף אחד, הוצאה בשני), ומשיכות מזומן שנספרו כהוצאה רגילה.
+// לא משנה כלום בלי לשאול. "להשאיר" — נזכר ולא נשאל שוב. סגירה בלי תשובה — נשאל בפעם הבאה
+const XFER_RE = /העב|העברה|ביט|bit|פייבוקס|paybox|הפקדה|זיכוי מ/i, ATM_TX = /משיכת מזומן|משיכה מכספומט|משיכה מבנקט|בנקט|כספומט|מכשיר אוטומטי|atm/i;
+async function pagesCheck(manual = false) {
+  if (!sync.isParent()) return;
+  const files = allTx().filter(t => t.source === 'file' && !t.trash && t.fileKind !== 'card');
+  const pairs = [], seen = new Set();
+  for (const a of files) {
+    if (a.cat !== 'income' || a.ownOk || seen.has(a.id)) continue;
+    const b = files.find(x => x.msg !== a.msg && x.cat !== 'income' && !x.ownOk && !seen.has(x.id) && Math.abs(Math.abs(x.amount) - Math.abs(a.amount)) < .01 && dayDist(x.date, a.date) <= 1
+      && (XFER_RE.test(bankOf(a) || a.desc) || XFER_RE.test(bankOf(x) || x.desc)));
+    if (b && (!a.skip || !b.skip)) { pairs.push([a, b]); seen.add(a.id); seen.add(b.id); }
+  }
+  const atm = files.filter(t => !t.skip && t.cat !== 'income' && t.pay !== 'cash' && !t.atmOk && ATM_TX.test(bankOf(t) || t.desc));
+  const dd = t => new Date(t.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' });
+  let ch = 0;
+  if (pairs.length) {
+    const a = await confirmBox({ e: '🔄', title: `${pairs.length} העברות בין החשבונות שלכם נספרות`, text: `בין ${[...new Set(pairs.flat().map(t => listName(t.msg)))].map(n => `<b>${esc(n)}</b>`).join(' ו־')}. בדף אחד נספרות כהכנסה ובשני כהוצאה — אבל הכסף רק עבר מחשבון לחשבון:<span class="cb-steps">${pairs.slice(0, 6).map(([x]) => `🔄 ${dd(x)} · ${fmt(Math.abs(x.amount))}`).join('<br>')}${pairs.length > 6 ? `<br>ועוד ${pairs.length - 6}` : ''}</span>לא לספור אותן בשני הדפים?`,
+      ok: '✅ כן — לא לספור', no: 'להשאיר כמו שזה' });
+    if (a.how === 'ok') { for (const [x, y] of pairs) for (const t of [x, y]) if (!t.skip) { t.skipWhy = 'own'; await setCounted(t, false); ch++; } }
+    else if (a.how === 'no') for (const [x, y] of pairs) for (const t of [x, y]) { t.ownOk = true; await db.putTx(t); }
+  }
+  if (atm.length) {
+    const a = await confirmBox({ e: '💵', title: `${atm.length} משיכות מזומן נספרות כהוצאה`, text: `משיכה מהבנקט רק מעבירה כסף לארנק. אם את ההוצאות עצמן (במזומן) אתם רושמים — המשיכה לא צריכה להיספר, אחרת זה פעמיים:<span class="cb-steps">${atm.slice(0, 6).map(t => `💵 ${dd(t)} · ${fmt(t.amount)}`).join('<br>')}${atm.length > 6 ? `<br>ועוד ${atm.length - 6}` : ''}</span>`,
+      ok: '⏸️ לא לספור — אני רושם את ההוצאות', no: '✅ לספור כהוצאה' });
+    if (a.how === 'ok') for (const t of atm) { t.skipWhy = 'atm'; t.pay = 'cash'; await setCounted(t, false); ch++; }
+    else if (a.how === 'no') for (const t of atm) { t.atmOk = true; t.pay = 'cash'; await db.putTx(t); }
+  }
+  if (ch) { renderAll(); toast(`✅ ${ch} שורות סודרו`); }
+  else if (manual && !pairs.length && !atm.length) toast('✅ בדקתי את כל הדפים — הכל מסודר');
+  return pairs.length + atm.length;
+}
 // 🏷️ לדף החדש יצא בדיוק אותו שם כמו לדף אחר (למשל שני חשבונות באותו בנק) — שואלים איך לקרוא לו
 async function nameClash(msg) {
   const nm = listName(msg);
@@ -2269,10 +2301,12 @@ function openListsSheet() {
       <div class="lst-sums">${st.exp ? `<span>💸 ${fmt(st.exp)}</span>` : ''}${st.inc ? `<span class="inc">💰 ${fmt(st.inc)}</span>` : ''}${st.off ? `<span class="off">⏸️ ${st.off} לא נספרו</span>` : ''}</div>
       <div class="lst-menu" hidden><button data-a="ren">✏️ שינוי שם</button><button data-a="bank">🏦 ${S.lists?.[m]?.bank ? 'שינוי בנק / כרטיס' : 'איזה בנק / כרטיס?'}</button><button data-a="cnt">${st.off === st.n ? '✅ לספור את כל הדף' : '⏸️ לא לספור את כל הדף'}</button><button data-a="del" class="del">🗑️ מחיקה</button></div>
     </div>`).join('') : `<div class="card tip"><div class="em">📎</div><p>עוד לא העליתם קבצים. לוחצים על 📎 ליד שורת הכתיבה ← קובץ מהבנק או מהאשראי.</p></div>`}
+    ${msgs.length && sync.isParent() ? '<button class="btn ghost full" id="lstCheck" style="margin-top:6px">🔍 לבדוק את הדפים (העברות בין חשבונות, משיכות מזומן)</button>' : ''}
     ${trashN ? `<button class="btn ghost full" id="toTrash" style="margin-top:6px">🗑️ סל מחזור (${trashN})</button>` : ''}
     <button class="btn grad full" id="lstAdd" style="margin-top:10px">📎 העלאת קובץ חדש</button>`, sh => {
     sh.querySelector('#lstAdd').onclick = openAttachSheet;
     sh.querySelector('#toTrash')?.addEventListener('click', openTrashSheet);
+    sh.querySelector('#lstCheck')?.addEventListener('click', async () => { await pagesCheck(true); openListsSheet(); });
     sh.querySelectorAll('.lst').forEach(c => {
       const m = c.dataset.msg, menu = c.querySelector('.lst-menu');
       if (!c.querySelector('.lst-more')) { c.addEventListener('click', () => openFileList(m)); return; }
@@ -3160,6 +3194,7 @@ async function demoStart() {
     for (const [k, v] of Object.entries(kv)) await db.setKV(k, v, true);
   }
   await reloadFromDb(); await postRecurring();
+  setTimeout(() => { if (!$('#sheet').classList.contains('on') && !document.querySelector('.cbox-ov')) pagesCheck(); }, 6000);
   $('#gate').classList.remove('on'); openStartView();
   document.body.classList.add('demo');
   const bar = document.createElement('div'); bar.className = 'demo-bar';
@@ -4235,6 +4270,7 @@ load().then(async () => {
   await postRecurring();
   starsLink(); addLink(); if (!$('#sheet').classList.contains('on')) maybeOnboard();
   purgeOldTrash(); debtReminder(); fixedReminder(); await loadBdikaApproved(); maybeNews(); ccReminder();
+  setTimeout(() => { if (!$('#sheet').classList.contains('on') && !document.querySelector('.cbox-ov')) pagesCheck(); }, 6000);
 });
 
 // 🔑 הקישור מהמייל לא עבד (פג תוקף / כבר נפתח) — מסבירים ומאפשרים לשלוח שוב
