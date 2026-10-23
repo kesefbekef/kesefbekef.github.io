@@ -169,7 +169,7 @@ function openSheet(html, mount, fromBack = false) {
       else { const prev = curSheet; hPush({ t: 'sheet', prev, undo: () => { if (prev.reopen) { backing = true; try { prev.reopen(); } finally { backing = false; } } else openSheet(prev.html, prev.mount, true); } }); }
     } // אותו חלון בדיוק (רענון אחרי שמירה) — לא נרשם צעד חדש
   }
-  curSheet = next;
+  curSheet = next; sheetGuard = null;
   const page = html.startsWith('<!--page-->'); // מסך מלא שגוללים בו (רשימות ארוכות) — עם ✕ למעלה
   $('#sheet').classList.toggle('full', html.startsWith('<!--full-->')); // מסך מלא (✨ מה חדש)
   $('#sheet').classList.toggle('page', page);
@@ -179,7 +179,18 @@ function openSheet(html, mount, fromBack = false) {
   $('#overlay').classList.add('on'); $('#sheet').classList.add('on');
   mount?.($('#sheet'));
 }
+// 🛑 חלון שיש בו עבודה שלא נשמרה (רשימת הבדיקה של קובץ) — לפני סגירה שואלים "לצאת בלי לשמור?"
+let sheetGuard = null;
 function closeSheet(fromPop) {
+  if (sheetGuard && fromPop !== 'force') {
+    if (fromPop === true) hPush({ t: 'sheet', undo: () => closeSheet(true) }); // "חזור" כבר הוריד צעד — מחזירים אותו
+    const msg = sheetGuard; sheetGuard = null;
+    confirmBox({ e: '📄', title: 'לצאת בלי לשמור?', text: msg, ok: '↩️ להישאר', no: 'לצאת בלי לשמור' }).then(a => {
+      if (a.how === 'no') closeSheet('force'); else sheetGuard = msg;
+    });
+    return;
+  }
+  sheetGuard = null;
   $('#overlay').classList.remove('on'); $('#sheet').classList.remove('on', 'full', 'page'); clearTimeout(nxTimer);
   document.querySelector('.tour-card')?.classList.remove('hide'); // כרטיס הסיור חוזר
   document.body.classList.remove('noting', 'over-gate');
@@ -1410,16 +1421,38 @@ function markDuplicates(items) {
   const payOk = (t, kind) => !t.pay || (kind !== 'bank' ? t.pay === 'credit' : t.pay !== 'cash');
   const fps = new Set(allTx().map(t => t.fp).filter(Boolean)), fpTx = new Map(allTx().filter(t => t.fp).map(t => [t.fp, t]));
   const used = new Set(), upFp = new Map();
+  for (const it of items) { if (it.kind !== 'image') it.bankDesc = it.desc; it.fp = fpOf(it.date, it.amount, it.desc); }
+  // 🏦 "כבר יובא" — רק כשהדף הישן הוא אותו חשבון: בתקופה ששניהם מכסים, רוב השורות של הדף הישן נמצאות גם בקובץ החדש.
+  // שני חשבונות שונים (למשל של בעל ושל אשה) עם תנועה זהה במקרה — לא מסתירים אחד את השני
+  const newFps = new Set(items.map(i => i.fp)), sameAcct = new Map();
+  const dts = items.map(i => +i.date), from = Math.min(...dts), to = Math.max(...dts);
+  for (const msg of new Set(allTx().filter(t => t.fp && newFps.has(t.fp)).map(t => t.msg))) {
+    const win = allTx().filter(t => t.msg === msg && t.fp && +new Date(t.date) >= from - 864e5 && +new Date(t.date) <= to + 864e5);
+    sameAcct.set(msg, win.length ? win.filter(t => newFps.has(t.fp)).length / win.length >= .6 : false);
+  }
+  // שני קבצים באותה העלאה: "אותו קובץ פעמיים" רק כשרוב השורות שלהם זהות (אחרת — שני חשבונות שונים)
+  const fk = i => i.fileIdx ?? i.file; // אותו קובץ שנבחר פעמיים — אותו שם, מקום אחר בהעלאה
+  const byFile = new Map(); for (const i of items) (byFile.get(fk(i)) || byFile.set(fk(i), new Set()).get(fk(i))).add(i.fp);
+  const sameFiles = (a, b) => { const A = byFile.get(a), B = byFile.get(b); if (!A || !B) return true; let n = 0; for (const f of B) if (A.has(f)) n++; return n / Math.min(A.size, B.size) >= .6; };
+  const fpAll = new Map(); for (const t of allTx()) if (t.fp) (fpAll.get(t.fp) || fpAll.set(t.fp, []).get(t.fp)).push(t);
   for (const it of items) {
-    if (it.kind !== 'image') it.bankDesc = it.desc; // 🏦 הטקסט המקורי מהבנק — לא משתנה גם אם משנים שם
-    it.fp = fpOf(it.date, it.amount, it.desc);
-    if (fpTx.has(it.fp)) { it.status = 'dup-file'; it.matchId = fpTx.get(it.fp)?.id; continue; }
+    // אותה שורה יכולה להופיע בשני חשבונות (העברה ביניהם) — "כבר יובא" אם אחת מההתאמות היא מאותו חשבון
+    const old = (fpAll.get(it.fp) || []).find(t => sameAcct.get(t.msg) !== false);
+    if (old) { it.status = 'dup-file'; it.matchId = old.id; continue; }
     // אותה שורה פעמיים בהעלאה הזו: מקובץ אחר = אותו קובץ הועלה פעמיים (כפילות). מאותו קובץ = שני תשלומים אמיתיים זהים (שתי חניות) — נספרים
     const seen = upFp.get(it.fp);
-    if (seen && seen !== it.file) { it.status = 'dup-file'; continue; }
-    if (seen) it.twice = true;
-    upFp.set(it.fp, it.file);
+    if (seen !== undefined && seen !== fk(it) && sameFiles(seen, fk(it))) { it.status = 'dup-file'; continue; }
+    if (seen !== undefined) it.twice = true;
+    upFp.set(it.fp, fk(it));
     if (it.ccCharge || it.atm || it.own) { it.status = it.ccCharge ? 'cc' : it.atm ? 'atm' : 'own'; continue; } // לא מתאימים להוצאה ידנית
+    // 🔄 העברה בין שני חשבונות של המשפחה: אותו יום ואותו סכום — הכנסה בדף אחד והוצאה בדף אחר (או בקובץ אחר באותה העלאה)
+    const XFER = /העב|העברה|ביט|bit|פייבוקס|paybox|הפקדה|זיכוי מ/i;
+    if (it.kind === 'bank') {
+      const pair0 = allTx().find(t => t.source === 'file' && !t.trash && t.fileKind !== 'card' && (t.cat === 'income') !== !!it.income && Math.abs(Math.abs(t.amount) - it.amount) < .01 && dayDist(t.date, it.date) <= 1)
+        || items.find(o => o !== it && fk(o) !== fk(it) && o.kind === 'bank' && !!o.income !== !!it.income && Math.abs(o.amount - it.amount) < .01 && dayDist(o.date, it.date) <= 1);
+      const pair = pair0 && (XFER.test(it.desc) || XFER.test(pair0.bankDesc || pair0.desc || '')) ? pair0 : null;
+      if (pair) { it.status = 'own'; it.ownPair = pair.id || null; it.ownAuto = true; continue; }
+    }
     const manual = S.tx.find(t => t.source !== 'file' && !used.has(t.id) && payOk(t, it.kind) && (t.cat === 'income') === it.income &&
       Math.abs((t.inst > 1 ? t.amount : t.total ?? t.amount) - it.amount) <= 1 && dayDist(t.date, it.date) <= 3);
     if (manual) { used.add(manual.id); it.status = 'dup-manual'; it.match = manual.desc; it.matchId = manual.id; continue; }
@@ -1698,7 +1731,7 @@ function openRulesSheet() {
 const STATUS = {
   'dup-file': '🔁 כבר יובא בעבר',
   'cc': '💳 חיוב כרטיס אשראי — כבר נספר בפירוט של הכרטיס',
-  'own': '🔄 העברה בין החשבונות שלכם — הכסף לא יצא מהבית',
+  'own': '🔄 העברה בין החשבונות שלכם — הכסף לא יצא מהבית (וגם לא נכנס)',
   'atm': '💵 משיכת מזומן — מה לעשות איתה?',
 };
 
@@ -1870,7 +1903,7 @@ async function importFiles(files) {
     toast(`📄 ${label}קורא את ${f.name}…`);
     try {
       const res = await readOne(f, label);
-      for (const it of res.items) { it.kind = res.kind; it.file = f.name; it.bank = res.bank; }
+      for (const it of res.items) { it.kind = res.kind; it.file = f.name; it.fileIdx = i; it.bank = res.bank; }
       all.push(...res.items); kinds.add(res.kind); ok.push(f.name);
     } catch (e) { if (e.image) images.push(f); else errors.push(`${f.name}: ${e.message}`); }
   }
@@ -2046,7 +2079,9 @@ function openImportSheet(name, { kind, items, files = [name] }) {
       cs.onchange = () => { it.cat = cs.value; it.catChanged = true; };
     }
     refresh();
+    sheetGuard = 'הבחירות ברשימה (מה נספר, שמות, קטגוריות) עוד לא נשמרו. כדי לשמור — "↩️ להישאר" ואז "שמירה" למטה.';
     sh.querySelector('#impGo').onclick = async e => {
+      sheetGuard = null;
       if (e.currentTarget.dataset.busy) return; // לחיצה כפולה לא שומרת פעמיים
       e.currentTarget.dataset.busy = '1'; e.currentTarget.textContent = '⏳ שומר…';
       const keep = items.filter(i => i.on || i.status !== 'dup-file');
@@ -2062,6 +2097,10 @@ function openImportSheet(name, { kind, items, files = [name] }) {
         if (it.catChanged) { S.learned[it.desc.toLowerCase()] = it.cat; if (it.bankDesc) S.learned[it.bankDesc.toLowerCase()] = it.cat; }
       }
       if (keep.some(i => i.catChanged)) await db.setKV('learned', S.learned);
+      // 🔄 העברה בין החשבונות שלכם — גם הצד השני (בדף שכבר הועלה) לא נספר
+      let ownN = 0;
+      for (const it of keep) if (it.ownAuto && !it.on && it.ownPair) { const o = S.tx.find(x => x.id === it.ownPair); if (o) { o.skipWhy = 'own'; await setCounted(o, false); ownN++; } }
+      if (ownN) setTimeout(() => toast(`🔄 ${ownN} העברות בין החשבונות שלכם — לא נספרות גם בדף השני`), 2600);
       await saveListMeta(msg, { kind, bank: bankPick || [...new Set(keep.map(i => i.bank).filter(b => b && !/לא זוהה/.test(b)))].join(' + ') || '', files, created: now });
       closeSheet(); go('chat'); renderAll(ids); confetti();
       const nOn = keep.filter(i => i.on).length, nOff = keep.length - nOn, had = count('dup-file');
@@ -2075,7 +2114,7 @@ function openImportSheet(name, { kind, items, files = [name] }) {
         const k = ruleKey(it.bankDesc); if ((!nm && !ct && !sk) || k.length < 2 || seenK.has(k)) continue;
         seenK.add(k); ask.push({ bank: it.bankDesc, ...(nm ? { name: it.desc } : {}), ...(ct ? { cat: it.cat } : {}), ...(sk ? { skip: !it.on } : {}) });
       }
-      setTimeout(async () => { await ccOverlapCheck(ids); if (ask.length && sync.isParent()) askRules(ask.slice(0, 12)); }, 900);
+      setTimeout(async () => { await nameClash(msg); await ccOverlapCheck(ids); if (ask.length && sync.isParent()) askRules(ask.slice(0, 12)); }, 900);
     };
   });
 }
@@ -2086,7 +2125,7 @@ function openFileList(msg) {
   const list = () => allTx().filter(t => t.msg === msg).sort((a, b) => b.date.localeCompare(a.date));
   const l0 = list(); if (!l0.length) return;
   const sum = (inc, onOnly) => list().filter(t => (t.cat === 'income') === inc && (!onOnly || !t.skip)).reduce((s, t) => s + t.amount, 0);
-  openSheet(`<!--page--><div class="fl-head"><span>${KIND_IC[listKind(msg, l0)] || '📄'}</span><input class="imp-name fl-title" value="${esc(listName(msg, l0))}" maxlength="40" aria-label="שם הרשימה — אפשר לשנות"></div>
+  openSheet(`<!--page--><div class="fl-head"><span>${KIND_IC[listKind(msg, l0)] || '📄'}</span><input class="imp-name fl-title" value="${esc(listName(msg, l0))}" maxlength="40" aria-label="שם הדף — אפשר לשנות"></div>
     <div class="sub" style="margin:2px 0 10px">${l0.length} תנועות · ${monthsSpan(l0.map(t => new Date(t.date)))} · 📄 ${esc(l0[0].raw)} · <button class="linkbtn" id="flAll">🏦 כל הדפים</button></div>
     <div class="imp-tot" id="flTot"></div>
     <div class="sub" style="margin-bottom:6px">✏️ <b>עריכה</b> ליד כל שורה — סכום, תאריך, קטגוריה או מחיקה. ✅ = נספר בתקציב.</div>
@@ -2180,6 +2219,26 @@ async function purgeOldTrash() {
 // 🏦 כפתור "דפי בנק ואשראי" — אותו כפתור בתנועות, בתקציב ובחלון ה-➕ (לא צריך לחפש)
 function bankCardHtml(id) { const n = allMsgs().length;
   return `<button class="card rec-card bk-card" id="${id}"><span class="plus">🏦</span><span><b>דפי בנק ואשראי${n ? ` · ${n}` : ''}</b><small>${n ? 'הקבצים שהעליתם — לראות, לערוך כל שורה, לשנות שם' : 'עוד לא העליתם — מעלים קובץ מהבנק או מהאשראי'}</small></span></button>`; };
+// 🏷️ לדף החדש יצא בדיוק אותו שם כמו לדף אחר (למשל שני חשבונות באותו בנק) — שואלים איך לקרוא לו
+async function nameClash(msg) {
+  const nm = listName(msg);
+  if (!allMsgs().some(m => m !== msg && listName(m) === nm)) return;
+  const v = await askText({ e: '🏷️', title: 'יש כבר דף בשם הזה', text: `"${esc(nm)}" — איך לקרוא לדף החדש, כדי שתדעו איזה זה? (למשל: "עו"ש של אבא")`, value: nm });
+  if (v && v !== nm) { await saveListMeta(msg, { name: v }); renderAll(); toast('✅ השם נשמר'); }
+}
+// ✏️ חלון קטן עם שדה טקסט. מחזיר את הטקסט, או null בסגירה
+function askText({ e = '✏️', title, text = '', value = '', ok = '✅ שמירה' }) {
+  return new Promise(res => {
+    const ov = document.createElement('div'); ov.className = 'cbox-ov';
+    ov.innerHTML = `<div class="cbox" role="dialog" aria-modal="true"><div class="cbox-e">${e}</div><h4>${title}</h4>${text ? `<p>${text}</p>` : ''}
+      <div class="bank-other"><input maxlength="40" value="${esc(value)}"></div><div class="cbox-btns"><button class="btn ghost" data-r="0">אחר כך</button><button class="btn grad" data-r="1">${ok}</button></div></div>`;
+    const inp = ov.querySelector('input');
+    const done = v => { ov.classList.add('out'); setTimeout(() => ov.remove(), 180); res(v); };
+    ov.addEventListener('click', ev => { const b = ev.target.closest('[data-r]'); if (b) done(b.dataset.r === '1' ? inp.value.replace(/[<>]/g, '').trim() || null : null); else if (ev.target === ov) done(null); });
+    inp.addEventListener('keydown', ev => { if (ev.key === 'Enter') done(inp.value.replace(/[<>]/g, '').trim() || null); });
+    document.body.appendChild(ov); setTimeout(() => { inp.focus(); inp.select(); }, 60);
+  });
+}
 // 🏦 חלון בחירת בנק / כרטיס — כפתור לכל אחד (בלי תיבת בחירה שלא נפתחת באייפון). מחזיר שם, '' (בלי) או null (ביטול)
 function pickBank(cur = '', what = '') {
   return new Promise(res => {
@@ -2287,7 +2346,7 @@ async function alreadyUploaded(items) {
   }
   if (inLive.length >= Math.max(1, items.length * .8)) {
     const t = live.get(inLive[0].fp);
-    const a = await confirmBox({ e: '📂', title: 'את הקובץ הזה כבר העלית', text: `ב־${dm(t.created)} — <b>${esc(listName(t.msg))}</b>.<br>לפתוח את הדף?`, ok: '📂 לפתוח את הרשימה', no: 'להמשיך בכל זאת' });
+    const a = await confirmBox({ e: '🏦', title: 'את הקובץ הזה כבר העלית', text: `ב־${dm(t.created)} — <b>${esc(listName(t.msg))}</b>.<br>לפתוח את הדף?`, ok: '🏦 לפתוח את הדף', no: 'להמשיך בכל זאת' });
     if (a.how === 'ok') { openFileList(t.msg); return true; }
     return a.how === 'out';
   }
@@ -3200,7 +3259,7 @@ const TOUR = [
   { v: 'chat', sel: '#viewCard', open: () => openSettings(), t: '🎨 תצוגה', d: 'גודל כתב (רגיל/גדול/ענק), אנימציות פועל/כבוי, חודש עברי ליד הלועזי, ו📱 המסך שנפתח ראשון (צ\'אט / תקציב / תנועות / תובנות).' },
   { v: 'chat', sel: '#pushCard', open: () => openSettings(), t: '🔔 התראה לפני חריגה', d: 'ההורים מקבלים התראה בטלפון כשקטגוריה מגיעה ל-90% או עוברת 100%. לא בשבת.' },
   { v: 'chat', sel: '#toCats', open: () => openSettings(), t: '🏷️ קטגוריות משלכם', d: 'מוסיפים קטגוריה עם שם, אייקון וצבע, או משנים שם לקיימת. מגיע לכל המשפחה.' },
-  { v: 'chat', sel: '#sheet', open: () => openListsSheet(), t: '🏦 דפי בנק ואשראי', d: 'כל קובץ שהעליתם — כרטיס עם שם (אפשר לשנות), תאריכים, כמה יצא וכמה נכנס. ⋯ ← שינוי שם, "לא לספור את כל הרשימה", מחיקה לסל המחזור (30 יום, אפשר לשחזר). אותו קובץ פעמיים? — האפליקציה תציע לפתוח את הרשימה.' },
+  { v: 'chat', sel: '#sheet', open: () => openListsSheet(), t: '🏦 דפי בנק ואשראי', d: 'כל קובץ שהעליתם — כרטיס עם שם (אפשר לשנות), תאריכים, כמה יצא וכמה נכנס. ⋯ ← שינוי שם, "לא לספור את כל הדף", מחיקה לסל המחזור (30 יום, אפשר לשחזר). אותו קובץ פעמיים? — האפליקציה תציע לפתוח את הרשימה.' },
   { v: 'chat', sel: '#sheet', open: () => openRulesSheet(), t: '📏 כללים שלמדתי', d: 'בבנק כתוב "הו"ק פלאפון 4101"? משנים פעם אחת ל"פלאפון של נועה" — ובכל קובץ הבא זה קורה לבד. כאן רואים, משנים ומוחקים. ובכל תנועה מקובץ: "🏦 בבנק כתוב" עם הטקסט המקורי.' },
   { v: 'chat', sel: '#lockCard', open: () => openSettings(), t: '🔒 נעילה', d: 'טביעת אצבע, Face ID או קוד — לכל טלפון בנפרד.' },
   { v: 'chat', sel: null, t: '👨‍👩‍👧 המשפחה, QR והזמנות', d: 'ב-⚙️ (כשמחוברים): קוד להורה וקוד לילד, ריבועי QR לסריקה, הזמנה בוואטסאפ, ותפקיד הורה/ילד. (במצב הדגמה הכרטיס מוסתר.)' },
