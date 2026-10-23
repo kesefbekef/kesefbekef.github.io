@@ -169,14 +169,39 @@ export async function removeMember(uid) {
 
 // ---------- תור שליחה (עובד גם כשאין רשת) ----------
 const opKey = o => o.t === 'kv' ? 'kv:' + o.key : 'tx:' + o.id;
+// 🔒 כל שינוי בתור — אחד אחרי השני. בלי זה, 162 שורות מקובץ שנשמרות יחד דרסו זו את זו ורובן לא הגיעו לשרת
+let qLock = Promise.resolve();
+const locked = fn => { const p = qLock.then(fn, fn); qLock = p.catch(() => {}); return p; };
 async function enqueue(...ops) {
-  const box = await db.getKV('outbox', []);
-  // שינוי חדש לאותה רשומה מחליף את הישן
-  const keys = new Set(ops.map(opKey));
-  const next = box.filter(o => !keys.has(opKey(o)));
-  next.push(...ops);
-  await db.setKV('outbox', next, true);
+  await locked(async () => {
+    const box = await db.getKV('outbox', []);
+    // שינוי חדש לאותה רשומה מחליף את הישן
+    const keys = new Set(ops.map(opKey));
+    const next = box.filter(o => !keys.has(opKey(o)));
+    next.push(...ops);
+    await db.setKV('outbox', next, true);
+  });
   flush();
+}
+// 🩹 תיקון חד-פעמי: מה שיש בטלפון ולא הגיע לשרת (בגלל הבאג למעלה) — נשלח עכשיו.
+// רק מה שחסר בשרת (לא דורס שינויים מטלפון אחר, ולא מחזיר מה שנמחק שם)
+const SYNC_KEYS = ['budgets', 'learned', 'people', 'cats', 'goals', 'maaser', 'pocket', 'debts', 'recurring', 'rules', 'lists'];
+async function repairMissing() {
+  const flag = 'syncFix1:' + hh.id;
+  if (!isParent() || await db.getKV(flag, false)) return;
+  const c = await client(), ids = new Set();
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await c.from('tx').select('id').eq('household_id', hh.id).range(from, from + 999);
+    if (error) throw error;
+    data.forEach(r => ids.add(r.id)); if (data.length < 1000) break;
+  }
+  const { data: kvs, error } = await c.from('kv').select('key').eq('household_id', hh.id);
+  if (error) throw error;
+  const have = new Set(kvs.map(r => r.key)), at = Date.now();
+  const ops = (await db.allTx()).filter(t => !ids.has(t.id)).map(t => ({ t: 'tx', id: t.id, data: t, at }));
+  for (const k of SYNC_KEYS) if (!have.has(k)) { const v = await db.getKV(k, null); if (v && (Array.isArray(v) ? v.length : Object.keys(v).length)) ops.push({ t: 'kv', key: k, value: v, at }); }
+  if (ops.length) { console.info('sync repair', ops.length); await enqueue(...ops); await flush(); }
+  await db.setKV(flag, true, true);
 }
 
 // ---------- מיזוג: כששני טלפונים שומרים יחד, שומרים את השינויים של שניהם ----------
@@ -228,12 +253,15 @@ export async function flush() {
         }
       }
       if (rejected.length) {
+        track.fail('sync', `נדחו ${rejected.length}: ${rejected[0].error}`.slice(0, 120));
         const parked = await db.getKV('outboxRejected', []);
         await db.setKV('outboxRejected', [...parked, ...rejected].slice(-200), true);
       }
       // מוחקים מהתור רק את מה שנשלח (שינוי חדש יותר לאותה רשומה נשאר)
-      box = (await db.getKV('outbox', [])).filter(o => !batch.some(b => b.t === o.t && b.id === o.id && b.key === o.key && b.at === o.at));
-      await db.setKV('outbox', box, true);
+      box = await locked(async () => {
+        const b2 = (await db.getKV('outbox', [])).filter(o => !batch.some(b => b.t === o.t && b.id === o.id && b.key === o.key && b.at === o.at));
+        await db.setKV('outbox', b2, true); return b2;
+      });
     }
     status('ok');
   } catch (e) { console.warn('sync flush', e); track.fail('sync', 'flush ' + (e?.code || e?.message || e)); status('wait'); }
@@ -252,7 +280,7 @@ async function send(c, table, rows, rejected) {
 
 async function pushEverything() {
   const ops = (await db.allTx()).map(t => ({ t: 'tx', id: t.id, data: t, at: Date.now() }));
-  for (const k of ['budgets', 'learned', 'people', 'cats', 'goals', 'maaser', 'pocket', 'debts', 'recurring', 'rules', 'lists']) {
+  for (const k of SYNC_KEYS) {
     const v = await db.getKV(k, null);
     if (v && (Array.isArray(v) ? v.length : Object.keys(v).length)) ops.push({ t: 'kv', key: k, value: v, at: Date.now() });
   }
@@ -359,7 +387,7 @@ export async function start({ onRemoteChange, onStatus }) {
   }
 }
 
-async function refresh() { track.ping(sb); await flush(); if (await pull()) remoteChanged(); }
+async function refresh() { track.ping(sb); await flush(); if (await pull()) remoteChanged(); repairMissing().catch(e => console.warn('sync repair', e)); }
 let listening = false;
 function listen() {
   if (listening) return;
