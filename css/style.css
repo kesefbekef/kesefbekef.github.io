@@ -751,3 +751,23 @@ body.over-gate .sheet{z-index:111}
 .cb-steps { display: block; text-align: start; background: rgba(255,255,255,.05); border-radius: 12px; padding: 8px 10px; margin: 8px 0; font-size: 14px; line-height: 1.7; }
 .bank-sel { width: 100%; margin-top: 8px; background: var(--card2); border: 1px solid var(--line); border-radius: 12px; padding: 10px; color: inherit; font: inherit; font-size: 16px; }
 .cbox .cb-steps + .cb-steps { margin-top: 0; }
+/* ✏️ עריכת הוצאה: ברור על מה עורכים, מחיקה למעלה, קטגוריה בשורה אחת */
+.ed-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.ed-head .cat-ic { width: 48px; height: 48px; font-size: 24px; flex: none; }
+.ed-head h3 { margin: 0; overflow-wrap: anywhere; }
+.ed-acts { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.ed-lbl { margin: 4px 0 8px; }
+.ed-twin .dp { margin-top: 8px; }
+.ed-cat { width: 100%; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; background: var(--card2); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; color: inherit; font: inherit; margin-bottom: 12px; text-align: start; }
+.ed-cat small { margin-inline-start: auto; color: #EC4899; }
+#eCatWrap { margin-bottom: 12px; }
+.twin-b { font-size: 11px; background: rgba(250,204,21,.18); color: #FACC15; border-radius: 8px; padding: 1px 6px; white-space: nowrap; }
+.tx .tx-ed { font-size: 13px; opacity: .55; flex: none; margin-inline-start: 6px; }
+.bank-pick { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin: 10px 0; max-height: 46vh; overflow-y: auto; }
+.bank-other { display: flex; gap: 6px; margin-bottom: 10px; }
+.bank-other input { flex: 1; min-width: 0; font-size: 16px; background: var(--card2); border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; color: inherit; }
+.fl-end { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: none; }
+.fl-ed { font: inherit; font-size: 12px; color: #F9A8D4; background: rgba(236,72,153,.12); border: 1px solid rgba(236,72,153,.35); border-radius: 10px; padding: 4px 8px; cursor: pointer; white-space: nowrap; }
+.story-bk .ring { background: linear-gradient(135deg,#0EA5E9,#6366F1) !important; }
+.story-bk { color: #7DD3FC !important; font-weight: 700; }
+.bk-card { margin-bottom: 10px; }

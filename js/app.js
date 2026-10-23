@@ -232,7 +232,7 @@ function fileSummaryHTML(list, msg, off = 0) {
     .sort((a, b) => b[1] - a[1]).slice(0, 4).map(([c]) => catOf(c).e).join(' ');
   return `<div class="cat-ic" style="background:var(--g2)">📊</div>
     <div><b>📂 ${esc(listName(msg))}</b><div class="sub">יובאו ${list.length + off} תנועות</div><div class="sub">📅 ${monthsSpan(list.map(t => t.date))}${off ? `<br>✅ ${list.length} נספרו · ⏸️ ${off} לא נספרו` : ''}<br>${exp ? 'הוצאות ' + fmt(exp) : ''}${exp && inc ? ' · ' : ''}${inc ? 'הכנסות ' + fmt(inc) : ''} ${top}</div>
-    <div class="acts"><button data-act="viewfile" data-msg="${msg}">👀 לצפייה</button><button data-act="lists">📂 כל הרשימות</button><button data-act="undofile" data-msg="${msg}">🗑️ מחיקה</button></div></div>`;
+    <div class="acts"><button data-act="viewfile" data-msg="${msg}">👀 לצפייה</button><button data-act="lists">🏦 כל הדפים</button><button data-act="undofile" data-msg="${msg}">🗑️ מחיקה</button></div></div>`;
 }
 
 function dayLabel(d) {
@@ -443,6 +443,31 @@ async function removeTx(t) {
   renderAll();
   toastUndo(`🗑️ נמחק: ${t.desc}`, async () => { (t.skip ? S.skip : S.tx).push(t); await db.putTx(t); renderAll(); toast('↩️ הוחזר'); });
 }
+// 🔁 אותה הוצאה רשומה פעמיים? (אותו סכום, עד 4 ימים) — למשל שכירות קבועה שנרשמה לבד וגם הגיעה בקובץ מהבנק
+// שתי שורות מקובץ — כבר נבדקו בהעלאה. dupOk = המשתמש אמר "שתיהן נכונות"
+const fullAmt = x => x.inst > 1 ? x.amount : x.total ?? x.amount;
+const twinOf = t => t && !t.skip && !t.dupOk ? S.tx.find(o => o.id !== t.id && !o.dupOk && !(o.source === 'file' && t.source === 'file') &&
+  (o.cat === 'income') === (t.cat === 'income') && (o.cat === t.cat || (o.source === 'file') !== (t.source === 'file')) && Math.abs(fullAmt(o) - fullAmt(t)) <= 1 && Math.abs(new Date(o.date) - new Date(t.date)) <= 4 * 864e5) || null : null;
+// 🔁 קבוע שנרשם לבד, ואותו תשלום כבר רשום (מהבנק / ידנית) — שואלים, ולא סופרים פעמיים. "סגירה" בלי תשובה — נשאל שוב בפעם הבאה
+let recDupBusy = false;
+async function recDupCheck() {
+  if (recDupBusy || db.BDIKA || !sync.isParent()) return;
+  recDupBusy = true; let ch = false;
+  try {
+    const from = addMonths(thisMonth(), -1);
+    for (const t of S.tx.filter(x => x.source === 'recurring' && ym(new Date(x.date)) >= from)) {
+      const o = twinOf(t); if (!o) continue;
+      const r = S.recurring?.[t.rec];
+      const a = await confirmBox({ e: '🔁', title: `${esc(t.desc)} ${fmt(fullAmt(t))} — רשום פעמיים?`,
+        text: `התשלום הקבוע נרשם לבד ב־${new Date(t.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}, ונראה שהוא כבר רשום:${dupPreview(o)}זה אותו תשלום?`,
+        ok: '⏸️ אותו תשלום — לספור פעם אחת', no: '➕ תשלום אחר — לספור את שניהם',
+        opt: r && o.source === 'file' && !r.paused ? 'זה תמיד מגיע מהבנק — להפסיק לרשום את הקבוע הזה לבד' : '' });
+      if (a.how === 'ok') { t.skipWhy = 'dup'; await setCounted(t, false); ch = true;
+        if (a.opt && r) { await saveRule(t.rec, { ...r, paused: true }); toast(`⏸️ "${t.desc}" לא יירשם יותר לבד — אפשר להחזיר ב־🔁 הקבועים שלי`); } }
+      else if (a.how === 'no') { t.dupOk = o.dupOk = true; await db.putTx(t); await db.putTx(o); }
+    }
+  } finally { recDupBusy = false; if (ch) { renderAll(); toast('✅ נספר פעם אחת'); } }
+}
 // הודעה עם כפתור "בטל" — 6 שניות להתחרט
 const toastUndo = (text, undo) => toastAction(text, '↩️ בטל', undo);
 function toastAction(text, label, fn) {
@@ -510,13 +535,15 @@ function renderHero() {
 function renderStories() {
   const m = thisMonth();
   // ➕ חדשה — ראשון בשורה (שיהיה אי אפשר לפספס)
-  $('#stories').innerHTML = (sync.isParent() ? '<button class="story story-new" id="stNew" aria-label="קטגוריה חדשה"><div class="ring"><span>➕</span></div>חדשה</button>' : '') + Object.entries(CATS).map(([id, c]) => {
+  $('#stories').innerHTML = (sync.isParent() ? '<button class="story story-new" id="stNew" aria-label="קטגוריה חדשה"><div class="ring"><span>➕</span></div>חדשה</button>' : '') +
+    (allMsgs().length ? '<button class="story story-bk" id="stBank" aria-label="דפי בנק ואשראי"><div class="ring"><span>🏦</span></div>דפי בנק</button>' : '') + Object.entries(CATS).map(([id, c]) => {
     const b = budgetOf(id), sp = spentIn(id, m), p = b ? Math.min(100, sp / b * 100) : sp ? 100 : 0, over = b && sp > b;
     return `<button class="story" id="st-${id}" data-cat="${id}"><div class="ring" style="background:conic-gradient(${over ? '#F43F5E' : c.c} ${p}%, rgba(255,255,255,.12) 0)"><span>${c.e}</span>${sync.isParent() ? '<i class="st-pen" data-edit aria-label="עריכת הקטגוריה">✏️</i>' : ''}</div>${c.n.split(' ')[0]}</button>`;
   }).join('');
 }
 $('#stories').addEventListener('click', e => {
   if (e.target.closest('#stNew')) { lsSet('kesef-cathint', '1'); openCatEdit(null, () => closeSheet()); return; }
+  if (e.target.closest('#stBank')) { openListsSheet(); return; }
   const b = e.target.closest('[data-cat]'); if (!b) return;
   if (stLong) { stLong = false; return; } // אחרי לחיצה ארוכה — כבר נפתחה עריכה
   if (e.target.closest('[data-edit]')) { lsSet('kesef-cathint', '1'); openCatEdit(b.dataset.cat, () => closeSheet()); return; } // ✏️ העיפרון הקטן
@@ -549,13 +576,14 @@ function openCategory(id, m = S.month) {
       ${b ? `<div class="pbar"><i style="width:${p}%;background:${over ? 'linear-gradient(90deg,#F43F5E,#FB7185)' : c.g}"></i></div>
       <div class="sub" style="margin-top:6px">${over ? `⚠️ חריגה של ${fmt(total - b)}` : `נשארו ${fmt(b - total)}`}</div>` : ''}
     </div>
+    ${list.length ? `<div class="sub" style="margin-bottom:6px">👆 נוגעים ב${isInc ? 'הכנסה' : 'הוצאה'} — לשנות או למחוק</div>` : ''}
     <div class="card" style="padding:4px 14px;margin-bottom:12px">${list.length ? list.map(t => {
       const extra = t.inst > 1 ? ` · תשלום ${installmentNo(t, m)}/${t.inst}` : '';
       const who = t.who && personOf(t.who) ? ' · ' + (whoLabel(t.who)) : '';
-      return `<button class="tx" data-ct="${t.id}"><div class="nm"><div>${esc(t.desc)}</div><small>${new Date(t.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}${extra}${who}${t.pay ? ' · ' + PAY[t.pay].e : ''}</small></div><div class="am ${isInc ? 'plus' : ''}">${fmt(amountIn(t, m))}</div></button>`;
+      return `<button class="tx" data-ct="${t.id}"><div class="nm"><div>${esc(t.desc)}${twinOf(t) ? ' <span class="twin-b">🔁 כפול?</span>' : ''}</div><small>${new Date(t.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}${extra}${who}${t.pay ? ' · ' + PAY[t.pay].e : ''}</small></div><div class="am ${isInc ? 'plus' : ''}">${fmt(amountIn(t, m))}</div><span class="tx-ed" aria-hidden="true">✏️</span></button>`;
     }).join('') : `<div class="empty"><span class="em">🌱</span>אין ${isInc ? 'הכנסות' : 'הוצאות'} בחודש הזה</div>`}</div>
     ${isInc ? '' : `<button class="btn grad full" id="cBudget" style="margin-bottom:8px">🎯 שינוי התקציב</button>`}
-    <div class="sub" style="text-align:center">לחיצה על שורה — עריכה</div>`, sh => {
+    `, sh => {
     sh.querySelectorAll('[data-cm]').forEach(x => x.onclick = () => openCategory(id, addMonths(m, Number(x.dataset.cm))));
     sh.querySelectorAll('[data-ct]').forEach(x => x.onclick = () => { const t = S.tx.find(y => y.id === x.dataset.ct); if (t) openEditSheet(t); });
     sh.querySelector('#cBudget')?.addEventListener('click', () => openBudgetEdit(id));
@@ -573,7 +601,7 @@ function renderBudget() {
   const rl = Object.values(S.recurring || {}).filter(r => !r.paused), rIn = rl.filter(r => r.cat === 'income').reduce((x, r) => x + r.amount, 0), rOut = rl.filter(r => r.cat !== 'income').reduce((x, r) => x + r.amount, 0);
   $('#budgetList').innerHTML = `<div class="bud-top"><button class="card newcat ${hint ? 'pulse' : ''}" id="catsBtn"><span class="plus">🏷️</span><span><b>הקטגוריות שלכם — להוסיף / לשנות</b><small>➕ קטגוריה חדשה · ✏️ שם, אייקון וצבע</small></span><i class="cats-go">›</i>${hint ? '<i class="hint">חדש ✨</i>' : ''}</button>
     <div class="bmode" role="group" aria-label="סוג התקציב"><button data-bmode="auto" class="${mode === 'auto' ? 'on' : ''}">🪄 אוטומטי</button><button data-bmode="manual" class="${mode === 'manual' ? 'on' : ''}">✍️ אני קובע</button></div></div>
-    <button class="card rec-card" id="recCard"><span class="plus">🔁</span><span><b>הקבועים שלי${rl.length ? ` · ${rl.length}` : ''}</b><small>${rl.length ? `נכנס ${fmt(rIn)} · יוצא ${fmt(rOut)} — כל חודש, לבד` : 'שכירות, ועד בית, משכורת — פעם אחת, ונרשם לבד כל חודש'}</small></span></button>` + Object.entries(CATS).map(([id, c]) => {
+    ${bankCardHtml('bkBudget')}<button class="card rec-card" id="recCard"><span class="plus">🔁</span><span><b>הקבועים שלי${rl.length ? ` · ${rl.length}` : ''}</b><small>${rl.length ? `נכנס ${fmt(rIn)} · יוצא ${fmt(rOut)} — כל חודש, לבד` : 'שכירות, ועד בית, משכורת — פעם אחת, ונרשם לבד כל חודש'}</small></span></button>` + Object.entries(CATS).map(([id, c]) => {
     const s = spentIn(id, m), b = budgetOf(id), p = b ? Math.min(100, s / b * 100) : 0, o = b && s > b, left = b - s;
     // ✉️ מעטפה: כמה נשאר — בגדול. אדום כשנגמר / חרגנו
     const env = !b ? `<div class="env"><small>הוצאתם</small><b>${fmt(s)}</b></div>`
@@ -584,6 +612,7 @@ function renderBudget() {
 }
 $('#budgetList').addEventListener('click', e => {
   if (e.target.closest('#recCard')) { openRecurring(); return; }
+  if (e.target.closest('#bkBudget')) { openListsSheet(); return; }
   if (e.target.closest('#catsBtn')) { lsSet('kesef-cathint', '1'); openCatsSheet(); return; }
   const bm = e.target.closest('[data-bmode]'); if (bm) { setBudgetMode(bm.dataset.bmode); return; }
   const ec = e.target.closest('[data-ecat]'); if (ec) { lsSet('kesef-cathint', '1'); openCatEdit(ec.dataset.ecat, () => closeSheet()); return; }
@@ -612,6 +641,8 @@ const NEWS_GO = {
   cats: () => { go('budget'); openCatsSheet(); },
   rules: () => openRulesSheet(),
   lists: () => openListsSheet(),
+  bkTx: () => { go('tx'); spot('#bkTx'); },
+  txEdit: () => { go('tx'); spot('#txList'); },
   addEdit: () => openAddSheet(true),
   stPen: () => { go('chat'); $('#stories').scrollLeft = 0; spot('#stories .story[data-cat] .st-pen'); },
   expenses: () => { go('budget'); openExpenses(); },
@@ -1010,6 +1041,7 @@ $('#tips').addEventListener('click', e => { const b = e.target.closest('[data-go
 // ---------- תנועות ----------
 function renderTx() {
   const m = S.month, q = S.search.trim().toLowerCase();
+  $('#txFiles').innerHTML = bankCardHtml('bkTx');
   const used = [...new Set(txInMonth(m).map(t => t.cat))];
   $('#txFilter').innerHTML = `<button class="chip ${!S.catFilter ? 'on' : ''}" data-f="">הכל</button>` +
     used.map(id => `<button class="chip ${S.catFilter === id ? 'on' : ''}" data-f="${id}">${catOf(id).e} ${catOf(id).n}</button>`).join('');
@@ -1023,7 +1055,7 @@ function renderTx() {
   $('#txList').innerHTML = list.length ? list.map(t => {
     const c = catOf(t.cat), inc = t.cat === 'income';
     const extra = t.inst > 1 ? ` · תשלום ${installmentNo(t, m)}/${t.inst}` : '';
-    return `<button class="tx" data-id="${t.id}"><div class="cat-ic" style="background:${c.g}">${c.e}</div><div class="nm"><div>${esc(t.desc)}</div><small>${c.n} · ${new Date(t.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}${extra}${t.pay ? ' · ' + PAY[t.pay].e + ' ' + PAY[t.pay].n : ''}${t.who && personOf(t.who) ? ' · ' + (whoLabel(t.who)) : ''}${t.tags?.length ? ' · ' + t.tags.map(g => '#' + esc(g)).join(' ') : ''}${t.receipt ? ' · 🧾' : ''}${t.rec ? ' · 🔁' : ''}</small></div><div class="am ${inc ? 'plus' : ''}">${inc ? '+' : ''}${t.estimate ? '≈' : ''}${fmt(t.amount)}</div></button>`;
+    return `<button class="tx" data-id="${t.id}"><div class="cat-ic" style="background:${c.g}">${c.e}</div><div class="nm"><div>${esc(t.desc)}${twinOf(t) ? ' <span class="twin-b">🔁 כפול?</span>' : ''}</div><small>${c.n} · ${new Date(t.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}${extra}${t.pay ? ' · ' + PAY[t.pay].e + ' ' + PAY[t.pay].n : ''}${t.who && personOf(t.who) ? ' · ' + (whoLabel(t.who)) : ''}${t.tags?.length ? ' · ' + t.tags.map(g => '#' + esc(g)).join(' ') : ''}${t.receipt ? ' · 🧾' : ''}${t.rec ? ' · 🔁' : ''}</small></div><div class="am ${inc ? 'plus' : ''}">${inc ? '+' : ''}${t.estimate ? '≈' : ''}${fmt(t.amount)}</div></button>`;
   }).join('') : `<div class="empty"><span class="em">🔍</span>אין תנועות ${S.catFilter || q ? 'שמתאימות לחיפוש' : 'בחודש הזה'}</div>`;
 }
 $('#txFilter').addEventListener('click', e => {
@@ -1032,6 +1064,7 @@ $('#txFilter').addEventListener('click', e => {
   const b = e.target.closest('[data-f]'); if (!b) return; S.catFilter = b.dataset.f || null; if (!b.dataset.f) S.whoFilter = null; renderTx();
 });
 $('#search').addEventListener('input', e => { S.search = e.target.value; renderTx(); });
+$('#txFiles').addEventListener('click', e => { if (e.target.closest('#bkTx')) openListsSheet(); });
 $('#txList').addEventListener('click', e => {
   const b = e.target.closest('[data-id]'); if (!b) return;
   const t = S.tx.find(x => x.id === b.dataset.id); if (t) openEditSheet(t);
@@ -1039,7 +1072,15 @@ $('#txList').addEventListener('click', e => {
 
 function openEditSheet(t) {
   let cat = t.cat, pay = t.pay || null, who = t.who || null, armed = false;
-  openSheet(`<h3>✏️ עריכה</h3>
+  const tc = catOf(t.cat), inc0 = t.cat === 'income', twin = twinOf(t), dd = x => new Date(x.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' });
+  const srcOf = x => x.source === 'file' ? '🏦 מהבנק' : x.source === 'recurring' ? '🔁 קבוע' : x.source === 'plus' ? '➕' : '💬 מהצ\'אט';
+  openSheet(`<div class="ed-head"><div class="cat-ic" style="background:${tc.g}">${tc.e}</div><div><h3>${esc(t.desc)}</h3>
+      <div class="sub">${t.amount < 0 ? '↩️ ' : ''}${fmt(Math.abs(t.inst > 1 ? t.total : t.amount))} · ${dd(t)}${t.who && personOf(t.who) ? ' · ' + whoLabel(t.who) : ''} · ${srcOf(t)}${t.skip ? ' · ⏸️ לא נספר' : ''}</div></div></div>
+    <div class="ed-acts"><button class="chip" id="eDelTop">🗑️ למחוק את ה${inc0 ? 'הכנסה' : 'הוצאה'}</button><button class="chip" id="eCntTop">${t.skip ? '✅ לספור' : '⏸️ לא לספור'}</button></div>
+    ${twin ? `<div class="card cc-card ed-twin"><b>🔁 נראה כפול?</b><div class="sub">אותו סכום רשום גם ב־${dd(twin)} · ${srcOf(twin)}</div>${dupPreview(twin)}
+      <div class="row2" style="margin-top:8px"><button class="btn ghost" data-tw="skip">⏸️ לא לספור את זו</button><button class="btn ghost" data-tw="ok">➕ שתיהן נכונות</button></div>
+      <button class="chip" data-tw="open" style="margin-top:8px">👀 לפתוח את השנייה</button></div>` : ''}
+    <div class="sub ed-lbl">✏️ לשנות פרטים:</div>
     ${bankOf(t) ? `<div class="bank-line">🏦 בבנק כתוב: <b><bdi>${esc(bankOf(t))}</bdi></b></div>` : t.raw && t.raw !== t.desc && t.source !== 'file' ? `<div class="sub" style="margin:-6px 0 12px">📝 נכתב במקור: "${esc(t.raw)}"</div>` : ''}
     <label class="field"><span>תיאור (מה זה היה)</span><input id="eDesc" value="${esc(t.desc)}"></label>
     <div class="row2">
@@ -1048,7 +1089,8 @@ function openEditSheet(t) {
     </div>
     ${t.inst > 1 ? `<div class="sub" style="margin:-4px 0 10px">${t.inst} תשלומים של ${fmt(t.amount)}</div>` : ''}
     <div class="err" id="eErr"></div>
-    ${catGrid(cat)}
+    <button class="ed-cat" id="eCatBtn"><span>🏷️ קטגוריה:</span> <b id="eCatNm">${tc.e} ${esc(tc.n)}</b><small>לשנות ▾</small></button>
+    <div id="eCatWrap" hidden>${catGrid(cat)}</div>
     <div class="sub" style="margin-bottom:8px">אמצעי תשלום</div>
     <div class="chips" id="ePay" style="flex-wrap:wrap;margin-bottom:14px">${Object.entries(PAY).map(([id, p]) => `<button class="chip ${id === pay ? 'on' : ''}" data-p="${id}">${p.e} ${p.n}</button>`).join('')}</div>
     ${S.people.length ? `<div class="sub" style="margin-bottom:8px">של מי?</div><div class="chips" id="eWho" style="flex-wrap:wrap;margin-bottom:14px">${whoChips(who)}</div>` : ''}
@@ -1063,7 +1105,9 @@ function openEditSheet(t) {
     sh.querySelectorAll('[data-cat]').forEach(btn => btn.onclick = () => {
       cat = btn.dataset.cat; sh.querySelectorAll('[data-cat]').forEach(x => x.classList.toggle('sel', x === btn));
       sh.querySelector('#eGive').hidden = cat !== 'give';
+      sh.querySelector('#eCatNm').textContent = `${catOf(cat).e} ${catOf(cat).n}`; sh.querySelector('#eCatWrap').hidden = true;
     });
+    sh.querySelector('#eCatBtn').onclick = () => { const w = sh.querySelector('#eCatWrap'); w.hidden = !w.hidden; };
     let gx = !!t.extraGive;
     sh.querySelectorAll('[data-gx]').forEach(b => b.onclick = () => { gx = b.dataset.gx === '1'; sh.querySelectorAll('[data-gx]').forEach(x => x.classList.toggle('on', x === b)); });
     sh.querySelectorAll('#eWho [data-w]').forEach(btn => btn.onclick = () => {
@@ -1119,6 +1163,22 @@ function openEditSheet(t) {
       if (!armed) { armed = true; e.target.textContent = 'בטוח? לחץ שוב'; return; }
       closeSheet(); await removeTx(t);
     };
+    sh.querySelector('#eDelTop').onclick = async () => {
+      const a = await confirmBox({ e: '🗑️', title: `למחוק את "${esc(t.desc)}"?`, text: `${fmt(Math.abs(t.inst > 1 ? t.total : t.amount))} · ${dd(t)}. אפשר להתחרט מיד אחרי — "↩️ בטל".`, ok: '🗑️ למחוק', no: 'לא' });
+      if (a.how === 'ok') { closeSheet(); await removeTx(t); }
+    };
+    sh.querySelector('#eCntTop').onclick = async () => {
+      const on = !!t.skip; await setCounted(t, on); closeSheet(); renderAll();
+      toastUndo(on ? `✅ נספר: ${t.desc}` : `⏸️ לא נספר: ${t.desc}`, async () => { await setCounted(t, !on); renderAll(); toast('↩️ הוחזר'); });
+    };
+    sh.querySelectorAll('[data-tw]').forEach(b => b.onclick = async () => {
+      const w = b.dataset.tw;
+      if (w === 'open') { openEditSheet(twin); return; }
+      if (w === 'skip') { t.skipWhy = 'dup'; await setCounted(t, false); closeSheet(); renderAll();
+        toastUndo(`⏸️ לא נספר (כפול): ${t.desc}`, async () => { await setCounted(t, true); renderAll(); toast('↩️ הוחזר'); }); return; }
+      t.dupOk = twin.dupOk = true; await db.putTx(t); await db.putTx(twin); toast('✅ סומן: שתיהן נכונות — לא נשאל שוב');
+      sh.querySelector('.ed-twin')?.remove(); renderAll();
+    });
   });
 }
 
@@ -1572,7 +1632,7 @@ const IN_TEST = ['הפועלים', 'דיסקונט', 'מזרחי טפחות', '�
 function openAttachSheet() {
   openSheet(`<h3>📎 העלאת פירוט מהבנק או מהאשראי</h3>
     <div class="sub" style="margin:-6px 0 14px">קובץ מאתר הבנק או חברת האשראי · אפשר כמה קבצים יחד, גם חודשים אחורה</div>
-    ${allMsgs().length ? `<button class="btn ghost full" id="atLists" style="margin-bottom:12px">📂 הרשימות שלי — ${allMsgs().length} קבצים שהעליתם</button>` : ''}
+    ${allMsgs().length ? `<button class="btn ghost full" id="atLists" style="margin-bottom:12px">🏦 דפי בנק ואשראי — ${allMsgs().length} קבצים שהעליתם</button>` : ''}
     <button class="pick" data-pick="doc"><span class="pe" style="background:var(--g3)">📊</span><span><b>קובץ אקסל או PDF</b><small>שהורדת מהאתר או מהאפליקציה של הבנק / האשראי</small></span></button>
     <div class="card bank-ok"><b>🏦 איזה בנקים?</b>
       <div class="sub" style="margin-top:4px">✅ <b>נבדק עם קבצים אמיתיים:</b> ${VERIFIED.map(([b, f]) => `${b} (${f})`).join(' · ')}</div>
@@ -1595,9 +1655,10 @@ function openAddSheet(edit = false) {
     ${edit ? '<div class="sub" style="margin:-4px 0 12px">נוגעים בקטגוריה ← שם, אייקון, צבע (ואת אלה שהוספתם — גם למחוק)</div>' : ''}
     <div class="catgrid${edit ? ' cat-editing' : ''}">${ids.filter(id => !edit || id !== 'income').map(id => { const c = catOf(id);
       return `<button class="catbtn${id === 'income' ? ' inc' : ''}" data-cat="${id}"><div class="cat-ic" style="background:${c.g}">${c.e}</div>${id === 'income' ? 'הכנסה' : c.n}${edit ? '<i class="cat-pen">✏️</i>' : ''}</button>`; }).join('')}${parent ? '<button class="catbtn cat-new" id="addNewCat"><div class="cat-ic">➕</div>קטגוריה חדשה</button>' : ''}</div>
-    ${edit ? '' : '<button class="btn ghost full" id="addFile">📎 או: העלאת פירוט מהבנק / אשראי</button>'}`, sh => {
+    ${edit ? '' : `<button class="btn ghost full" id="addFile">📎 או: העלאת פירוט מהבנק / אשראי</button>${allMsgs().length ? `<button class="btn ghost full" id="addLists" style="margin-top:8px">🏦 דפי בנק ואשראי · ${allMsgs().length}</button>` : ''}`}`, sh => {
     sh.querySelectorAll('[data-cat]').forEach(b => b.onclick = () => edit ? openCatEdit(b.dataset.cat, () => openAddSheet(true)) : openAddForm(b.dataset.cat));
     sh.querySelector('#addEditCats')?.addEventListener('click', () => openAddSheet(!edit));
+    sh.querySelector('#addLists')?.addEventListener('click', openListsSheet);
     sh.querySelector('#addNewCat')?.addEventListener('click', () => openCatEdit(null, () => openAddSheet(edit)));
     sh.querySelector('#addFile')?.addEventListener('click', openAttachSheet);
   });
@@ -1779,7 +1840,7 @@ function openImportSheet(name, { kind, items, files = [name] }) {
     ${off0 ? `<div class="card tip" style="margin-bottom:10px"><div class="em">⏸️</div><p><b>${off0} שורות הגיעו בלי סימון</b> — ${[count('dup-manual') && `${count('dup-manual')} כבר רשומות ידנית`, count('cc') && `${count('cc')} חיובי אשראי (נספרים בפירוט הכרטיס)`, count('own') && `${count('own')} העברות בין החשבונות שלכם`, count('dup-file') && `${count('dup-file')} כבר יובאו בעבר`, count('atm') && `${count('atm')} משיכות מזומן`].filter(Boolean).join(' · ')}. אפשר לסמן כל אחת.</p></div>` : ''}
     ${count('atm') ? `<div class="card atm-all"><b>💵 ${count('atm')} משיכות מזומן</b><div class="sub">אפשר לבחור לכל משיכה בנפרד ברשימה, או לכולן יחד:</div>
       <div class="row2"><button class="btn ghost" data-atmall="skip">⏸️ לכולן: לא לספור<small>אני רושם את ההוצאות במזומן</small></button><button class="btn ghost" data-atmall="count">✅ לכולן: לספור<small>כהוצאה, עם קטגוריה</small></button></div></div>` : ''}
-    ${noBank ? `<div class="card cc-card"><b>🏦 איזה ${kind === 'card' ? 'כרטיס' : 'בנק'}?</b><div class="sub">לא כתוב בקובץ — כדי שהרשימה תקבל שם ברור (למשל "עו"ש ${kind === 'card' ? 'ישראכרט' : 'לאומי'} · אוקטובר")</div>
+    ${noBank ? `<div class="card cc-card"><b>🏦 איזה ${kind === 'card' ? 'כרטיס' : 'בנק'}?</b><div class="sub">לא כתוב בקובץ — כדי שהדף יקבל שם ברור (למשל "עו"ש ${kind === 'card' ? 'ישראכרט' : 'לאומי'} · אוקטובר")</div>
       <select id="impBank" class="bank-sel"><option value="">— לבחור —</option>${imp.BANK_NAMES.map(b => `<option>${b}</option>`).join('')}<option value="__other">✏️ אחר…</option></select></div>` : ''}
     ${items.some(isDup) ? `<div class="card cc-card"><b>🔁 ${items.filter(isDup).length} שורות שאולי כבר רשומות</b><div class="sub">הגיעו בלי סימון. הזיהוי לא תמיד מדויק — אפשר לבדוק כל אחת.</div><button class="btn ghost full" id="dupPick" style="margin-top:8px">🔁 לבחור לכל כפילות</button></div>` : ''}
     ${ccRows.length ? `<div class="card cc-card"><b>💳 ${ccRows.length > 1 ? `${ccRows.length} חיובי כרטיס אשראי` : 'חיוב כרטיס אשראי'}</b>
@@ -1935,8 +1996,9 @@ function openFileList(msg) {
   const l0 = list(); if (!l0.length) return;
   const sum = (inc, onOnly) => list().filter(t => (t.cat === 'income') === inc && (!onOnly || !t.skip)).reduce((s, t) => s + t.amount, 0);
   openSheet(`<!--page--><div class="fl-head"><span>${KIND_IC[listKind(msg, l0)] || '📄'}</span><input class="imp-name fl-title" value="${esc(listName(msg, l0))}" maxlength="40" aria-label="שם הרשימה — אפשר לשנות"></div>
-    <div class="sub" style="margin:2px 0 10px">${l0.length} תנועות · ${monthsSpan(l0.map(t => new Date(t.date)))} · 📄 ${esc(l0[0].raw)} · <button class="linkbtn" id="flAll">📂 כל הרשימות</button></div>
+    <div class="sub" style="margin:2px 0 10px">${l0.length} תנועות · ${monthsSpan(l0.map(t => new Date(t.date)))} · 📄 ${esc(l0[0].raw)} · <button class="linkbtn" id="flAll">🏦 כל הדפים</button></div>
     <div class="imp-tot" id="flTot"></div>
+    <div class="sub" style="margin-bottom:6px">✏️ <b>עריכה</b> ליד כל שורה — סכום, תאריך, קטגוריה או מחיקה. ✅ = נספר בתקציב.</div>
     <div class="chips imp-filter" id="flFilter"><button class="chip on" data-f="all">הכל</button><button class="chip" data-f="on">✅ נספרות</button><button class="chip" data-f="off">⏸️ לא נספרות</button></div>
     <div class="card imp-list" style="padding:4px 12px">${l0.map(t => `
       <div class="tx imp-row fl-row" data-id="${t.id}">
@@ -1944,7 +2006,8 @@ function openFileList(msg) {
         <div class="nm"><div class="fl-name"><span>${catOf(t.cat).e}</span><input class="imp-name fl-in" value="${esc(t.desc)}" aria-label="שם — אפשר לשנות" placeholder="✏️ מה זה? (למשל: משכנתא — דירה ברחוב…)"></div>
           ${bankOf(t) && bankOf(t) !== t.desc ? `<small class="imp-bank">🏦 בבנק: <bdi>${esc(bankOf(t))}</bdi></small>` : ''}
           <small>${new Date(t.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric', year: '2-digit' })}</small></div>
-        <div class="am ${t.cat === 'income' || t.amount < 0 ? 'plus' : ''}">${t.amount < 0 ? '−' + fmt(-t.amount) : (t.cat === 'income' ? '+' : '') + fmt(t.amount)}</div>
+        <div class="fl-end"><div class="am ${t.cat === 'income' || t.amount < 0 ? 'plus' : ''}">${t.amount < 0 ? '−' + fmt(-t.amount) : (t.cat === 'income' ? '+' : '') + fmt(t.amount)}</div>
+          <button class="fl-ed" aria-label="עריכה: סכום, קטגוריה, מחיקה">✏️ עריכה</button></div>
       </div>`).join('')}</div>`, sh => {
     const draw = () => {
       const e = sum(false, true), e0 = sum(false), inc = sum(true, true), inc0 = sum(true), n = list().filter(t => !t.skip).length;
@@ -1957,7 +2020,7 @@ function openFileList(msg) {
     };
     const ti = sh.querySelector('.fl-title');
     ti.addEventListener('keydown', e => { if (e.key === 'Enter') ti.blur(); });
-    ti.addEventListener('change', async () => { const v = ti.value.replace(/[<>]/g, '').trim(); if (v) { await saveListMeta(msg, { name: v }); renderAll(); toast('✅ שם הרשימה נשמר'); } else ti.value = listName(msg); });
+    ti.addEventListener('change', async () => { const v = ti.value.replace(/[<>]/g, '').trim(); if (v) { await saveListMeta(msg, { name: v }); renderAll(); toast('✅ השם נשמר'); } else ti.value = listName(msg); });
     sh.querySelector('#flAll').onclick = () => openListsSheet();
     sh.querySelectorAll('#flFilter [data-f]').forEach(b => b.onclick = () => { filter = b.dataset.f; sh.querySelectorAll('#flFilter [data-f]').forEach(x => x.classList.toggle('on', x === b)); draw(); });
     sh.querySelectorAll('.fl-row').forEach(row => {
@@ -2005,7 +2068,7 @@ async function trashList(msg) {
   const now = new Date().toISOString(), l = listTx(msg);
   for (const t of l) { t.trashWas = !!t.skip; t.skip = true; t.trash = now; await db.putTx(t); }
   setAllTx([...S.tx, ...S.skip, ...S.trash]); renderAll();
-  toastAction(`🗑️ הרשימה עברה לסל המחזור (${l.length} תנועות)`, '↩️ בטל', () => restoreList(msg));
+  toastAction(`🗑️ הדף עבר לסל המחזור (${l.length} תנועות)`, '↩️ בטל', () => restoreList(msg));
 }
 async function restoreList(msg) {
   const l = S.trash.filter(t => t.msg === msg);
@@ -2023,17 +2086,38 @@ async function purgeOldTrash() {
   for (const m of old) await purgeList(m);
 }
 
+// 🏦 כפתור "דפי בנק ואשראי" — אותו כפתור בתנועות, בתקציב ובחלון ה-➕ (לא צריך לחפש)
+function bankCardHtml(id) { const n = allMsgs().length;
+  return `<button class="card rec-card bk-card" id="${id}"><span class="plus">🏦</span><span><b>דפי בנק ואשראי${n ? ` · ${n}` : ''}</b><small>${n ? 'הקבצים שהעליתם — לראות, לערוך כל שורה, לשנות שם' : 'עוד לא העליתם — מעלים קובץ מהבנק או מהאשראי'}</small></span></button>`; };
+// 🏦 חלון בחירת בנק / כרטיס — כפתור לכל אחד (בלי תיבת בחירה שלא נפתחת באייפון). מחזיר שם, '' (בלי) או null (ביטול)
+function pickBank(cur = '', what = '') {
+  return new Promise(res => {
+    const ov = document.createElement('div'); ov.className = 'cbox-ov';
+    ov.innerHTML = `<div class="cbox" role="dialog" aria-modal="true"><div class="cbox-e">🏦</div><h4>איזה בנק / כרטיס?</h4>${what ? `<p>${esc(what)}</p>` : ''}
+      <div class="bank-pick">${imp.BANK_NAMES.map(b => `<button class="chip ${b === cur ? 'on' : ''}" data-b="${esc(b)}">${esc(b)}</button>`).join('')}</div>
+      <div class="bank-other"><input placeholder="✏️ אחר — שם הבנק או הכרטיס" maxlength="30" value="${cur && !imp.BANK_NAMES.includes(cur) ? esc(cur) : ''}"><button class="chip" data-b="__in">✅</button></div>
+      <div class="cbox-btns"><button class="btn ghost" data-b="__x">ביטול</button>${cur ? '<button class="btn ghost" data-b="">— בלי בנק</button>' : ''}</div></div>`;
+    const done = v => { ov.classList.add('out'); setTimeout(() => ov.remove(), 180); res(v); };
+    ov.addEventListener('click', e => { const b = e.target.closest('[data-b]');
+      if (!b) { if (e.target === ov) done(null); return; }
+      const k = b.dataset.b; if (k === '__x') return done(null);
+      if (k === '__in') { const v = ov.querySelector('input').value.replace(/[<>]/g, '').trim(); if (v) done(v); else ov.querySelector('input').focus(); return; }
+      done(k); });
+    ov.querySelector('input').addEventListener('keydown', e => { if (e.key === 'Enter') ov.querySelector('[data-b="__in"]').click(); });
+    document.body.appendChild(ov);
+  });
+}
 function openListsSheet() {
   const msgs = allMsgs().map(m => ({ m, l: listTx(m) })).map(x => ({ ...x, st: listStats(x.l) })).sort((a, b) => b.st.created.localeCompare(a.st.created));
   const trashN = new Set(S.trash.map(t => t.msg)).size;
-  openSheet(`<!--page--><h3>📂 הרשימות שלי</h3>
-    <div class="sub" style="margin:-6px 0 12px">כל קובץ שהעליתם — רשימה. נגיעה ← כל התנועות שלה. ⋯ ← שינוי שם, לא לספור, מחיקה.</div>
+  openSheet(`<!--page--><h3>🏦 דפי בנק ואשראי</h3>
+    <div class="sub" style="margin:-6px 0 12px">כל קובץ שהעליתם מהבנק או מהאשראי — דף. נגיעה ← כל התנועות שלו. ⋯ ← שינוי שם, לא לספור, מחיקה.</div>
     ${msgs.length ? msgs.map(({ m, l, st }) => `<div class="card lst" data-msg="${m}">
       <div class="lst-top"><div class="lst-ic">${KIND_IC[listKind(m, l)] || '📄'}</div>
         <div class="lst-nm"><b class="lst-name">${esc(listName(m, l))}</b><small>📅 ${dm(st.from) === dm(st.to) ? dm(st.from) : `מ־${dm(st.from)} עד ${dm(st.to)}`} · ${st.n} תנועות · הועלה ${dm(st.created)}</small></div>
         ${sync.isParent() ? '<button class="lst-more" aria-label="עוד פעולות">⋯</button>' : ''}</div>
       <div class="lst-sums">${st.exp ? `<span>💸 ${fmt(st.exp)}</span>` : ''}${st.inc ? `<span class="inc">💰 ${fmt(st.inc)}</span>` : ''}${st.off ? `<span class="off">⏸️ ${st.off} לא נספרו</span>` : ''}</div>
-      <div class="lst-menu" hidden><button data-a="ren">✏️ שינוי שם</button><button data-a="bank">🏦 ${S.lists?.[m]?.bank ? 'שינוי בנק / כרטיס' : 'איזה בנק / כרטיס?'}</button><button data-a="cnt">${st.off === st.n ? '✅ לספור את כל הרשימה' : '⏸️ לא לספור את כל הרשימה'}</button><button data-a="del" class="del">🗑️ מחיקה</button></div>
+      <div class="lst-menu" hidden><button data-a="ren">✏️ שינוי שם</button><button data-a="bank">🏦 ${S.lists?.[m]?.bank ? 'שינוי בנק / כרטיס' : 'איזה בנק / כרטיס?'}</button><button data-a="cnt">${st.off === st.n ? '✅ לספור את כל הדף' : '⏸️ לא לספור את כל הדף'}</button><button data-a="del" class="del">🗑️ מחיקה</button></div>
     </div>`).join('') : `<div class="card tip"><div class="em">📎</div><p>עוד לא העליתם קבצים. לוחצים על 📎 ליד שורת הכתיבה ← קובץ מהבנק או מהאשראי.</p></div>`}
     ${trashN ? `<button class="btn ghost full" id="toTrash" style="margin-top:6px">🗑️ סל מחזור (${trashN})</button>` : ''}
     <button class="btn grad full" id="lstAdd" style="margin-top:10px">📎 העלאת קובץ חדש</button>`, sh => {
@@ -2046,26 +2130,27 @@ function openListsSheet() {
       c.addEventListener('click', e => { if (e.target.closest('.lst-menu, .lst-more, input')) return; openFileList(m); });
       menu.querySelector('[data-a="ren"]').onclick = () => {
         menu.hidden = true; const b = c.querySelector('.lst-name');
-        b.outerHTML = `<input class="imp-name lst-in" value="${esc(listName(m))}" maxlength="40" aria-label="שם הרשימה">`;
+        b.outerHTML = `<input class="imp-name lst-in" value="${esc(listName(m))}" maxlength="40" aria-label="שם הדף">`;
         const inp = c.querySelector('.lst-in'); inp.focus(); inp.select();
         let saved = false;
         const save = async () => { if (saved) return; saved = true; const v = inp.value.replace(/[<>]/g, '').trim(); if (v && v !== listName(m)) { await saveListMeta(m, { name: v }); renderAll(); toast('✅ השם נשמר'); } openListsSheet(); };
         inp.addEventListener('keydown', e => { if (e.key === 'Enter') inp.blur(); }); inp.addEventListener('blur', save); inp.addEventListener('change', save);
       };
-      menu.querySelector('[data-a="bank"]').onclick = () => {
-        menu.innerHTML = `<select class="bank-sel"><option value="">— בלי —</option>${imp.BANK_NAMES.map(b => `<option ${S.lists?.[m]?.bank === b ? 'selected' : ''}>${b}</option>`).join('')}<option value="__other">✏️ אחר…</option></select>`;
-        const sel = menu.querySelector('select'); sel.focus();
-        sel.onchange = async () => { let v = sel.value; if (v === '__other') v = (prompt('שם הבנק / הכרטיס:') || '').replace(/[<>]/g, '').trim().slice(0, 30);
-          await saveListMeta(m, { bank: v }); renderAll(); toast(v ? `🏦 ${v}` : 'הבנק הוסר'); openListsSheet(); };
+      menu.addEventListener('click', e => e.stopPropagation()); // לחיצה בתפריט לא פותחת את הדף עצמו
+      menu.querySelector('[data-a="bank"]').onclick = async () => {
+        menu.hidden = true;
+        const v = await pickBank(S.lists?.[m]?.bank || '', listName(m));
+        if (v == null) return;
+        await saveListMeta(m, { bank: v }); renderAll(); toast(v ? `🏦 ${v}` : 'הבנק הוסר'); openListsSheet();
       };
       menu.querySelector('[data-a="cnt"]').onclick = async () => {
         const l = listTx(m), on = l.every(t => t.skip);
         for (const t of l) if (!!t.skip === on) await setCounted(t, on);
-        renderAll(); toast(on ? `✅ כל ${l.length} התנועות נספרות` : `⏸️ הרשימה לא נספרת (${l.length} תנועות נשמרו באפור)`); openListsSheet();
+        renderAll(); toast(on ? `✅ כל ${l.length} התנועות נספרות` : `⏸️ הדף לא נספר (${l.length} תנועות נשמרו באפור)`); openListsSheet();
       };
       menu.querySelector('[data-a="del"]').onclick = async () => {
         const n = listTx(m).length;
-        const a = await confirmBox({ e: '🗑️', title: 'למחוק את הרשימה?', text: `<b>${esc(listName(m))}</b> — ${n} תנועות.<br>הן עוברות ל<b>סל המחזור ל־30 יום</b>, ולא נספרות. אפשר לשחזר.`, ok: '🗑️ להעביר לסל', no: 'ביטול' });
+        const a = await confirmBox({ e: '🗑️', title: 'למחוק את הדף?', text: `<b>${esc(listName(m))}</b> — ${n} תנועות.<br>הן עוברות ל<b>סל המחזור ל־30 יום</b>, ולא נספרות. אפשר לשחזר.`, ok: '🗑️ להעביר לסל', no: 'ביטול' });
         if (a.ok) { await trashList(m); openListsSheet(); }
       };
     });
@@ -2075,7 +2160,7 @@ function openListsSheet() {
 function openTrashSheet() {
   const msgs = [...new Set(S.trash.map(t => t.msg))].map(m => ({ m, l: S.trash.filter(t => t.msg === m) }));
   openSheet(`<!--page--><h3>🗑️ סל מחזור</h3>
-    <div class="sub" style="margin:-6px 0 12px">רשימות שנמחקו נשמרות כאן ${TRASH_DAYS} יום, ואז נמחקות לגמרי. בזמן הזה הן לא נספרות.</div>
+    <div class="sub" style="margin:-6px 0 12px">דפים שנמחקו נשמרים כאן ${TRASH_DAYS} יום, ואז נמחקות לגמרי. בזמן הזה הן לא נספרות.</div>
     ${msgs.length ? msgs.map(({ m, l }) => { const left = Math.max(0, TRASH_DAYS - Math.floor((Date.now() - new Date(l[0].trash)) / 864e5));
       return `<div class="card lst" data-msg="${m}"><div class="lst-top"><div class="lst-ic">${KIND_IC[listKind(m, l)] || '📄'}</div>
         <div class="lst-nm"><b>${esc(listName(m, l))}</b><small>${l.length} תנועות · נמחק ${dm(l[0].trash)} · יימחק לגמרי בעוד ${left} ימים</small></div></div>
@@ -2085,7 +2170,7 @@ function openTrashSheet() {
       const m = c.dataset.msg;
       c.querySelector('.tr-res').onclick = async () => { await restoreList(m); openTrashSheet(); };
       c.querySelector('.tr-del').onclick = async () => {
-        const a = await confirmBox({ e: '⚠️', title: 'למחוק לגמרי?', text: 'אי אפשר יהיה לשחזר את הרשימה הזו.', ok: 'למחוק לגמרי', no: 'ביטול' });
+        const a = await confirmBox({ e: '⚠️', title: 'למחוק לגמרי?', text: 'אי אפשר יהיה לשחזר את הדף הזה.', ok: 'למחוק לגמרי', no: 'ביטול' });
         if (a.ok) { await purgeList(m); toast('🗑️ נמחק'); openTrashSheet(); }
       };
     });
@@ -2106,7 +2191,7 @@ async function alreadyUploaded(items) {
   }
   if (inLive.length >= Math.max(1, items.length * .8)) {
     const t = live.get(inLive[0].fp);
-    const a = await confirmBox({ e: '📂', title: 'את הקובץ הזה כבר העלית', text: `ב־${dm(t.created)} — <b>${esc(listName(t.msg))}</b>.<br>לפתוח את הרשימה?`, ok: '📂 לפתוח את הרשימה', no: 'להמשיך בכל זאת' });
+    const a = await confirmBox({ e: '📂', title: 'את הקובץ הזה כבר העלית', text: `ב־${dm(t.created)} — <b>${esc(listName(t.msg))}</b>.<br>לפתוח את הדף?`, ok: '📂 לפתוח את הרשימה', no: 'להמשיך בכל זאת' });
     if (a.how === 'ok') { openFileList(t.msg); return true; }
     return a.how === 'out';
   }
@@ -2272,12 +2357,12 @@ function maaserCalc() {
   for (const t of S.tx) {
     if (!inRange(t)) continue;
     const m = ym(new Date(t.date)), v = t.inst > 1 ? t.total : t.amount;
-    months[m] ??= { inc: 0, given: 0 };
+    months[m] ??= { inc: 0, given: 0, ded: 0 };
     if (t.cat === 'income') {
       const k = incKind(t); kinds[k] ??= { v: 0, n: 0 }; kinds[k].v += v; kinds[k].n++;
       if (!t.noMaaser && incOff[k] !== false) { inc += v; months[m].inc += v; }
     } else {
-      if (dCats.includes(t.cat)) ded += v;
+      if (dCats.includes(t.cat)) { ded += v; months[m].ded += v; }
       // תרומה נספרת כ"ניתן" — אלא אם סומנה "בנוסף למעשר". חלוקה שסומנה ✅ במסך המעשר (mdist) תמיד נספרת
       if (t.cat === 'give' && !t.extraGive && (t.mdist || M.giveCounts !== false)) { giveExp += v; months[m].given += v; }
       if (t.cat === 'give' && t.extraGive) extra += v;
@@ -2289,18 +2374,24 @@ function maaserCalc() {
   const given = giveExp + doneSum;
   return { pct, since, inc, ded, base, owed, given, giveExp, extra, left: owed - given, kinds, months, dist, planned, toPlan: owed - planned };
 }
-const saveMaaser = async patch => { await saveKV('maaser', { ...S.maaser, ...patch }); openMaaser(); };
-function openMaaser() {
-  sheetReopen = () => openMaaser();
+// 📅 המעשר מוצג לפי חודש (ברירת מחדל: החודש שבמסך), עם חצים לחודש קודם / הבא. המצטבר — שורה קטנה מתחת
+let maaserM = null;
+const saveMaaser = async patch => { await saveKV('maaser', { ...S.maaser, ...patch }); openMaaser(maaserM); };
+function openMaaser(mm) {
+  const mon = typeof mm === 'string' ? mm : S.month; maaserM = mon;
+  sheetReopen = () => openMaaser(mon);
   const r = maaserCalc(), M = S.maaser || {};
+  const mo = r.months[mon] || { inc: 0, given: 0, ded: 0 }, mBase = Math.max(0, mo.inc - mo.ded), mOwed = mBase * r.pct / 100, mLeft = mOwed - mo.given;
   const custom = ![10, 20].includes(r.pct);
   const kinds = Object.entries(r.kinds).sort((a, b) => b[1].v - a[1].v);
   openSheet(`<h3>🤲 מעשר</h3><div class="sub" style="margin:-6px 0 10px">${r.pct === 20 ? 'חומש 20%' : r.pct + '%'}</div>
-    <div class="card" style="text-align:center;margin-bottom:12px">
-      <small class="sub">${r.left > 0 ? 'נשאר לתת' : r.left < 0 ? 'נתתם יותר — יתרה לזכותכם' : 'הכל ניתן 👏'}</small>
-      <div class="big-num" id="mLeft" style="color:${r.left > 0 ? '#FACC15' : '#4ADE80'}">${fmt(Math.abs(r.left))}</div>
-      <div class="pbar" style="margin:8px 0"><i style="width:${r.owed ? Math.min(100, r.given / r.owed * 100) : 0}%;background:linear-gradient(90deg,#E879F9,#A855F7)"></i></div>
-      <div class="sub">חייבים <b>${fmt(r.owed)}</b> (${r.pct}% מ-${fmt(r.base)}) · ניתן <b>${fmt(r.given)}</b></div></div>
+    <div class="monthnav" style="justify-content:space-between;margin-bottom:10px"><button data-mm="-1" aria-label="חודש קודם">›</button><span>${monthLabel(mon)}</span><button data-mm="1" aria-label="חודש הבא">‹</button></div>
+    <div class="card" style="text-align:center;margin-bottom:8px">
+      <small class="sub">${mLeft > 0.5 ? `נשאר לתת ב${monthLabel(mon).split(' ')[0]}` : mLeft < -0.5 ? 'נתתם יותר החודש' : mOwed ? 'הכל ניתן החודש 👏' : 'אין הכנסות בחודש הזה'}</small>
+      <div class="big-num" id="mLeft" style="color:${mLeft > 0.5 ? '#FACC15' : '#4ADE80'}">${fmt(Math.abs(mLeft))}</div>
+      <div class="pbar" style="margin:8px 0"><i style="width:${mOwed ? Math.min(100, mo.given / mOwed * 100) : 0}%;background:linear-gradient(90deg,#E879F9,#A855F7)"></i></div>
+      <div class="sub">החודש: חייבים <b>${fmt(mOwed)}</b> (${r.pct}% מ-${fmt(mBase)}) · ניתן <b>${fmt(mo.given)}</b></div></div>
+    <div class="sub" style="text-align:center;margin-bottom:12px">🧮 מצטבר${r.since ? ` מאז ${monthLabel(r.since)}` : ' מההתחלה'}: ${r.left > 0.5 ? `נשאר לתת <b>${fmt(r.left)}</b>` : r.left < -0.5 ? `נתתם יותר ב-<b>${fmt(-r.left)}</b>` : 'הכל ניתן 👏'} (חייבים ${fmt(r.owed)} · ניתן ${fmt(r.given)})</div>
 
     <div class="msec"><b>🎯 כמה אחוז?</b>
       <div class="chips" style="flex-wrap:wrap;margin-top:8px"><button class="chip ${r.pct === 10 ? 'on' : ''}" data-mp="10">מעשר 10%</button><button class="chip ${r.pct === 20 ? 'on' : ''}" data-mp="20">חומש 20%</button>
@@ -2321,6 +2412,7 @@ function openMaaser() {
       <div class="sub" style="margin-top:6px">💡 תרומה בקטגוריה 💝 תרומות נספרת לבד כ"ניתן" (${fmt(r.giveExp)}). ✅ בחלוקה למעלה — נרשם גם כהוצאה.${r.extra ? ` ➕ בנוסף למעשר: ${fmt(r.extra)} (לא יורד ממה שחייבים).` : ''} לסמן תרומה כ"בנוסף": ✏️ עריכה, או בצ'אט "תרומה 100 בנוסף למעשר". <button class="chip ${M.giveCounts === false ? '' : 'on'}" id="mGive" style="margin-top:4px">${M.giveCounts === false ? 'לא לספור' : '✅ לספור'}</button></div></div>
 
     <label class="field" style="margin-top:12px"><span>לחשב החל מ (לא חובה)</span><input id="mSince" type="month" value="${r.since}"></label>`, sh => {
+    sh.querySelectorAll('[data-mm]').forEach(b => b.onclick = () => openMaaser(addMonths(mon, +b.dataset.mm)));
     sh.querySelectorAll('[data-mp]').forEach(b => b.onclick = () => saveMaaser({ pct: +b.dataset.mp }));
     sh.querySelector('#mCustom').onchange = e => { const v = num(e.target.value); if (v > 0 && v <= 100) saveMaaser({ pct: v }); };
     sh.querySelectorAll('[data-ik]').forEach(b => b.onclick = () => { const off = { ...(S.maaser?.incOff || {}) }; const k = b.dataset.ik; if (off[k] === false) delete off[k]; else off[k] = false; saveMaaser({ incOff: off }); });
@@ -2760,6 +2852,7 @@ async function postRecurring() {
     }
   }
   if (added.length) { renderAll(added); toast(`🔁 נרשמו ${added.length} קבועים לחודש הזה`); }
+  setTimeout(recDupCheck, added.length ? 2500 : 1500);
   return added;
 }
 const ruleLine = r => `${r.variable ? '≈ ' : ''}${fmt(r.amount)} · כל ${r.day} לחודש${r.end ? ' · עד ' + monthLabel(r.end) : ''}${r.paused ? ' · ⏸️ מושהה' : ''}`;
@@ -2934,7 +3027,7 @@ async function resetSettings() {
   const parent = sync.isParent();
   const a = await confirmBox({ e: '↩️', title: 'לשחזר את הגדרות ההתחלה?',
     text: `<span class="cb-steps"><b>חוזר להתחלה:</b><br>🎨 תצוגה — גודל כתב, אנימציות, חודשים עבריים, המסך שנפתח ראשון<br>💡 רמזים, סיור והודעות שכבר ראיתם${parent ? '<br>📏 כללים שלמדתי (שמות, קטגוריות, "לא לספור", בחירות אשראי)<br>🧠 קטגוריות שהאפליקציה למדה מתיקונים<br>🔔 כמה ימים לפני תשלום קבוע מזכירים (חוזר ל-3 ימים)' : ''}</span>
-      <span class="cb-steps"><b>✅ לא נוגעים:</b> תנועות, התקציב, קטגוריות שהוספתם, יעדים, הלוואות, קבועים, רשימות, בני המשפחה, נעילה והתראות</span>${parent ? '<small>הכללים והקטגוריות שנלמדו — לכל המשפחה.</small>' : ''}`,
+      <span class="cb-steps"><b>✅ לא נוגעים:</b> תנועות, התקציב, קטגוריות שהוספתם, יעדים, הלוואות, קבועים, דפי בנק ואשראי, בני המשפחה, נעילה והתראות</span>${parent ? '<small>הכללים והקטגוריות שנלמדו — לכל המשפחה.</small>' : ''}`,
     ok: '↩️ לשחזר', no: 'ביטול' });
   if (!a.ok) return;
   const b = await confirmBox({ e: '⚠️', title: 'בטוח?', text: 'אי אפשר לבטל את זה. ההגדרות יחזרו להתחלה.', ok: 'כן, לשחזר', no: 'לא' });
@@ -2993,7 +3086,7 @@ const TOUR = [
   { v: 'chat', sel: '#viewCard', open: () => openSettings(), t: '🎨 תצוגה', d: 'גודל כתב (רגיל/גדול/ענק), אנימציות פועל/כבוי, חודש עברי ליד הלועזי, ו📱 המסך שנפתח ראשון (צ\'אט / תקציב / תנועות / תובנות).' },
   { v: 'chat', sel: '#pushCard', open: () => openSettings(), t: '🔔 התראה לפני חריגה', d: 'ההורים מקבלים התראה בטלפון כשקטגוריה מגיעה ל-90% או עוברת 100%. לא בשבת.' },
   { v: 'chat', sel: '#toCats', open: () => openSettings(), t: '🏷️ קטגוריות משלכם', d: 'מוסיפים קטגוריה עם שם, אייקון וצבע, או משנים שם לקיימת. מגיע לכל המשפחה.' },
-  { v: 'chat', sel: '#sheet', open: () => openListsSheet(), t: '📂 הרשימות שלי', d: 'כל קובץ שהעליתם — כרטיס עם שם (אפשר לשנות), תאריכים, כמה יצא וכמה נכנס. ⋯ ← שינוי שם, "לא לספור את כל הרשימה", מחיקה לסל המחזור (30 יום, אפשר לשחזר). אותו קובץ פעמיים? — האפליקציה תציע לפתוח את הרשימה.' },
+  { v: 'chat', sel: '#sheet', open: () => openListsSheet(), t: '🏦 דפי בנק ואשראי', d: 'כל קובץ שהעליתם — כרטיס עם שם (אפשר לשנות), תאריכים, כמה יצא וכמה נכנס. ⋯ ← שינוי שם, "לא לספור את כל הרשימה", מחיקה לסל המחזור (30 יום, אפשר לשחזר). אותו קובץ פעמיים? — האפליקציה תציע לפתוח את הרשימה.' },
   { v: 'chat', sel: '#sheet', open: () => openRulesSheet(), t: '📏 כללים שלמדתי', d: 'בבנק כתוב "הו"ק פלאפון 4101"? משנים פעם אחת ל"פלאפון של נועה" — ובכל קובץ הבא זה קורה לבד. כאן רואים, משנים ומוחקים. ובכל תנועה מקובץ: "🏦 בבנק כתוב" עם הטקסט המקורי.' },
   { v: 'chat', sel: '#lockCard', open: () => openSettings(), t: '🔒 נעילה', d: 'טביעת אצבע, Face ID או קוד — לכל טלפון בנפרד.' },
   { v: 'chat', sel: null, t: '👨‍👩‍👧 המשפחה, QR והזמנות', d: 'ב-⚙️ (כשמחוברים): קוד להורה וקוד לילד, ריבועי QR לסריקה, הזמנה בוואטסאפ, ותפקיד הורה/ילד. (במצב הדגמה הכרטיס מוסתר.)' },
@@ -3058,6 +3151,9 @@ const RV_ST = { fixed: ['✅', 'תוקן'], answered: ['💬', 'נענה'], todo
 const REVIEW_AT = {
   chat: { v: 'chat', sel: '#inp' },
   stNew: { v: 'chat', sel: '#stNew' },
+  bkTx: { v: 'tx', sel: '#bkTx' },
+  txList: { v: 'tx', sel: '#txList' },
+  stBank: { v: 'chat', sel: '#stBank' },
   attach: { v: 'chat', sel: '#attach' },
   excel: { v: 'chat', sel: '#exportBtn' },
   bmode: { v: 'budget', sel: '.bmode' },
@@ -3344,7 +3440,7 @@ function openSettings() {
   <button class="btn ghost full parent-only" id="toRec" style="margin-bottom:10px">🔁 הכנסות והוצאות קבועות</button>
   <button class="btn ghost full parent-only" id="toCal" style="margin-bottom:10px">📅 חיבור ליומן של הטלפון</button>
   <button class="btn ghost full parent-only" id="toCats" style="margin-bottom:10px">🏷️ קטגוריות — להוסיף / לשנות שם</button>
-  <button class="btn ghost full" id="toLists" style="margin-bottom:10px">📂 הרשימות שלי${allMsgs().length ? ` (${allMsgs().length})` : ''}</button>
+  <button class="btn ghost full" id="toLists" style="margin-bottom:10px">🏦 דפי בנק ואשראי${allMsgs().length ? ` (${allMsgs().length})` : ''}</button>
   <button class="btn ghost full parent-only" id="toRules" style="margin-bottom:10px">📏 כללים שלמדתי${Object.keys(S.rules || {}).length ? ` (${Object.keys(S.rules).length})` : ''}</button>
   <button class="btn grad full parent-only" id="toExcel" style="margin-bottom:10px">📊 הורדת סיכום לאקסל</button>
   <div class="row2" style="margin-bottom:10px"><button class="btn ghost" id="exp">⬇️ גיבוי</button><button class="btn ghost" id="imp">⬆️ שחזור מגיבוי</button></div>
