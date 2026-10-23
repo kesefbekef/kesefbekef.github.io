@@ -25,23 +25,50 @@ async function readPdfRows(file) {
   const pdfjs = await import('../vendor/pdf.min.mjs');
   pdfjs.GlobalWorkerOptions.workerSrc = new URL('../vendor/pdf.worker.min.mjs', import.meta.url).href;
   const pdf = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
-  const rows = [];
-  let cols = null; // מרכזי העמודות לפי שורת הכותרת
+  const pages = [];
   for (let p = 1; p <= pdf.numPages; p++) {
     const page = await pdf.getPage(p);
-    const items = (await page.getTextContent()).items
+    pages.push((await page.getTextContent()).items
       .filter(i => i.str && i.str.trim())
-      .map(i => ({ s: i.str.trim(), x: i.transform[4] + i.width / 2, y: i.transform[5] }));
+      .map(i => ({ s: i.str.trim(), x: i.transform[4] + i.width / 2, y: i.transform[5] })));
+  }
+  const out = pdfSheets(pages);
+  if (!out) throw Object.assign(new Error('scanned'), { scanned: true, pages: pdf.numPages });
+  out[0].meta = { pages: pdf.numPages };
+  return out;
+}
+
+// כותרת שבורה לשתי שורות ("סכום" / "חיוב", "תאריך" / "עסקה" — כאל): מצרפים כל מילה לזו שמעליה באותה עמודה
+function joinHeader(a, b) {
+  const cl = a.items.map(i => ({ x: i.x, s: i.s }));
+  for (const it of b.items) {
+    const c = cl.find(c => Math.abs(c.x - it.x) < 30);
+    if (c) c.s += ' ' + it.s; else cl.push({ x: it.x, s: it.s });
+  }
+  return cl.sort((p, q) => q.x - p.x);
+}
+
+/** הטקסט מכל עמוד ([{s,x,y}]) ← גיליון. null = אין טקסט (סרוק) */
+export function pdfSheets(pages) {
+  const rows = [], text = [];
+  let cols = null; // מרכזי העמודות לפי שורת הכותרת
+  for (const items of pages) {
     // קיבוץ לשורות לפי גובה
     const lines = [];
-    for (const it of items.sort((a, b) => b.y - a.y)) {
+    for (const it of [...items].sort((a, b) => b.y - a.y)) {
       const line = lines.find(l => Math.abs(l.y - it.y) < 3);
       if (line) line.items.push(it); else lines.push({ y: it.y, items: [it] });
     }
-    for (const l of lines) {
-      const its = l.items.sort((a, b) => b.x - a.x); // מימין לשמאל
+    for (let k = 0; k < lines.length; k++) {
+      const l = lines[k], its = l.items.sort((a, b) => b.x - a.x); // מימין לשמאל
       const strs = its.map(i => i.s);
+      text.push(strs.join(' '));
       if (headerMap(strs)) { cols = its.map(i => i.x); rows.push(strs); continue; }
+      const nx = lines[k + 1];
+      if (nx && l.y - nx.y < 22 && its.length >= 2) {
+        const hj = joinHeader(l, nx);
+        if (headerMap(hj.map(c => c.s))) { cols = hj.map(c => c.x); rows.push(hj.map(c => c.s)); k++; continue; }
+      }
       if (!cols) { rows.push([strs.join(' ')]); continue; }
       const row = new Array(cols.length).fill('');
       for (const it of its) {
@@ -52,11 +79,38 @@ async function readPdfRows(file) {
       rows.push(row);
     }
   }
-  if (!rows.length) throw Object.assign(new Error('scanned'), { scanned: true, pages: pdf.numPages });
-  rows.meta = { pages: pdf.numPages };
-  // דפי חשבון שבהם כל שורה היא טקסט אחד (בלי עמודות נפרדות) — "תאריך · תיאור · סכום ₪ · יתרה ₪"
-  if (!cols) { const st = statementLines(rows.map(r => r.join(' '))); if (st) { st.meta = rows.meta; return [st]; } }
-  return [rows];
+  if (!rows.length) return null;
+  if (cols && extract([rows]).items.length) return [rows];
+  // אין טבלה מסודרת — קוראים כל שורה כטקסט:
+  // 🏦 דף חשבון (תאריך · תיאור · סכום · יתרה) ואחרת 💳 פירוט אשראי (תאריך · בית עסק · סכום)
+  const st = statementLines(text) || cardLines(text);
+  return [st || rows];
+}
+
+// 💳 פירוט אשראי כשורות טקסט: תאריך, שם בית העסק, סכום עסקה ואולי סכום חיוב (הוא הקובע), ופירוט נוסף
+const CAMT_RE = /(?:₪\s*)?-?\d{1,3}(?:,\d{3})*\.\d{2}-?(?:\s*₪)?/g;
+const CDATE_RE = /\d{1,2}[./]\d{1,2}[./]\d{2,4}/;
+export function cardLines(lines) {
+  const num = v => { let x = String(v).replace(/[₪,\s]/g, ''); if (/-$/.test(x)) x = '-' + x.slice(0, -1); return parseFloat(x); };
+  const out = [];
+  for (const l0 of lines) {
+    const l = norm(l0), d = l.match(CDATE_RE); if (!d) continue;
+    const rest = l.slice(d.index + d[0].length), am = [...rest.matchAll(CAMT_RE)];
+    if (!am.length) continue;
+    const clean = t => t.replace(CDATE_RE, ' ').replace(/(^|\s)[-₪](?=\s|$)/g, ' ').replace(/[₪]/g, ' ').replace(/\s+/g, ' ').trim();
+    const head = rest.slice(0, am[0].index), mid = rest.slice(am[0].index, am[am.length - 1].index + am[am.length - 1][0].length);
+    let desc = clean(head);
+    const tail = clean(rest.slice(am[am.length - 1].index + am[am.length - 1][0].length));
+    if (!/[א-תa-z]/i.test(desc)) { desc = tail; }
+    if (!/[א-תa-z]/i.test(desc) || /^סה.?כ/.test(desc)) continue;
+    const vals = am.map(a => Math.abs(num(a[0]))).filter(v => !isNaN(v));
+    let v = vals.length > 1 && vals[1] ? vals[1] : vals[0]; // סכום החיוב (העמודה השנייה) כשיש
+    if (!v) continue;
+    // מינוס = זיכוי. בקובץ מימין לשמאל המינוס יכול לצאת כתו נפרד ליד ה־₪
+    if (/(^|\s)-(\s|₪|$)|-\s*₪|\d-|-\d/.test(head.slice(-3) + mid)) v = -v;
+    out.push([d[0], desc, v, desc === tail ? '' : tail]);
+  }
+  return out.length >= 2 ? [['תאריך', 'בית העסק', 'סכום', 'פירוט נוסף'], ...out] : null;
 }
 
 // 🏦 דף חשבון כשורות טקסט: לכל שורה תאריך, תיאור, סכום אחד (זכות או חובה — העמודה הריקה נעלמת) ויתרה.
@@ -77,6 +131,8 @@ export function statementLines(lines) {
   // הכיוון של הקובץ: ישן ← חדש (יתרה = הקודמת ± סכום) או חדש ← ישן (יתרה = הבאה ± סכום) — מה שמתאים ליותר שורות
   const fit = dir => out.reduce((n, r, i) => { const o = out[i - dir]; return n + (o && (near(r.bal - o.bal, r.amt) || near(r.bal - o.bal, -r.amt)) ? 1 : 0); }, 0);
   const dir = fit(1) >= fit(-1) ? 1 : -1;
+  // היתרות לא מסתדרות כמעט באף שורה — זה לא דף חשבון (למשל פירוט אשראי: סכום עסקה + סכום חיוב)
+  if (fit(dir) < (out.length - 1) / 2) return null;
   for (let i = 0; i < out.length; i++) {
     const r = out[i], o = out[i - dir];
     if (o && near(r.bal - o.bal, r.amt)) r.sign = 1;          // היתרה עלתה בסכום = זכות (נכנס)
