@@ -72,6 +72,9 @@ export async function loadHousehold() {
   const { data, error } = await (await client()).rpc('my_household');
   if (error) throw new Error(nice(error));
   hh = data?.[0] || null;
+  // 🔐 נכנסו לחשבון של משפחה אחרת באותו טלפון? — הנתונים של המשפחה הקודמת נמחקים מהטלפון לפני שמשהו מוצג או נשלח
+  const owner = await db.getKV('dataHousehold', null);
+  if (hh && owner && owner !== hh.id) { await db.clearFamilyData(); await db.setKV('dataHousehold', hh.id, true); await db.setKV('lastSync', '1970-01-01T00:00:00Z', true); }
   await db.setKV('household', hh, true);
   return hh;
 }
@@ -170,7 +173,8 @@ export async function removeMember(uid) {
 // ---------- תור שליחה (עובד גם כשאין רשת) ----------
 const opKey = o => o.t === 'kv' ? 'kv:' + o.key : 'tx:' + o.id;
 // 🔒 כל שינוי בתור — אחד אחרי השני. בלי זה, 162 שורות מקובץ שנשמרות יחד דרסו זו את זו ורובן לא הגיעו לשרת
-let qLock = Promise.resolve();
+let qLock = Promise.resolve(), seq = 0;
+const stamp = () => Date.now() + (++seq % 1000) / 1000; // ייחודי גם לשתי שמירות באותה אלפית שנייה
 const locked = fn => { const p = qLock.then(fn, fn); qLock = p.catch(() => {}); return p; };
 async function enqueue(...ops) {
   await locked(async () => {
@@ -188,7 +192,7 @@ async function enqueue(...ops) {
 const SYNC_KEYS = ['budgets', 'learned', 'people', 'cats', 'goals', 'maaser', 'pocket', 'debts', 'recurring', 'rules', 'lists'];
 async function repairMissing() {
   const flag = 'syncFix1:' + hh.id;
-  if (!isParent() || await db.getKV(flag, false)) return;
+  if (await db.getKV(flag, false)) return;
   // 🔐 רק כשהנתונים שבטלפון שייכים למשפחה הזו (לא אחרי החלפת חשבון) — אחרת לא שולחים כלום
   if ((await db.getKV('dataHousehold', null)) !== hh.id) return;
   const c = await client(), ids = new Set();
@@ -200,8 +204,8 @@ async function repairMissing() {
   const { data: kvs, error } = await c.from('kv').select('key').eq('household_id', hh.id);
   if (error) throw error;
   const have = new Set(kvs.map(r => r.key)), at = Date.now();
-  const ops = (await db.allTx()).filter(t => !ids.has(t.id)).map(t => ({ t: 'tx', id: t.id, data: t, at }));
-  for (const k of SYNC_KEYS) if (!have.has(k)) { const v = await db.getKV(k, null); if (v && (Array.isArray(v) ? v.length : Object.keys(v).length)) ops.push({ t: 'kv', key: k, value: v, at }); }
+  const ops = (await db.allTx()).filter(t => !ids.has(t.id)).map(t => ({ t: 'tx', id: t.id, data: t, at: stamp() }));
+  for (const k of isParent() ? SYNC_KEYS : ['people', 'learned']) if (!have.has(k)) { const v = await db.getKV(k, null); if (v && (Array.isArray(v) ? v.length : Object.keys(v).length)) ops.push({ t: 'kv', key: k, value: v, at }); }
   if (ops.length) { console.info('sync repair', ops.length); await enqueue(...ops); await flush(); }
   await db.setKV(flag, true, true);
 }
@@ -280,23 +284,36 @@ async function send(c, table, rows, rejected) {
   return true;
 }
 
+// ⚠️ שינויים שהשרת דחה — מוצגים בהגדרות (במקום להיעלם בשקט): לנסות שוב / לוותר
+export const rejectedCount = async () => (await db.getKV('outboxRejected', [])).length;
+export async function retryRejected() {
+  const l = await db.getKV('outboxRejected', []); await db.setKV('outboxRejected', [], true);
+  const ops = l.map(x => x.table === 'kv' ? { t: 'kv', key: x.row.key, value: x.row.value, at: stamp() } : x.row.deleted ? { t: 'del', id: x.row.id, at: stamp() } : { t: 'tx', id: x.row.id, data: x.row.data, at: stamp() });
+  if (ops.length) await enqueue(...ops);
+  return ops.length;
+}
+export const dropRejected = () => db.setKV('outboxRejected', [], true);
 async function pushEverything() {
-  const ops = (await db.allTx()).map(t => ({ t: 'tx', id: t.id, data: t, at: Date.now() }));
+  const ops = (await db.allTx()).map(t => ({ t: 'tx', id: t.id, data: t, at: stamp() }));
   for (const k of SYNC_KEYS) {
     const v = await db.getKV(k, null);
-    if (v && (Array.isArray(v) ? v.length : Object.keys(v).length)) ops.push({ t: 'kv', key: k, value: v, at: Date.now() });
+    if (v && (Array.isArray(v) ? v.length : Object.keys(v).length)) ops.push({ t: 'kv', key: k, value: v, at: stamp() });
   }
   if (ops.length) await enqueue(...ops);
 }
 
 // ---------- קבלת שינויים מהטלפונים האחרים ----------
-async function applyTx(row) {
+// שורה שיש לה כאן שינוי שעוד לא נשלח — לא דורסים אותה בגרסה מהשרת (השינוי שלנו יישלח ויגיע לכולם)
+const pendingTxIds = async () => new Set((await db.getKV('outbox', [])).filter(o => o.t === 'tx' || o.t === 'del').map(o => o.id));
+async function applyTx(row, pend) {
+  if ((pend || await pendingTxIds()).has(row.id)) return;
   if (row.deleted) await db.delTx(row.id, true);
   else await db.putTx(row.data, true);
 }
 async function applyKv(row) {
   if (!SYNC_KEYS.includes(row.key)) return;
   await locked(async () => { // 🔒 נוגע בתור — באותה נעילה כמו enqueue / flush
+    if (same(row.value, await db.getKV('base:' + row.key, null))) return; // ההד של השמירה שלנו — כבר מעודכן, לא ממזגים שוב
     const pending = (await db.getKV('outbox', [])).find(o => o.t === 'kv' && o.key === row.key);
     if (pending) {
       // יש כאן שינוי שעוד לא נשלח — ממזגים, ולא דורסים אותו
@@ -318,13 +335,18 @@ export async function pull() {
   const c = await client();
   const since = await db.getKV('lastSync', '1970-01-01T00:00:00Z');
   let latest = since, n = 0;
+  const pend = await pendingTxIds();
   for (const table of ['tx', 'kv']) {
-    let from = new Date(Math.max(0, Date.parse(since) - 10000)).toISOString();
+    // דפדוף לפי (זמן, מזהה) — כדי ששורות שנשמרו באותה שנייה בדיוק לא ייפלו בין שני דפים
+    const pk = table === 'tx' ? 'id' : 'key';
+    let from = new Date(Math.max(0, Date.parse(since) - 10000)).toISOString(), lastKey = null;
     for (;;) {
-      const { data, error } = await c.from(table).select('*').eq('household_id', hh.id).gt('updated_at', from).order('updated_at').limit(1000);
+      let q = c.from(table).select('*').eq('household_id', hh.id);
+      q = lastKey == null ? q.gt('updated_at', from) : q.or(`updated_at.gt."${from}",and(updated_at.eq."${from}",${pk}.gt."${lastKey}")`);
+      const { data, error } = await q.order('updated_at').order(pk).limit(1000);
       if (error) throw error;
-      for (const row of data) { table === 'tx' ? await applyTx(row) : await applyKv(row); n++; }
-      if (data.length) { from = data[data.length - 1].updated_at; if (from > latest) latest = from; }
+      for (const row of data) { table === 'tx' ? await applyTx(row, pend) : await applyKv(row); n++; }
+      if (data.length) { const l = data[data.length - 1]; from = l.updated_at; lastKey = l[pk]; if (from > latest) latest = from; }
       if (data.length < 1000) break;
     }
   }
@@ -348,9 +370,9 @@ function status(s) { statusCb?.(s); }
 /** מופעל בעליית האפליקציה. מחזיר { user, household } */
 export async function start({ onRemoteChange, onStatus }) {
   onRemote = onRemoteChange; statusCb = onStatus;
-  db.hooks.tx = t => hh && enqueue({ t: 'tx', id: t.id, data: t, at: Date.now() });
-  db.hooks.del = id => hh && enqueue({ t: 'del', id, at: Date.now() });
-  db.hooks.kv = (key, value) => hh && enqueue({ t: 'kv', key, value, at: Date.now() });
+  db.hooks.tx = t => hh && enqueue({ t: 'tx', id: t.id, data: t, at: stamp() });
+  db.hooks.del = id => hh && enqueue({ t: 'del', id, at: stamp() });
+  db.hooks.kv = (key, value) => hh && enqueue({ t: 'kv', key, value, at: stamp() });
   if (!enabled()) return { user: null, household: null };
   try {
     const u = await user();
@@ -396,6 +418,12 @@ function listen() {
   if (listening) return;
   listening = true;
   window.addEventListener('online', () => refresh().then(() => { if (!channel && sb) subscribe(); }).catch(() => status('wait')));
+  // 🔁 נכשל בזמן שיש רשת? מנסים שוב כל דקה (ולא רק כשהרשת חוזרת / כשחוזרים לאפליקציה)
+  setInterval(async () => {
+    if (!hh || !navigator.onLine || document.hidden) return;
+    if ((await db.getKV('outbox', [])).length) flush();
+    if (!channel && sb) { try { await pull(); subscribe(); } catch { /* ננסה בדקה הבאה */ } }
+  }, 60000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh().catch(() => status('wait')); });
 }
 

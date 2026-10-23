@@ -211,7 +211,7 @@ export function parseNum(v) {
 }
 
 // שורה בבנק שהיא בעצם החיוב החודשי של כרטיס האשראי
-const CC_RE = /(ישראכרט|כאל|ויזה|visa|מקס|max|לאומי קארד|אמריקן|אמקס|amex|דיינרס|diners|כרטיס אשראי|כרטיסי אשראי|חיוב כרטיס|כ\.א\.|פועלים כרט)/i;
+const CC_RE = /(ישראכרט|כאל|ויזה|visa|מקס(?!\s*סטוק)|max(?!\s*stock)|לאומי קארד|אמריקן|אמקס|amex|דיינרס|diners|כרטיס אשראי|כרטיסי אשראי|חיוב כרטיס|כ\.א\.|פועלים כרט)/i;
 
 // משיכת מזומן מהכספומט — הכסף רק עבר לארנק; ההוצאות עצמן נרשמות במזומן
 const ATM_RE = /(משיכת מזומן|משיכה מכספומט|כספומט|מכשיר אוטומטי|atm)/i;
@@ -271,6 +271,8 @@ export function extract(sheets, learned = {}) {
       if (income && REFUND_RE.test(desc)) {
         const c = classify(desc.replace(REFUND_RE, ' '), learned);
         if (c !== 'other' && c !== 'income' && CATS[c]) { income = false; amount = -amount; cat = c; refund = true; }
+        // "זיכוי" / "ביטול עסקה" מחנות שלא זיהינו — עדיין זיכוי (מוריד הוצאות), לא הכנסה. "החזר" לבד (החזר מס) — נשאר הכנסה
+        else if (/זיכוי|ביטול/.test(desc)) { income = false; amount = -amount; cat = 'other'; refund = true; }
       }
       if (amount < 0 && !income) refund = true; // באשראי: זיכוי
       items.push({ date, desc, amount: Math.round(amount * 100) / 100, income, cat, note, refund,

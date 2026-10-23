@@ -10,13 +10,31 @@ function numWord(tok) {
 }
 
 // "מאה שמונים" → "180", "אלף ומאתיים" → "1200", "חמש עשרה" → "15"
+// שמות מקומות עם מילת מספר — לא הופכים לספרות ("באר שבע" ולא "באר 7")
+const KEEP_NUM_WORDS = /(באר|בבאר|לבאר|מבאר)\s+שבע|שבע\s+(כוכבים|ברכות)|כפר\s+שמונה/g;
 export function wordsToDigits(text) {
+  const keep = [];
+  text = String(text).replace(KEEP_NUM_WORDS, m => { keep.push(m); return `\u0001${keep.length - 1}\u0001`; });
+  const res = wordsToDigits0(text);
+  return keep.length ? res.replace(/\u0001(\d+)\u0001/g, (_, i) => keep[+i]) : res;
+}
+function wordsToDigits0(text) {
   const out = [];
   let total = 0, cur = 0, inRun = false, prevOnes = false;
-  const flush = () => { if (inRun) out.push(String(total + cur)); total = cur = 0; inRun = false; prevOnes = false; };
+  let runStart = 0, runToks = [];
+  const flush = () => {
+    if (inRun) {
+      // "חניה 20 אחת" / "פיצה אחת" — "אחת"/"אחד" לבד זו מילה (כמות), לא הסכום 1
+      if (runToks.length === 1 && /^(ו|ה)?(אחת|אחד)$/.test(runToks[0])) { out.length = runStart; out.push(runToks[0]); }
+      else out.push(String(total + cur));
+    }
+    total = cur = 0; inRun = false; prevOnes = false; runToks = [];
+  };
   for (const tok of text.split(/\s+/)) {
     const w = numWord(tok);
     if (!w) { flush(); out.push(tok); continue; }
+    if (!inRun) runStart = out.length;
+    runToks.push(tok);
     // "במאה" → "ב" נשאר כמילה כדי לא לאבד הקשר
     if (!inRun && tok !== w) out.push(tok.slice(0, tok.length - w.length));
     inRun = true;
@@ -38,7 +56,8 @@ export function wordsToDigits(text) {
   return out.filter(Boolean).join(' ');
 }
 
-const CURRENCY = /(₪|ש"ח|ש״ח|שח|שקלים|שקל|nis)/gi;
+// מטבע — רק כמילה שלמה ("משחק" לא מאבד את ה"שח")
+const CURRENCY = /(^|\s|\d)(ש"ח|ש״ח|שח|שקלים|שקל|ש'|nis)(?=$|\s|[.,!?])/gi;
 
 // אמצעי תשלום
 export const PAY = {
@@ -49,62 +68,181 @@ export const PAY = {
   standing: { n: 'הוראת קבע',  e: '🔁' },
   check:    { n: "צ'ק",        e: '📝' },
 };
+// מילה שלמה, עם אותיות שימוש לפניה ("בביט", "ובאשראי") — "ביטוח" כבר לא נחשב ביט
+const PAY_PRE = '(?:^|[\\s(,])(?:[ובהלמש]{1,2}-?)?';
+const PAY_END = '(?=$|[\\s),.!?:;])';
+const payRe = (words, flags = '') => new RegExp(PAY_PRE + '(?:' + words + ')' + PAY_END, flags);
 const PAY_WORDS = [
-  [/מזומן|קאש|cash/i, 'cash'],
-  [/הוראת קבע|הו"ק|הו״ק|(^|\s)הוק(\s|$)/, 'standing'],
-  [/ביט|bit|פייבוקס|paybox|פיי בוקס/i, 'bit'],
-  [/צ'ק|צ׳ק|צק |שיק|המחאה/, 'check'],
-  [/העברה|העברתי|העברנו/, 'transfer'],
-  [/אשראי|כרטיס|ויזה|visa|מאסטרקארד|ישראכרט|אמקס/i, 'credit'],
+  [payRe('מזומן|מזומנים|קאש|cash', 'i'), 'cash'],
+  [payRe('הוראת קבע|הו"ק|הוק'), 'standing'],
+  [payRe('ביט|bit|פייבוקס|paybox|פיי בוקס', 'i'), 'bit'],
+  [payRe("צ'ק|צ'קים|צק|שיק|המחאה"), 'check'],
+  [payRe('העברה בנקאית|העברה|העברתי|העברנו'), 'transfer'],
+  [payRe('אשראי|ויזה|visa|מאסטרקארד|ישראכרט|אמקס', 'i'), 'credit'],
+  [/(?:^|[\s(,])ו?ב(?:ה)?כרטיס(?=$|[\s),.!?:;])/, 'credit'],   // "בכרטיס" (אבל "כרטיס לסרט" הוא לא אמצעי תשלום)
 ];
+const normPay = t => ' ' + String(t || '').replace(/[׳`]/g, "'").replace(/״/g, '"') + ' ';
 export function detectPay(text) {
-  const hit = PAY_WORDS.find(([re]) => re.test(text));
+  const s = normPay(text);
+  const hit = PAY_WORDS.find(([re]) => re.test(s));
   return hit ? hit[1] : null;
 }
-const PAY_STRIP = /(^|\s)(ב|ו)?(מזומן|קאש|אשראי|כרטיס אשראי|כרטיס|ביט|פייבוקס|העברה בנקאית|העברה|הוראת קבע|צ'ק|צ׳ק|שיק)(?=\s|$)/g;
+const PAY_STRIP = /(^|\s)(?:ו?ב|ו|ב)?-?(כרטיס אשראי|מזומנים|מזומן|קאש|אשראי|ביט|פייבוקס|פיי בוקס|העברה בנקאית|העברה|הוראת קבע|הו"ק|צ'ק|צ׳ק|שיק|ויזה|ישראכרט|אמקס)(?=\s|$|[.,!?])/g;
+const PAY_STRIP_CARD = /(^|\s)ו?ב(?:ה)?כרטיס(?=\s|$|[.,!?])/g;
 
-const FILLER =/(^|\s)(שילמתי|שילמנו|קניתי|קנינו|הוצאתי|הוצאנו|עלה|עלתה|עלו|סה"כ)(?=\s|$)/g;
+const FILLER =/(^|\s)ו?(שילמתי|שילמנו|קניתי|קנינו|הוצאתי|הוצאנו|עלה|עלתה|עלו|סה"כ|סה״כ)(?=\s|$)/g;
+// מילה כללית שהיא לא שם של הוצאה ("הוצאה 100" ← צריך לשאול "על מה?")
+const GENERIC = /(^|\s)(הוצאה|הוצאות|ההוצאה)(?=\s|$)/g;
+const LEAD = /^(וגם|גם|ועוד|עוד|ו|ב|על|של)\s+/;
+const TRAIL = /\s+(ב|על|של|ל|ו|וגם|גם)$/;
 
 function cleanDesc(s) {
-  return s.replace(CURRENCY, '').replace(PAY_STRIP, ' ').replace(FILLER, ' ').replace(/[,+\-–:]/g, ' ').replace(/\s+/g, ' ').trim()
-    .replace(/\s+(ב|על|של|ל)$/, '').replace(/^(ב|על)\s+/, '').trim();
+  let t = String(s || '').replace(/₪/g, ' ').replace(CURRENCY, '$1 ').replace(PAY_STRIP, ' ').replace(PAY_STRIP_CARD, ' ')
+    .replace(FILLER, ' ').replace(GENERIC, ' ')
+    .replace(/[,+\-–—:;!?()[\]]/g, ' ').replace(/(?<!\d)\.|\.(?!\d)/g, ' ').replace(/(^|\s)[/\\"']+(?=\s|$)/g, ' ')
+    .replace(/\s+/g, ' ').trim();
+  for (let i = 0; i < 3; i++) t = t.replace(TRAIL, '').replace(LEAD, '').trim();
+  return /^(ו|ב|ל|של|על|גם|וגם)$/.test(t) ? '' : t;
 }
 
+const DAY_WORDS = /(^|\s)(?:ו|מ)?(שלשום|אתמול|היום)(?=\s|$|[.,!?])/g;
 function dayOffset(text) {
   if (/שלשום/.test(text)) return -2;
   if (/אתמול/.test(text)) return -1;
   return 0;
 }
 
-/**
- * מחזיר מערך רשומות: [{desc, amount, installments, dayOffset}]
- * או מערך ריק אם לא נמצא סכום
- */
-export function parseMessage(raw) {
-  let text = wordsToDigits(raw.trim());
-  text = text.replace(/(\d),(\d{3})/g, '$1$2');
+// "ב-5.10" / "12/9" / "3.10.26" — תאריך, לא סכום
+const DATE_RE = /(^|\s)(בתאריך\s*|תאריך\s*|ב\s?|מ\s?|עד\s?)?-?\s?(\d{1,2})([./])(\d{1,2})(?:[./](\d{4}|\d{2}))?(?![\d./])/g;
+const pad = n => String(n).padStart(2, '0');
+function takeDate(text, now) {
+  let date = null;
+  const out = text.replace(DATE_RE, (m, pre, word, d, sep, mo, y) => {
+    d = +d; mo = +mo;
+    if (date || d < 1 || d > 31 || mo < 1 || mo > 12) return m;
+    const strong = sep === '/' || !!word || !!y;
+    if (!strong) {
+      // "סופר 230 5.10" — תאריך רק אם יש סכום אחר, ואין במשפט סכומים עם נקודה עשרונית
+      const rest = text.replace(m, ' ');
+      if (!/\d/.test(rest) || /\d\.\d/.test(rest)) return m;
+    }
+    let year = y ? (y.length === 2 ? 2000 + +y : +y) : now.getFullYear();
+    let dt = new Date(year, mo - 1, d, 12);
+    if (dt.getMonth() !== mo - 1) return m;                                 // 31.2
+    if (!y && dt - now > 31 * 864e5) dt = new Date(year - 1, mo - 1, d, 12); // "28.12" שנכתב בינואר = השנה שעברה
+    date = dt;
+    return pre + ' ';
+  });
+  return { text: out, date };
+}
 
-  let installments = 0;
-  text = text.replace(/ב?-?\s*(\d+)\s*תשלומים/, (_, n) => { installments = parseInt(n, 10); return ' '; });
+const round2 = n => Math.round(n * 100) / 100;
+const isInt = s => /^\d+$/.test(s);
+// "לפארם" (אחרי הסכום, "וגם 50 לפארם") ← "פארם". מילים שה-ל שלהן היא חלק מהמילה נשארות.
+const L_NATIVE = /^(לחם|לחמים|לחמניה|לחמניות|לחמנייה|לימון|לימונים|לבן|לבנה|לבנים|לגו|לפטופ|לוח|לוחות|ליברה|לונה|לימודים|לאומי|לאומית|לק)$/;
+function stripFor(desc) {
+  const [w, ...rest] = desc.split(' ');
+  return w.length >= 4 && w[0] === 'ל' && !L_NATIVE.test(w) ? [w.slice(1), ...rest].join(' ') : desc;
+}
 
-  const off = dayOffset(text);
-  text = text.replace(/שלשום|אתמול|היום/g, ' ');
+function parseOne(src, now) {
+  let text = wordsToDigits(String(src || '').trim());
+  text = text.replace(/(\d),(\d{3})(?!\d)/g, '$1$2').replace(/₪/g, ' ').replace(/(^|\s)\d{1,2}:\d{2}(?=\s|$)/g, ' ');
+
+  let installments = 0, per = false;
+  // "12 תשלומים של 500" = 500 לכל תשלום. "1200 ב-3 תשלומים" = 1200 בסך הכל
+  text = text.replace(/(?:ב|ל)?-?\s*(\d+)\s*תשלומים(?:\s+(?:של|כל אחד|כל תשלום|כ"א)\s*-?\s*(\d+(?:\.\d+)?))?/, (_, n, p) => {
+    installments = parseInt(n, 10);
+    if (p) { per = true; return ` ${round2(+p * installments)} `; }
+    return ' ';
+  });
+  if (installments > 1 && !per) {
+    text = text.replace(/(\d+(?:\.\d+)?)\s*(?:ש"ח\s*|שקל\s*)?(?:לתשלום|כל תשלום|בכל תשלום)/, (_, p) => ` ${round2(+p * installments)} `);
+  }
+
+  const dt = takeDate(text, now);
+  text = dt.text;
+  let off = dayOffset(text);
+  text = text.replace(DAY_WORDS, ' ');
+  let date = null;
+  if (dt.date) {
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12);
+    off = Math.round((dt.date - today) / 864e5);
+    date = `${dt.date.getFullYear()}-${pad(dt.date.getMonth() + 1)}-${pad(dt.date.getDate())}`;
+  }
 
   const parts = text.split(/(\d+(?:\.\d+)?)/);
-  const nums = [];
-  for (let i = 1; i < parts.length; i += 2) nums.push(i);
+  let texts = parts.filter((_, i) => i % 2 === 0), nums = parts.filter((_, i) => i % 2 === 1);
   if (!nums.length) return [];
+  const empty = t => !cleanDesc(t);
 
-  if (nums.length === 1) {
-    const i = nums[0];
-    return [{ desc: cleanDesc(parts[i - 1] + ' ' + parts[i + 1]) || 'הוצאה', amount: parseFloat(parts[i]), installments, dayOffset: off }];
+  // מספר קטן שהוא חלק מהשם: "2 גלידות 30" (כמות), "כביש 6 45" (מספר כביש) — לא סכום נפרד
+  const numberFirst = () => empty(texts[0]) && !empty(texts[texts.length - 1]);
+  for (let changed = true; changed && nums.length > 1;) {
+    changed = false;
+    if (numberFirst()) break;
+    for (let j = 0; j < nums.length - 1 && !changed; j++) {
+      const n = nums[j];
+      if (!isInt(n)) continue;
+      if (j === 0 && empty(texts[0]) && !empty(texts[1]) && +n <= 20) {
+        texts.splice(0, 2, texts[0] + ' ' + n + ' ' + texts[1]); nums.splice(0, 1); changed = true;
+      } else if (!empty(texts[j]) && empty(texts[j + 1]) && +n <= 99) {
+        texts.splice(j, 2, texts[j] + ' ' + n + ' ' + texts[j + 1]); nums.splice(j, 1); changed = true;
+      }
+    }
   }
+
+  const item = (desc, amount, inst) => ({ desc, amount: parseFloat(amount), installments: inst, dayOffset: off,
+    ...(date ? { date } : {}), ...(desc ? {} : { needsName: true }) });
+
+  if (nums.length === 1) return [item(cleanDesc(texts[0] + ' ' + texts[1]), nums[0], installments)];
+
   // "סופר 230 דלק 100" — התיאור לפני המספר; "230 סופר 100 דלק" — התיאור אחריו
-  const numberFirst = !cleanDesc(parts[nums[0] - 1]);
-  return nums.map(i => {
-    const desc = cleanDesc(numberFirst ? parts[i + 1] : parts[i - 1]).replace(/^(וגם|גם)\s+/, '');
-    return { desc: desc || 'הוצאה', amount: parseFloat(parts[i]), installments: 0, dayOffset: off };
+  const nf = numberFirst(), last = nums.length - 1;
+  return nums.map((n, j) => {
+    let desc = cleanDesc(nf ? texts[j + 1] : texts[j]);
+    // "סופר 230 וגם 50 לפארם" — לסכום האחרון אין שם לפניו, השם אחריו
+    if (!nf && !desc && j === last && !empty(texts[last + 1])) desc = stripFor(cleanDesc(texts[last + 1]));
+    return item(desc, n, 0);
   });
+}
+
+// פיצול להערות: מה שאחרי ". " / שורה חדשה / " - " / בתוך סוגריים — הערה, לא חלק מהשם
+function splitNotes(raw) {
+  const notes = [];
+  const t = String(raw || '').replace(/\r/g, '').replace(/\(([^)]*)\)?/g, (_, n) => { if (n.trim()) notes.push(n.trim()); return ' '; });
+  const segs = t.split(/\n+|[.!?]+\s+|\s[-–—]+\s/).map(s => s.replace(/[.!?]+\s*$/, '').trim()).filter(Boolean);
+  return { segs, notes };
+}
+
+/**
+ * מחזיר מערך רשומות: [{desc, amount, installments, dayOffset, date?, note?, needsName?}]
+ *  amount — הסכום הכולל (בתשלומים: הכל ביחד; app.js מחלק ב-installments)
+ *  date — 'YYYY-MM-DD' כשנכתב תאריך מפורש ("ב-5.10"); dayOffset כבר מחושב בהתאם
+ *  note — טקסט ההערה (אחרי נקודה / שורה חדשה / מקף / בסוגריים)
+ *  needsName — true כשאין שם ("הוצאה 100", "100") — desc ריק, כדאי לשאול "על מה?"
+ * או מערך ריק אם לא נמצא סכום
+ */
+export function parseMessage(raw, now = new Date()) {
+  const { segs, notes } = splitNotes(String(raw || '').trim());
+  if (!segs.length) return [];
+  let main = segs[0];
+  const extra = [];
+  for (const s of segs.slice(1)) {
+    if (!parseOne(main, now).length) { main += ' ' + s; continue; }
+    if (parseOne(s, now).length) { extra.push(s); continue; }
+    // "ספה 6000 - 12 תשלומים" / "סופר 230. אתמול" — שייך לרשומה, לא הערה
+    const bare = cleanDesc(takeDate(s, now).text.replace(DAY_WORDS, ' ').replace(/(?:ב|ל)?-?\s*\S+\s*תשלומים/, ' '));
+    if (!bare || /תשלומים/.test(s) && s.split(/\s+/).length <= 4) main += ' ' + s;
+    else notes.push(s);
+  }
+  const first = parseOne(main, now);
+  if (!first.length) return [];
+  const items = [...first, ...extra.flatMap(s => parseOne(s, now).map(it =>
+    // תאריך/יום שנכתב ברשומה הראשונה חל גם על השאר
+    it.date || it.dayOffset ? it : { ...it, dayOffset: first[0].dayOffset, ...(first[0].date ? { date: first[0].date } : {}) }))];
+  const note = notes.join(' · ').replace(/\s+/g, ' ').trim().slice(0, 200);
+  return note ? items.map(it => ({ ...it, note })) : items;
 }
 
 // "ודלק" → "דלק" רק אם זה עוזר לזהות

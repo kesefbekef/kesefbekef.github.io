@@ -10,7 +10,8 @@ export function fixedPayments(tx, now = new Date(), rules = {}, opt = {}) {
   const dDays = opt.detected ?? REMIND_DEFAULT;
   const m = ym(now), prevM = ym(new Date(now.getFullYear(), now.getMonth() - 1, 1)), out = [];
   const byDesc = new Map();
-  for (const t of tx) if (t && t.cat !== 'income' && !(t.inst > 1) && t.desc) { const k = t.desc.trim(); (byDesc.get(k) || byDesc.set(k, []).get(k)).push(t); }
+  // מה שנרשם ע"י קבוע (גם קבוע שהופסק) לא "מזוהה" שוב כקבוע — אחרת קבוע שהפסקתם ממשיך להזכיר
+  for (const t of tx) if (t && t.cat !== 'income' && !(t.inst > 1) && t.desc && t.source !== 'recurring' && !t.skip) { const k = t.desc.trim(); (byDesc.get(k) || byDesc.set(k, []).get(k)).push(t); }
   for (const [desc, list] of byDesc) {
     const months = new Set(list.map(t => ym(new Date(t.date))));
     if (!(months.has(m) || months.has(prevM)) || months.size < 2) continue;
@@ -28,6 +29,7 @@ export function fixedPayments(tx, now = new Date(), rules = {}, opt = {}) {
   for (const [id, r] of Object.entries(rules || {})) {
     if (!r || r.paused || r.cat === 'income' || !(r.amount > 0)) continue;
     const next = nextRuleDate(r, now); if (!next) continue;
+    if ((r.skip || []).includes(ym(next))) continue; // החודש הזה דולג או סומן 'אותו תשלום'
     const i = out.findIndex(o => o.desc === r.desc); if (i >= 0) out.splice(i, 1);
     const remind = new Date(next); remind.setDate(remind.getDate() - 1);
     const days = r.remind ?? REMIND_DEFAULT;

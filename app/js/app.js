@@ -1,4 +1,4 @@
-import { CATS, classify, isIncome, catOf, applyCustomCats, isBaseCat, CAT_COLORS, CAT_EMOJIS } from './categories.js';
+import { CATS, classify, isIncome, incomeGuess, catOf, applyCustomCats, isBaseCat, CAT_COLORS, CAT_EMOJIS } from './categories.js';
 import { parseMessage, stripVav, detectPay, PAY, takeTags, cleanTag } from './parse.js';
 import * as db from './db.js';
 import * as imp from './importer.js';
@@ -83,7 +83,7 @@ const expenseIn = m => expenses().reduce((s, t) => s + amountIn(t, m), 0);
 // 0 = בלי תקציב. במצב "🪄 אוטומטי" — מה שלא נקבע ידנית מתעדכן לפי ההוצאות בפועל (ממוצע 3 חודשים)
 const budgetOf = cat => S.budgets[cat] ?? (S.budgets._mode === 'auto' ? recommend(cat) : null) ?? CATS[cat]?.budget ?? 0;
 const totalBudget = () => Object.keys(CATS).reduce((s, c) => s + (budgetOf(c) || 0), 0);
-const txInMonth = m => S.tx.filter(t => amountIn(t, m) > 0);
+const txInMonth = m => S.tx.filter(t => amountIn(t, m) !== 0); // כולל זיכויים (במינוס) — כדי שכל המסכים יראו את אותו סכום
 function daysLeft() { const d = new Date(); return new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate() - d.getDate(); }
 function installmentNo(t, m) { return monthDiff(ym(new Date(t.date)), m) + 1; }
 
@@ -96,15 +96,30 @@ function streak() {
   return n;
 }
 
+// 🪄 תקציב אוטומטי = הקבועים שלכם בקטגוריה (שכירות, משכנתא, ועד בית — מלא) + ממוצע שאר ההוצאות ב-3 החודשים האחרונים.
+// כך קבוע גדול שמגיע מהבנק לא נראה כ"חריגה"
+function fixedIn(cat) {
+  const m = thisMonth();
+  return Object.values(S.recurring || {}).filter(r => r && r.cat === cat && !r.paused && (!r.start || r.start <= m) && (!r.end || r.end >= m)).reduce((s, r) => s + (r.amount || 0), 0);
+}
+const recPart = (cat, m) => S.tx.filter(t => t.cat === cat && t.source === 'recurring').reduce((s, t) => s + amountIn(t, m), 0);
 function recommend(cat) {
-  const months = [];
+  const months = [], fixed = fixedIn(cat);
   for (let i = 1; i <= 3; i++) { const m = addMonths(thisMonth(), -i); if (txInMonth(m).length) months.push(m); }
   if (!months.length) {
-    const cur = spentIn(cat, thisMonth());
-    return cur ? Math.ceil(cur * 1.1 / 50) * 50 : null;
+    const cur = Math.max(0, spentIn(cat, thisMonth()) - recPart(cat, thisMonth()));
+    return fixed || cur ? Math.ceil((fixed + cur * 1.1) / 50) * 50 : null;
   }
-  const avg = months.reduce((s, m) => s + spentIn(cat, m), 0) / months.length;
-  return Math.max(50, Math.ceil(avg / 50) * 50);
+  const avg = months.reduce((s, m) => s + Math.max(0, spentIn(cat, m) - recPart(cat, m)), 0) / months.length;
+  return Math.max(fixed ? 0 : 50, Math.ceil((fixed + avg) / 50) * 50);
+}
+// 🔔 השרת (התראות, מייל חודשי) והאקסל משווים לאותו תקציב אוטומטי שרואים באפליקציה — נשמר ב-budgets._auto כשמשתנה
+let autoSaved = '';
+function syncAutoBudget() {
+  if (S.budgets._mode !== 'auto' || !sync.isParent() || db.DEMO) return;
+  const map = Object.fromEntries(Object.keys(CATS).map(c => [c, recommend(c) || 0]));
+  const j = JSON.stringify(map); if (j === autoSaved || j === JSON.stringify(S.budgets._auto || {})) { autoSaved = j; return; }
+  autoSaved = j; saveKV('budgets', { ...S.budgets, _auto: map });
 }
 
 // ---------- הודעות קופצות וחגיגות ----------
@@ -329,37 +344,70 @@ async function send(raw, source = 'text') {
   const msg = db.newId(), now = new Date();
   const pay = detectPay(raw);
   const pending = items.map(it => {
-    const income = items.length === 1 ? isIncome(raw) : isIncome(it.desc);
+    // מה שלימדתם (כולל "זו הכנסה") קודם לניחוש מהמילים
+    const lr = it.desc && S.learned[it.desc.toLowerCase()];
+    const g = lr ? (lr === 'income' ? 'income' : 'expense') : items.length === 1 ? incomeGuess(raw) : incomeGuess(it.desc), income = g === 'income';
     let desc = it.desc, cat = income ? 'income' : classify(desc, S.learned);
     if (!income && stripVav(desc) !== desc) { const c2 = classify(stripVav(desc), S.learned); if (c2 !== 'other') { cat = c2; desc = stripVav(desc); } }
     const date = new Date(now); date.setDate(date.getDate() + it.dayOffset);
     const inst = !income && it.installments > 1 ? it.installments : 0;
     return { id: db.newId(), msg, raw, desc, cat, source, created: now.toISOString(), date: date.toISOString(),
       amount: inst ? Math.round(it.amount / inst * 100) / 100 : it.amount, total: it.amount, inst, pay: pay || (inst ? 'credit' : null),
-      who: named.who || S.me || null, ...(tagged.tags.length ? { tags: tagged.tags } : {}) };
+      who: named.who || S.me || null, ...(tagged.tags.length ? { tags: tagged.tags } : {}),
+      ...(it.note ? { note: it.note } : {}), ...(it.needsName || !desc ? { _needName: true } : {}), ...(g === 'ask' ? { _askInc: true } : {}) };
   }).map(t => t.cat === 'give' && extraGive ? { ...t, extraGive: true } : t);
 
   // ⚠️ כפילות: אותו סכום בערך + אותה קטגוריה או שם דומה, באותו חודש — שואלים לפני שרושמים
-  const dups = pending.map(t => ({ t, d: findDup(t) })).filter(x => x.d);
+  const dups = pending.filter(t => !t._needName).map(t => ({ t, d: findDup(t) })).filter(x => x.d); // בלי שם — קודם שואלים "על מה?"
   typing.remove();
   if (dups.length) {
-    const { t, d } = dups[0];
-    const by = d.who && personOf(d.who) ? ` ע"י ${(whoLabel(d.who))}` : '';
-    const b = document.createElement('div'); b.className = 'bot new';
-    b.innerHTML = `<div class="cat-ic" style="background:linear-gradient(135deg,#F59E0B,#F97316)">⚠️</div>
-      <div><b>נראה שזה כבר נרשם</b><div class="sub">"${esc(d.desc)} · ${fmt(d.inst > 1 ? d.total : d.amount)}"${by} ב-${new Date(d.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}${dups.length > 1 ? ` (ועוד ${dups.length - 1})` : ''}</div>
-      <div class="acts" style="flex-wrap:wrap;gap:10px"><button data-dup="same">✋ זו אותה הוצאה — לא לרשום</button><button data-dup="add">➕ להכניס בכל זאת</button><button data-dup="show">👀 להראות לי</button></div></div>`;
-    $('#chat').appendChild(b);
-    $('#main').scrollTo({ top: $('#main').scrollHeight, behavior: 'smooth' });
-    b.querySelector('[data-dup="add"]').onclick = () => { b.remove(); commitTx(pending); };
-    b.querySelector('[data-dup="same"]').onclick = () => {
-      me.style.opacity = '.45'; me.style.textDecoration = 'line-through';
-      b.innerHTML = `<div class="cat-ic" style="background:var(--card2)">👌</div><div><b>בסדר, לא נרשם שוב</b></div>`;
-    };
-    b.querySelector('[data-dup="show"]').onclick = () => showTx(d.id);
+    // ⚠️ שאלה נפרדת לכל כפולה אפשרית (חלון באמצע המסך — לא נעלם כשהצ'אט מתרענן). מה שלא כפול — נרשם בכל מקרה.
+    // סגרו את החלון בלי לענות? — לא מאבדים: נשמר באפור ("לא נספר"), ואפשר לספור ב-✏️
+    const keep = pending.filter(t => !dups.some(x => x.t === t)), grey = [];
+    for (const { t, d } of dups) {
+      const a = await confirmBox({ e: '⚠️', title: `"${esc(t.desc)} ${fmt(t.total)}" — כבר נרשם?`, text: `נראה שזה כבר רשום:${dupPreview(d)}`,
+        ok: '✋ אותה הוצאה — לא לרשום', no: '➕ הוצאה אחרת — לרשום' });
+      if (a.how === 'no') keep.push(t);
+      else if (a.how === 'out') grey.push({ ...t, skip: true, skipWhy: 'dup' });
+    }
+    if (!keep.length && !grey.length) { me.style.opacity = '.45'; me.style.textDecoration = 'line-through'; toast('👌 לא נרשם שוב'); return; }
+    for (const t of grey) { S.skip.push(t); await db.putTx(t); }
+    if (grey.length) toast(`⏸️ ${grey.length > 1 ? grey.length + ' נשמרו' : 'נשמר'} באפור (לא נספר) — אפשר לספור ב-✏️`);
+    if (keep.length) await commitChat(keep); else renderAll();
     return;
   }
-  await commitTx(pending);
+  await commitChat(pending);
+}
+// ❓ לפני ששומרים מהצ'אט: בלי שם ("הוצאה 100") — "על מה?". הכנסה או הוצאה לא ברור — שואלים, וזוכרים לפעם הבאה
+async function commitChat(list) {
+  for (const t of list) {
+    if (t._askInc) {
+      const a = await confirmBox({ e: '🤔', title: `"${esc(t.desc || t.raw)}" ${fmt(t.total)} — הכנסה או הוצאה?`, text: 'לא הייתי בטוח. מה שתבחרו — אזכור לפעם הבאה.', ok: '💸 הוצאה', no: '💰 הכנסה' });
+      if (a.how === 'no') { t.cat = 'income'; t.inst = 0; t.amount = t.total; }
+      if (a.how !== 'out' && t.desc) { S.learned[t.desc.toLowerCase()] = t.cat; await db.setKV('learned', S.learned); }
+    }
+    if (t._needName) { const r = await askWhat(t); t.desc = r.desc; t.cat = r.cat; if (r.cat === 'income') { t.inst = 0; t.amount = t.total; } }
+    delete t._askInc; delete t._needName;
+  }
+  await commitTx(list);
+}
+// "על מה?" — שם וקטגוריה בחלון אחד. סגירה = נשמר כ"הוצאה" בשונות (אפשר לתקן ב-✏️)
+function askWhat(t) {
+  return new Promise(res => {
+    const ov = document.createElement('div'); ov.className = 'cbox-ov';
+    ov.innerHTML = `<div class="cbox" role="dialog" aria-modal="true"><div class="cbox-e">✏️</div><h4>${fmt(t.total)} — על מה?</h4>
+      <div class="bank-other"><input id="awN" placeholder="למשל: סופר, דלק, מתנה" maxlength="40"></div>
+      <div class="bank-pick">${[...Object.keys(CATS), 'income'].map(id => `<button class="chip" data-c="${id}">${catOf(id).e} ${esc(id === 'income' ? 'הכנסה' : catOf(id).n)}</button>`).join('')}</div>
+      <div class="cbox-btns"><button class="btn ghost" data-c="__skip">אחר כך</button></div></div>`;
+    const inp = ov.querySelector('#awN');
+    const done = (desc, cat) => { ov.classList.add('out'); setTimeout(() => ov.remove(), 180); res({ desc: desc || catOf(cat).n || 'הוצאה', cat }); };
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter' && inp.value.trim()) { const d = cleanName(inp.value); done(d, classify(d, S.learned)); } });
+    ov.addEventListener('click', e => { const b = e.target.closest('[data-c]');
+      if (!b) { if (e.target === ov) done('הוצאה', t.cat || 'other'); return; }
+      if (b.dataset.c === '__skip') return done('הוצאה', t.cat || 'other');
+      const d = cleanName(inp.value); done(d, b.dataset.c); });
+    document.body.appendChild(ov); setTimeout(() => inp.focus(), 60);
+  });
 }
 
 function similarDesc(a, b) {
@@ -446,8 +494,10 @@ async function removeTx(t) {
 // 🔁 אותה הוצאה רשומה פעמיים? (אותו סכום, עד 4 ימים) — למשל שכירות קבועה שנרשמה לבד וגם הגיעה בקובץ מהבנק
 // שתי שורות מקובץ — כבר נבדקו בהעלאה. dupOk = המשתמש אמר "שתיהן נכונות"
 const fullAmt = x => x.inst > 1 ? x.amount : x.total ?? x.amount;
+// 💡 חשבון משוער (חשמל / מים — t.estimate) והחשבון האמיתי מהבנק: אותה קטגוריה, עד שבוע — גם כשהסכום שונה
+const estPair = (a, b) => (a.estimate && b.source === 'file' || b.estimate && a.source === 'file') && a.cat === b.cat && Math.abs(new Date(a.date) - new Date(b.date)) <= 7 * 864e5;
 const twinOf = t => t && !t.skip && !t.dupOk ? S.tx.find(o => o.id !== t.id && !o.dupOk && !(o.source === 'file' && t.source === 'file') &&
-  (o.cat === 'income') === (t.cat === 'income') && (o.cat === t.cat || (o.source === 'file') !== (t.source === 'file')) && Math.abs(fullAmt(o) - fullAmt(t)) <= 1 && Math.abs(new Date(o.date) - new Date(t.date)) <= 4 * 864e5) || null : null;
+  (o.cat === 'income') === (t.cat === 'income') && (estPair(o, t) || (o.cat === t.cat || (o.source === 'file') !== (t.source === 'file')) && Math.abs(fullAmt(o) - fullAmt(t)) <= 1 && Math.abs(new Date(o.date) - new Date(t.date)) <= 4 * 864e5)) || null : null;
 // 🔁 קבוע שנרשם לבד, ואותו תשלום כבר רשום (מהבנק / ידנית) — שואלים, ולא סופרים פעמיים. "סגירה" בלי תשובה — נשאל שוב בפעם הבאה
 let recDupBusy = false;
 async function recDupCheck() {
@@ -458,9 +508,11 @@ async function recDupCheck() {
     for (const t of S.tx.filter(x => x.source === 'recurring' && ym(new Date(x.date)) >= from)) {
       const o = twinOf(t); if (!o) continue;
       const r = S.recurring?.[t.rec];
-      const a = await confirmBox({ e: '🔁', title: `${esc(t.desc)} ${fmt(fullAmt(t))} — רשום פעמיים?`,
-        text: `התשלום הקבוע נרשם לבד ב־${new Date(t.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}, ונראה שהוא כבר רשום:${dupPreview(o)}זה אותו תשלום?`,
-        ok: '⏸️ אותו תשלום — לספור פעם אחת', no: '➕ תשלום אחר — לספור את שניהם',
+      const est = t.estimate && o.source === 'file';
+      const a = await confirmBox({ e: est ? '💡' : '🔁', title: est ? `${esc(t.desc)} — הגיע החשבון האמיתי?` : `${esc(t.desc)} ${fmt(fullAmt(t))} — רשום פעמיים?`,
+        text: est ? `האפליקציה רשמה לבד הערכה של ${fmt(fullAmt(t))}, ומהבנק הגיע:${dupPreview(o)}זה החשבון של אותו חודש? אם כן — סופרים רק את האמיתי.`
+          : `התשלום הקבוע נרשם לבד ב־${new Date(t.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}, ונראה שהוא כבר רשום:${dupPreview(o)}זה אותו תשלום?`,
+        ok: est ? '✅ כן — לספור רק את החשבון האמיתי' : '⏸️ אותו תשלום — לספור פעם אחת', no: est ? 'לא, זה חודש אחר' : '➕ תשלום אחר — לספור את שניהם',
         opt: r && o.source === 'file' && !r.paused ? 'זה תמיד מגיע מהבנק — להפסיק לרשום את הקבוע הזה לבד' : '' });
       if (a.how === 'ok') { t.skipWhy = 'dup'; await setCounted(t, false); ch = true;
         const rm = ym(new Date(t.date)), r0 = S.recurring?.[t.rec]; if (r0 && !(r0.skip || []).includes(rm)) await saveRule(t.rec, { ...r0, skip: [...(r0.skip || []), rm].slice(-24) });
@@ -581,7 +633,7 @@ function openCategory(id, m = S.month) {
     <div class="card" style="padding:4px 14px;margin-bottom:12px">${list.length ? list.map(t => {
       const extra = t.inst > 1 ? ` · תשלום ${installmentNo(t, m)}/${t.inst}` : '';
       const who = t.who && personOf(t.who) ? ' · ' + (whoLabel(t.who)) : '';
-      return `<button class="tx" data-ct="${t.id}"><div class="nm"><div>${esc(t.desc)}${twinOf(t) ? ' <span class="twin-b">🔁 כפול?</span>' : ''}</div><small>${new Date(t.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}${extra}${who}${t.pay ? ' · ' + PAY[t.pay].e : ''}</small></div><div class="am ${isInc ? 'plus' : ''}">${fmt(amountIn(t, m))}</div><span class="tx-ed" aria-hidden="true">✏️</span></button>`;
+      return `<button class="tx" data-ct="${t.id}"><div class="nm"><div>${esc(t.desc)}${twinOf(t) ? ' <span class="twin-b">🔁 כפול?</span>' : ''}</div><small>${new Date(t.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}${extra}${who}${t.pay ? ' · ' + PAY[t.pay].e : ''}</small></div><div class="am ${isInc || amountIn(t, m) < 0 ? 'plus' : ''}">${amountIn(t, m) < 0 ? '↩️ −' + fmt(-amountIn(t, m)) : fmt(amountIn(t, m))}</div><span class="tx-ed" aria-hidden="true">✏️</span></button>`;
     }).join('') : `<div class="empty"><span class="em">🌱</span>אין ${isInc ? 'הכנסות' : 'הוצאות'} בחודש הזה</div>`}</div>
     ${isInc ? '' : `<button class="btn grad full" id="cBudget" style="margin-bottom:8px">🎯 שינוי התקציב</button>`}
     `, sh => {
@@ -595,6 +647,7 @@ function openCategory(id, m = S.month) {
 // ---------- תקציב ----------
 function renderBudget() {
   const m = S.month;
+  setTimeout(syncAutoBudget, 0);
   countUp($('#incSum'), incomeIn(m));
   countUp($('#expSum'), expenseIn(m));
   const hint = !lsGet('kesef-cathint');
@@ -1056,7 +1109,7 @@ function renderTx() {
   $('#txList').innerHTML = list.length ? list.map(t => {
     const c = catOf(t.cat), inc = t.cat === 'income';
     const extra = t.inst > 1 ? ` · תשלום ${installmentNo(t, m)}/${t.inst}` : '';
-    return `<button class="tx" data-id="${t.id}"><div class="cat-ic" style="background:${c.g}">${c.e}</div><div class="nm"><div>${esc(t.desc)}${twinOf(t) ? ' <span class="twin-b">🔁 כפול?</span>' : ''}</div><small>${c.n} · ${new Date(t.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}${extra}${t.pay ? ' · ' + PAY[t.pay].e + ' ' + PAY[t.pay].n : ''}${t.who && personOf(t.who) ? ' · ' + (whoLabel(t.who)) : ''}${t.tags?.length ? ' · ' + t.tags.map(g => '#' + esc(g)).join(' ') : ''}${t.receipt ? ' · 🧾' : ''}${t.rec ? ' · 🔁' : ''}</small></div><div class="am ${inc ? 'plus' : ''}">${inc ? '+' : ''}${t.estimate ? '≈' : ''}${fmt(t.amount)}</div></button>`;
+    return `<button class="tx" data-id="${t.id}"><div class="cat-ic" style="background:${c.g}">${c.e}</div><div class="nm"><div>${esc(t.desc)}${twinOf(t) ? ' <span class="twin-b">🔁 כפול?</span>' : ''}</div><small>${c.n} · ${new Date(t.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}${extra}${t.pay ? ' · ' + PAY[t.pay].e + ' ' + PAY[t.pay].n : ''}${t.who && personOf(t.who) ? ' · ' + (whoLabel(t.who)) : ''}${t.tags?.length ? ' · ' + t.tags.map(g => '#' + esc(g)).join(' ') : ''}${t.receipt ? ' · 🧾' : ''}${t.rec ? ' · 🔁' : ''}</small></div><div class="am ${inc || t.amount < 0 ? 'plus' : ''}">${inc ? '+' : t.amount < 0 ? '↩️ −' : ''}${t.estimate ? '≈' : ''}${fmt(Math.abs(t.amount))}</div></button>`;
   }).join('') : `<div class="empty"><span class="em">🔍</span>אין תנועות ${S.catFilter || q ? 'שמתאימות לחיפוש' : 'בחודש הזה'}</div>`;
 }
 $('#txFilter').addEventListener('click', e => {
@@ -1084,6 +1137,7 @@ function openEditSheet(t) {
     <div class="sub ed-lbl">✏️ לשנות פרטים:</div>
     ${bankOf(t) ? `<div class="bank-line">🏦 בבנק כתוב: <b><bdi>${esc(bankOf(t))}</bdi></b></div>` : t.raw && t.raw !== t.desc && t.source !== 'file' ? `<div class="sub" style="margin:-6px 0 12px">📝 נכתב במקור: "${esc(t.raw)}"</div>` : ''}
     <label class="field"><span>תיאור (מה זה היה)</span><input id="eDesc" value="${esc(t.desc)}"></label>
+    <label class="field"><span>📝 הערה (לא חובה)</span><input id="eNote" value="${esc(t.note || '')}" maxlength="120" placeholder="למשל: יופיע בדף של החשבון השני"></label>
     <div class="row2">
       <label class="field"><span>${t.amount < 0 ? '↩️ סכום הזיכוי' : t.inst > 1 ? 'סכום כולל' : 'סכום'}</span><input id="eAmt" type="number" inputmode="decimal" value="${Math.abs(t.inst > 1 ? t.total : t.amount)}"></label>
       <label class="field"><span>תאריך</span><input id="eDate" type="date" value="${ymd(new Date(t.date))}"></label>
@@ -1152,6 +1206,7 @@ function openEditSheet(t) {
       const cntCh = counted === !!t.skip, skCh = cntCh && !!rl?.skip !== !counted && !genericBank(bank || '');
       if (cat !== t.cat) { const key = desc.toLowerCase(); if (key.length >= 2) { S.learned[key] = cat; await db.setKV('learned', S.learned); } }
       Object.assign(t, { desc, cat, pay, who, date: new Date(d + 'T12:00:00').toISOString() });
+      const nt = sh.querySelector('#eNote').value.replace(/[<>]/g, '').trim(); if (nt) t.note = nt; else delete t.note;
       const tg = readTags(sh, 'eTag'); if (tg.length) t.tags = tg; else delete t.tags;
       if (cat === 'income' && noM) t.noMaaser = true; else delete t.noMaaser;
       if (cat === 'give' && gx) t.extraGive = true; else delete t.extraGive;
@@ -1354,12 +1409,16 @@ function markDuplicates(items) {
   // הוצאה ידנית במזומן/ביט לא תופיע בפירוט אשראי — לא מתאימים אותה
   const payOk = (t, kind) => !t.pay || (kind !== 'bank' ? t.pay === 'credit' : t.pay !== 'cash');
   const fps = new Set(allTx().map(t => t.fp).filter(Boolean)), fpTx = new Map(allTx().filter(t => t.fp).map(t => [t.fp, t]));
-  const used = new Set();
+  const used = new Set(), upFp = new Map();
   for (const it of items) {
     if (it.kind !== 'image') it.bankDesc = it.desc; // 🏦 הטקסט המקורי מהבנק — לא משתנה גם אם משנים שם
     it.fp = fpOf(it.date, it.amount, it.desc);
-    if (fps.has(it.fp)) { it.status = 'dup-file'; it.matchId = fpTx.get(it.fp)?.id; continue; }
-    fps.add(it.fp); // אותו קובץ שהועלה פעמיים באותה העלאה
+    if (fpTx.has(it.fp)) { it.status = 'dup-file'; it.matchId = fpTx.get(it.fp)?.id; continue; }
+    // אותה שורה פעמיים בהעלאה הזו: מקובץ אחר = אותו קובץ הועלה פעמיים (כפילות). מאותו קובץ = שני תשלומים אמיתיים זהים (שתי חניות) — נספרים
+    const seen = upFp.get(it.fp);
+    if (seen && seen !== it.file) { it.status = 'dup-file'; continue; }
+    if (seen) it.twice = true;
+    upFp.set(it.fp, it.file);
     if (it.ccCharge || it.atm || it.own) { it.status = it.ccCharge ? 'cc' : it.atm ? 'atm' : 'own'; continue; } // לא מתאימים להוצאה ידנית
     const manual = S.tx.find(t => t.source !== 'file' && !used.has(t.id) && payOk(t, it.kind) && (t.cat === 'income') === it.income &&
       Math.abs((t.inst > 1 ? t.amount : t.total ?? t.amount) - it.amount) <= 1 && dayDist(t.date, it.date) <= 3);
@@ -1495,7 +1554,36 @@ async function rememberCc(list, pick) {
   }
 }
 // חיוב שמחכה לפירוט: אין עדיין תנועות מקובץ אשראי ב-45 הימים שלפניו
-const ccWaiting = () => S.skip.filter(t => t.skipWhy === 'cc' && !allTx().some(x => x.msg !== t.msg && x.source === 'file' && (x.fileKind ? x.fileKind === 'card' : x.pay === 'credit' && x.skipWhy !== 'cc') && dayDist(x.date, t.date) <= 45 && x.date <= t.date));
+// 💳 איזו חברת אשראי — מהטקסט בבנק / משם הדף. null = לא ידוע (אז כל פירוט אשראי מתאים)
+const CARD_CO = [['ישראכרט', /ישראכרט/], ['כאל', /כאל|cal\b|visa\s*cal/i], ['מקס', /(^|[^א-ת])מקס(?!\s*סטוק)|max\b|לאומי קארד/i], ['אמריקן אקספרס', /אמריקן|אמקס|amex/i], ['דיינרס', /דיינרס|diners/i]];
+const cardCo = s => (CARD_CO.find(([, re]) => re.test(String(s || ''))) || [null])[0];
+const cardFileOk = (x, charge) => { const a = cardCo(bankOf(charge) || charge.desc), b = cardCo(S.lists?.[x.msg]?.bank || listName(x.msg)); return !a || !b || a === b; };
+// חיוב אשראי שמחכה לפירוט — עד שמגיע פירוט של אותו כרטיס (לא של כרטיס אחר)
+const ccWaiting = () => S.skip.filter(t => t.skipWhy === 'cc' && !allTx().some(x => x.msg !== t.msg && x.source === 'file' && (x.fileKind ? x.fileKind === 'card' : x.pay === 'credit' && x.skipWhy !== 'cc') && dayDist(x.date, t.date) <= 45 && x.date <= t.date && cardFileOk(x, t)));
+// 💳 אותו כסף פעמיים? חיוב אשראי שנספר כ"סכום כולל" בדף הבנק + פירוט הכרטיס של אותה תקופה (או קניות באשראי שנרשמו ידנית).
+// שואלים לכל חיוב בנפרד, אחרי שמירת קובץ. סגירה בלי תשובה — נשאל שוב בהעלאה הבאה
+async function ccOverlapCheck(newIds) {
+  const fresh = allTx().filter(t => newIds.includes(t.id)); if (!fresh.length) return;
+  const charges = allTx().filter(t => t.cc && !t.skip && !t.ccOk);
+  const pairs = [];
+  for (const c of charges) {
+    const detail = allTx().filter(x => x.msg !== c.msg && !x.skip && x.cat !== 'income' && x.date <= c.date && dayDist(x.date, c.date) <= 45 &&
+      (x.source === 'file' ? x.fileKind === 'card' && cardFileOk(x, c) : x.pay === 'credit' && !x.cc));
+    if (!detail.length) continue;
+    if (!fresh.includes(c) && !detail.some(x => fresh.includes(x))) continue; // רק מה שהעלאה זו נוגעת בו
+    pairs.push({ c, detail });
+  }
+  let ch = 0;
+  for (const { c, detail } of pairs.slice(0, 6)) {
+    const files = detail.filter(x => x.source === 'file'), hand = files.length ? [] : detail.filter(x => x.source !== 'file'), sum = l => fmt(l.reduce((s, x) => s + x.amount, 0));
+    const a = await confirmBox({ e: '💳', title: `${ccName(c)} ${fmt(c.amount)} — נספר פעמיים?`,
+      text: `החיוב הזה מהבנק נספר כ<b>סכום כולל</b>, אבל ${files.length ? 'הקניות שלו כבר רשומות' : 'אולי חלק מהקניות שלו כבר רשומות'}:<span class="cb-steps">${files.length ? `📄 ${files.length} שורות מפירוט האשראי (${sum(files)})<br>` : ''}${hand.length ? `✍️ ${hand.length} קניות באשראי שרשמתם (${sum(hand)})` : ''}</span>כדי שלא ייספר פעמיים — להפסיק לספור את הסכום הכולל, ולספור רק את הקניות?`,
+      ok: '✅ כן — לספור רק את הקניות', no: 'לא, זה כרטיס / חודש אחר' });
+    if (a.how === 'ok') { c.skipWhy = 'cc'; await setCounted(c, false); ch++; }
+    else if (a.how === 'no') { c.ccOk = true; await db.putTx(c); }
+  }
+  if (ch) { renderAll(); toast(`✅ ${ch} חיובי אשראי לא נספרים פעמיים`); }
+}
 async function ccReminder() {
   if (db.BDIKA || !sync.isParent() || lsGet('ccRemind') === ymd(new Date())) return;
   const list = ccWaiting().filter(t => Date.now() - new Date(t.created) > 5 * 864e5); if (!list.length) return;
@@ -1958,7 +2046,9 @@ function openImportSheet(name, { kind, items, files = [name] }) {
       cs.onchange = () => { it.cat = cs.value; it.catChanged = true; };
     }
     refresh();
-    sh.querySelector('#impGo').onclick = async () => {
+    sh.querySelector('#impGo').onclick = async e => {
+      if (e.currentTarget.dataset.busy) return; // לחיצה כפולה לא שומרת פעמיים
+      e.currentTarget.dataset.busy = '1'; e.currentTarget.textContent = '⏳ שומר…';
       const keep = items.filter(i => i.on || i.status !== 'dup-file');
       for (const it of keep) if (!it.desc) it.desc = it.bankDesc || 'הוצאה מצילום מסך';
       if (!keep.length) { closeSheet(); return; }
@@ -1985,7 +2075,7 @@ function openImportSheet(name, { kind, items, files = [name] }) {
         const k = ruleKey(it.bankDesc); if ((!nm && !ct && !sk) || k.length < 2 || seenK.has(k)) continue;
         seenK.add(k); ask.push({ bank: it.bankDesc, ...(nm ? { name: it.desc } : {}), ...(ct ? { cat: it.cat } : {}), ...(sk ? { skip: !it.on } : {}) });
       }
-      if (ask.length && sync.isParent()) setTimeout(() => askRules(ask.slice(0, 12)), 900);
+      setTimeout(async () => { await ccOverlapCheck(ids); if (ask.length && sync.isParent()) askRules(ask.slice(0, 12)); }, 900);
     };
   });
 }
@@ -2145,8 +2235,13 @@ function openListsSheet() {
         await saveListMeta(m, { bank: v }); renderAll(); toast(v ? `🏦 ${v}` : 'הבנק הוסר'); openListsSheet();
       };
       menu.querySelector('[data-a="cnt"]').onclick = async () => {
+        // ⏸️ כל הדף — זוכרים לכל שורה מה היה (חיוב אשראי, העברה שלי, כפולה...), ו-✅ מחזיר בדיוק את זה ולא סופר הכל
         const l = listTx(m), on = l.every(t => t.skip);
-        for (const t of l) if (!!t.skip === on) await setCounted(t, on);
+        for (const t of l) {
+          if (!on) { t.pageWas = t.skip ? { why: t.skipWhy || 'user' } : { on: true }; if (t.skip) { t.skipWhy = 'page'; await db.putTx(t); } else { t.skipWhy = 'page'; await setCounted(t, false); } }
+          else { const w = t.pageWas; delete t.pageWas;
+            if (w && !w.on) { t.skipWhy = w.why; await db.putTx(t); } else await setCounted(t, true); }
+        }
         renderAll(); toast(on ? `✅ כל ${l.length} התנועות נספרות` : `⏸️ הדף לא נספר (${l.length} תנועות נשמרו באפור)`); openListsSheet();
       };
       menu.querySelector('[data-a="del"]').onclick = async () => {
@@ -2188,7 +2283,7 @@ async function alreadyUploaded(items) {
     const a = await confirmBox({ e: '🗑️', title: 'הקובץ הזה בסל המחזור', text: `<b>${esc(listName(t.msg))}</b> — נמחק ב־${dm(t.trash)}. לשחזר אותו?`, ok: '♻️ לשחזר', no: 'להעלות מחדש' });
     if (a.how === 'ok') { await restoreList(t.msg); openFileList(t.msg); return true; }
     if (a.how === 'out') return true;
-    await purgeList(t.msg); return false;
+    return false; // "להעלות מחדש" — הישן נשאר בסל (נמחק לבד אחרי 30 יום), כדי שלא יאבד אם סוגרים בלי לשמור
   }
   if (inLive.length >= Math.max(1, items.length * .8)) {
     const t = live.get(inLive[0].fp);
@@ -2839,6 +2934,22 @@ const recId = (rid, m) => `rec_${rid}_${m}`;
 const monthsBetween = (a, b) => { const [y1, m1] = a.split('-').map(Number), [y2, m2] = b.split('-').map(Number); return (y2 - y1) * 12 + (m2 - m1); };
 const recEnd = (start, months, endM) => endM || (months > 0 ? addMonths(start, months - 1) : '');
 async function saveRule(rid, rule) { await saveKV('recurring', { ...S.recurring, [rid]: rule }); }
+// ⏸️/▶️ השהיה והמשך. בהמשך — שואלים מה עם החודשים שהיו בהשהיה (במקום לרשום את כולם בבת אחת)
+async function togglePause(rid) {
+  const r = S.recurring[rid]; if (!r) return;
+  if (!r.paused) { await saveRule(rid, { ...r, paused: true, pausedAt: thisMonth() }); toast('⏸️ מושהה — לא יירשם עד שתמשיכו'); return; }
+  const have = new Set([...allTx(), ...(S.trash || [])].map(t => t.id));
+  const missed = dueMonths({ ...r, paused: false }, new Date()).filter(m => !have.has(recId(rid, m)) && !(r.skip || []).includes(m) && (!r.pausedAt || m >= r.pausedAt));
+  let skip = r.skip || [];
+  if (missed.length) {
+    const a = await confirmBox({ e: '▶️', title: `${esc(r.desc)} — ממשיכים`, text: `בזמן ההשהיה עברו <b>${missed.length}</b> חודשים (${missed.map(monthLabel).join(', ')}). לרשום אותם עכשיו?`,
+      ok: 'לא — רק מהחודש הזה', no: `➕ לרשום את ${missed.length > 1 ? 'כולם' : 'החודש הזה'}` });
+    if (a.how === 'out') return;
+    if (a.how === 'ok') skip = [...skip, ...missed.filter(m => m !== thisMonth())].slice(-24);
+  }
+  const { pausedAt, ...rest } = r;
+  await saveRule(rid, { ...rest, paused: false, skip }); toast('▶️ ממשיך לרשום כל חודש'); await postRecurring();
+}
 async function postRecurring() {
   if (!sync.isParent()) return [];
   // כולל מה שסומן "לא נספר" ומה שבסל — אחרת קבוע שסימנו "אותו תשלום" חוזר להיספר בפתיחה הבאה
@@ -2886,7 +2997,7 @@ function openRecurring() {
     drawPushCard(sh.querySelector('#rqPush'));
     sh.querySelectorAll('[data-rd]').forEach(b => b.onclick = async () => { await saveKV('budgets', { ...S.budgets, _remind: +b.dataset.rd }); toast(+b.dataset.rd ? `🔔 נזכיר ${b.textContent} על הוצאות קבועות שזיהינו` : '🔕 בלי תזכורת על מה שזוהה לבד'); openRecurring(); });
     sh.querySelectorAll('[data-rule]').forEach(b => b.onclick = e => { if (!e.target.closest('.rec-acts')) openRuleEdit(b.dataset.rule); });
-    sh.querySelectorAll('[data-rp]').forEach(b => b.onclick = async () => { const r = S.recurring[b.dataset.rp]; await saveRule(b.dataset.rp, { ...r, paused: !r.paused }); toast(r.paused ? '▶️ ממשיך לרשום כל חודש' : '⏸️ מושהה'); if (r.paused) await postRecurring(); openRecurring(); });
+    sh.querySelectorAll('[data-rp]').forEach(b => b.onclick = async () => { await togglePause(b.dataset.rp); openRecurring(); });
     sh.querySelectorAll('[data-rs]').forEach(b => b.onclick = async () => {
       if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'בטוח?'; b.classList.add('armed'); return; }
       const { [b.dataset.rs]: _, ...rest } = S.recurring; await saveKV('recurring', rest); toast('🏁 הקבוע הופסק'); openRecurring();
@@ -2917,7 +3028,7 @@ function openRuleEdit(rid) {
       await saveRule(rid, { ...r, amount: a, day: Math.min(28, Math.max(1, d || r.day)), end: sh.querySelector('#reEnd').value || '', variable: sh.querySelector('#reVar').checked, ...(r.cat !== 'income' ? { remind: rm } : {}) });
       toast('✅ נשמר'); await postRecurring(); openRecurring();
     };
-    sh.querySelector('#rePause').onclick = async () => { await saveRule(rid, { ...r, paused: !r.paused }); toast(r.paused ? '▶️ ממשיך לרשום כל חודש' : '⏸️ מושהה — לא יירשם עד שתמשיכו'); if (r.paused) await postRecurring(); openRecurring(); };
+    sh.querySelector('#rePause').onclick = async () => { await togglePause(rid); openRecurring(); };
     sh.querySelector('#reDel').onclick = async ev => {
       if (!armed) { armed = true; ev.target.textContent = 'בטוח? לחיצה שנייה'; return; }
       const { [rid]: _, ...rest } = S.recurring; await saveKV('recurring', rest); toast('🛑 הקבוע הופסק'); openRecurring();
@@ -3037,7 +3148,8 @@ async function resetSettings() {
   for (const k of RESET_LOCAL) try { localStorage.removeItem(k); } catch { /* */ }
   if (parent) {
     await saveKV('rules', {}); await saveKV('learned', {});
-    const bu = { ...S.budgets }; delete bu._remind; // מצב התקציב והסכומים — נשארים (אחרת התקציב היה נעלם) await saveKV('budgets', bu);
+    const bu = { ...S.budgets }; delete bu._remind; // מצב התקציב והסכומים — נשארים (אחרת התקציב היה נעלם)
+    await saveKV('budgets', bu);
   }
   toast('↩️ ההגדרות חזרו להתחלה'); setTimeout(() => location.reload(), 900);
 }
@@ -3862,6 +3974,17 @@ async function drawQRs(el) {
 }
 
 async function drawSync(el) {
+  await drawSync0(el);
+  // ⚠️ שינויים שלא נשמרו בשרת — רואים, ומחליטים
+  const n = db.DEMO ? 0 : await sync.rejectedCount().catch(() => 0); if (!n) return;
+  const box = document.createElement('div'); box.className = 'card cc-card'; box.style.margin = '10px 0 0';
+  box.innerHTML = `<b>⚠️ ${n} שינויים לא נשמרו בשרת</b><div class="sub" style="margin:4px 0 8px">הם קיימים רק בטלפון הזה. אפשר לנסות לשלוח שוב, או לוותר עליהם.</div>
+    <div class="row2"><button class="btn grad" data-rj="retry">🔁 לנסות שוב</button><button class="btn ghost" data-rj="drop">לוותר</button></div>`;
+  box.querySelector('[data-rj="retry"]').onclick = async () => { const k = await sync.retryRejected(); toast(`🔁 נשלחו שוב ${k}`); setTimeout(() => drawSync(el), 2500); };
+  box.querySelector('[data-rj="drop"]').onclick = async () => { const a = await confirmBox({ e: '⚠️', title: 'לוותר על השינויים?', text: 'הם יישארו רק בטלפון הזה, ולא יגיעו לשאר בני המשפחה.', ok: 'לוותר', no: 'ביטול' }); if (a.ok) { await sync.dropRejected(); box.remove(); } };
+  el.appendChild(box);
+}
+async function drawSync0(el) {
   if (db.DEMO) { el.style.display = 'none'; return; }
   const hh = UITEST ? FAKE_HH : sync.household();
   if (UITEST && !syncUser) syncUser = { id: 'u1', email: 'a.very.long.email.address@example.com' };

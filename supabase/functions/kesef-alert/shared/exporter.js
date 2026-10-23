@@ -136,7 +136,7 @@ export async function buildWorkbook({ tx, budgets, people = [], kind, anchor }) 
   const totalExp = exp.reduce((s, o) => s + o.amount, 0), totalInc = incs.reduce((s, o) => s + o.amount, 0);
   const days = Math.round((end - start) / 864e5);
   const factor = kind === 'year' ? 12 : kind === 'month' ? 1 : days / 30;
-  const budgetOf = id => (budgets[id] ?? CATS[id]?.budget ?? 0) * factor;
+  const budgetOf = id => (budgets[id] ?? (budgets._mode === 'auto' ? budgets._auto?.[id] : null) ?? CATS[id]?.budget ?? 0) * factor;
 
   const wb = new ExcelJS.Workbook();
   wb.creator = 'כסף בכיף'; wb.created = new Date();
