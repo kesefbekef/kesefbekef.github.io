@@ -189,6 +189,8 @@ const SYNC_KEYS = ['budgets', 'learned', 'people', 'cats', 'goals', 'maaser', 'p
 async function repairMissing() {
   const flag = 'syncFix1:' + hh.id;
   if (!isParent() || await db.getKV(flag, false)) return;
+  // 🔐 רק כשהנתונים שבטלפון שייכים למשפחה הזו (לא אחרי החלפת חשבון) — אחרת לא שולחים כלום
+  if ((await db.getKV('dataHousehold', null)) !== hh.id) return;
   const c = await client(), ids = new Set();
   for (let from = 0; ; from += 1000) {
     const { data, error } = await c.from('tx').select('id').eq('household_id', hh.id).range(from, from + 999);
@@ -293,17 +295,18 @@ async function applyTx(row) {
   else await db.putTx(row.data, true);
 }
 async function applyKv(row) {
-  if (!['budgets', 'learned', 'people', 'cats', 'goals', 'maaser', 'pocket', 'debts', 'recurring', 'rules', 'lists'].includes(row.key)) return;
-  const pending = (await db.getKV('outbox', [])).find(o => o.t === 'kv' && o.key === row.key);
-  if (pending) {
-    // יש כאן שינוי שעוד לא נשלח — ממזגים, ולא דורסים אותו
-    const merged = merge3(await db.getKV('base:' + row.key, null), pending.value, row.value);
-    await db.setKV(row.key, merged, true);
-    pending.value = merged;
-    const box = await db.getKV('outbox', []);
-    await db.setKV('outbox', box.map(o => o.t === 'kv' && o.key === row.key ? { ...o, value: merged } : o), true);
-  } else await db.setKV(row.key, row.value, true);
-  await db.setKV('base:' + row.key, row.value, true);
+  if (!SYNC_KEYS.includes(row.key)) return;
+  await locked(async () => { // 🔒 נוגע בתור — באותה נעילה כמו enqueue / flush
+    const pending = (await db.getKV('outbox', [])).find(o => o.t === 'kv' && o.key === row.key);
+    if (pending) {
+      // יש כאן שינוי שעוד לא נשלח — ממזגים, ולא דורסים אותו
+      const merged = merge3(await db.getKV('base:' + row.key, null), pending.value, row.value);
+      await db.setKV(row.key, merged, true);
+      const box = await db.getKV('outbox', []);
+      await db.setKV('outbox', box.map(o => o.t === 'kv' && o.key === row.key ? { ...o, value: merged } : o), true);
+    } else await db.setKV(row.key, row.value, true);
+    await db.setKV('base:' + row.key, row.value, true);
+  });
 }
 
 // רענון מסך אחד לכמה שינויים שמגיעים ביחד (במקום 300 רענונים)

@@ -463,6 +463,7 @@ async function recDupCheck() {
         ok: '⏸️ אותו תשלום — לספור פעם אחת', no: '➕ תשלום אחר — לספור את שניהם',
         opt: r && o.source === 'file' && !r.paused ? 'זה תמיד מגיע מהבנק — להפסיק לרשום את הקבוע הזה לבד' : '' });
       if (a.how === 'ok') { t.skipWhy = 'dup'; await setCounted(t, false); ch = true;
+        const rm = ym(new Date(t.date)), r0 = S.recurring?.[t.rec]; if (r0 && !(r0.skip || []).includes(rm)) await saveRule(t.rec, { ...r0, skip: [...(r0.skip || []), rm].slice(-24) });
         if (a.opt && r) { await saveRule(t.rec, { ...r, paused: true }); toast(`⏸️ "${t.desc}" לא יירשם יותר לבד — אפשר להחזיר ב־🔁 הקבועים שלי`); } }
       else if (a.how === 'no') { t.dupOk = o.dupOk = true; await db.putTx(t); await db.putTx(o); }
     }
@@ -2840,7 +2841,8 @@ const recEnd = (start, months, endM) => endM || (months > 0 ? addMonths(start, m
 async function saveRule(rid, rule) { await saveKV('recurring', { ...S.recurring, [rid]: rule }); }
 async function postRecurring() {
   if (!sync.isParent()) return [];
-  const now = new Date(), have = new Set(S.tx.map(t => t.id)), added = [];
+  // כולל מה שסומן "לא נספר" ומה שבסל — אחרת קבוע שסימנו "אותו תשלום" חוזר להיספר בפתיחה הבאה
+  const now = new Date(), have = new Set([...allTx(), ...(S.trash || [])].map(t => t.id)), added = [];
   for (const [rid, r] of Object.entries(S.recurring || {})) {
     for (const m of dueMonths(r, now)) {
       const id = recId(rid, m); if (have.has(id) || (r.skip || []).includes(m)) continue;
