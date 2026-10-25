@@ -1,4 +1,4 @@
-import { CATS, classify, isIncome, incomeGuess, catOf, applyCustomCats, isBaseCat, CAT_COLORS, CAT_EMOJIS } from './categories.js';
+import { CATS, classify, isIncome, incomeGuess, suggestEmoji, catOf, applyCustomCats, isBaseCat, CAT_COLORS, CAT_EMOJIS } from './categories.js';
 import { parseMessage, stripVav, detectPay, PAY, takeTags, cleanTag } from './parse.js';
 import * as db from './db.js';
 import * as imp from './importer.js';
@@ -109,7 +109,10 @@ const fullMonth = m => txInMonth(m).length >= 8;
 // ולכל קטגוריה בנפרד: רק אם היו בה הוצאות באותם חודשים (קטגוריה שחיה רק באשראי, בלי פירוט כרטיס — נשארת הערכה)
 const autoFirm = cat => { let n = 0; for (let i = 1; i <= 3; i++) { const m = addMonths(thisMonth(), -i); if (fullMonth(m) && (!cat || spentIn(cat, m) > 0)) n++; } return n >= 2; };
 const budgetFirm = cat => S.budgets[cat] != null || S.budgets._mode !== 'auto' || autoFirm(cat);
-function recommend(cat) {
+// ⚡ התוצאה נזכרת עד השינוי הבא בנתונים (recCache מתאפס ב-renderAll), במקום לחשב מחדש בכל ציור ולכל קטגוריה
+let recCache = new Map();
+function recommend(cat) { if (!recCache.has(cat)) recCache.set(cat, recommend0(cat)); return recCache.get(cat); }
+function recommend0(cat) {
   const months = [], fixed = fixedIn(cat);
   for (let i = 1; i <= 3; i++) { const m = addMonths(thisMonth(), -i); if (fullMonth(m)) months.push(m); }
   if (!months.length) {
@@ -1292,6 +1295,7 @@ function applyRole() {
 }
 
 function renderAll(newIds) {
+  recCache = new Map(); // הנתונים השתנו — התקציב האוטומטי יחושב מחדש פעם אחת
   applyRole();
   renderHero(); renderStories(); renderMonthNav(); renderBudget(); renderInsights(); renderTx(); renderQuick();
   if (S.view === 'chat') renderChat(newIds);
@@ -1630,7 +1634,8 @@ async function ccReminder() {
   const list = ccWaiting().filter(t => Date.now() - new Date(t.created) > 5 * 864e5); if (!list.length) return;
   lsSet('ccRemind', ymd(new Date()));
   await new Promise(r => setTimeout(r, 3500)); if ($('#sheet').classList.contains('on')) return;
-  const a = await askCc(list, { title: 'חסר פירוט של כרטיס אשראי', upload: true });
+  const cos = [...new Set(list.map(t => cardCo(bankOf(t) || t.desc)).filter(Boolean))];
+  const a = await askCc(list, { title: `חסר פירוט ${cos.length === 1 ? 'של כרטיס ' + cos[0] : 'של כרטיסי אשראי'} — ${list.length} חיובים (${fmt(list.reduce((s, t) => s + t.amount, 0))})`, upload: true });
   if (a.how === 'upload') { openAttachSheet(); return; }
   if (a.how !== 'ok') return;
   let n = 0; for (const [i, t] of list.entries()) if (a.pick[i]) { await setCounted(t, true); n++; }
@@ -1848,7 +1853,9 @@ function openAddForm(cat) {
       if (rec) { // 🔁 נשמר ככלל — והרישום עצמו נעשה לבד (גם החודש, אם היום כבר הגיע)
         const start = ym(new Date(d + 'T12:00:00')), day = Math.min(28, Math.max(1, Math.round(num(sh.querySelector('#aRecDay').value)) || 1));
         const end = recEnd(start, Math.round(num(sh.querySelector('#aRecN').value)), sh.querySelector('#aRecEnd').value);
-        await saveRule('r_' + Math.random().toString(36).slice(2, 8), { desc: cleanName(desc), amount: total, cat, day, start, end, variable: sh.querySelector('#aRecVar').checked, who, pay });
+        const rid0 = 'r_' + Math.random().toString(36).slice(2, 8), skip0 = await recAlreadyThisMonth(cleanName(desc), total, cat);
+        if (skip0 === 'out') return;
+        await saveRule(rid0, { desc: cleanName(desc), amount: total, cat, day, start, end, variable: sh.querySelector('#aRecVar').checked, who, pay, ...(skip0 ? { skip: [thisMonth()] } : {}) });
         closeSheet(); const added = await postRecurring(); confetti();
         toast(`🔁 נשמר כקבוע: ${desc} · ${fmt(total)} כל ${day} לחודש${added.length ? '' : ' (יירשם ביום הזה)'}`); return;
       }
@@ -1972,7 +1979,7 @@ function openImportSheet(name, { kind, items, files = [name] }) {
       <div class="row2"><button class="btn ghost" data-atmall="skip">⏸️ לכולן: לא לספור<small>אני רושם את ההוצאות במזומן</small></button><button class="btn ghost" data-atmall="count">✅ לכולן: לספור<small>כהוצאה, עם קטגוריה</small></button></div></div>` : ''}
     ${noBank ? `<div class="card cc-card"><b>🏦 איזה ${kind === 'card' ? 'כרטיס' : 'בנק'}?</b><div class="sub">לא כתוב בקובץ — כדי שהדף יקבל שם ברור (למשל "עו"ש ${kind === 'card' ? 'ישראכרט' : 'לאומי'} · אוקטובר")</div>
       <select id="impBank" class="bank-sel"><option value="">— לבחור —</option>${imp.BANK_NAMES.map(b => `<option>${b}</option>`).join('')}<option value="__other">✏️ אחר…</option></select></div>` : ''}
-    ${items.some(isDup) ? `<div class="card cc-card"><b>🔁 ${items.filter(isDup).length} שורות שאולי כבר רשומות</b><div class="sub">הגיעו בלי סימון. הזיהוי לא תמיד מדויק — אפשר לבדוק כל אחת.</div><button class="btn ghost full" id="dupPick" style="margin-top:8px">🔁 לבחור לכל כפילות</button></div>` : ''}
+    ${items.some(isDup) ? `<div class="card cc-card"><b>🔁 ${items.filter(i => i.status === 'dup-file').length ? `${items.filter(i => i.status === 'dup-file').length} שורות כבר יובאו בעבר` : ''}${items.some(i => i.status === 'dup-file') && items.some(i => i.status === 'dup-manual') ? ' · ' : ''}${items.filter(i => i.status === 'dup-manual').length ? `${items.filter(i => i.status === 'dup-manual').length} אולי רשומות ידנית` : ''}</b><div class="sub">הגיעו בלי סימון, כדי שלא ייספרו פעמיים. אפשר לבדוק כל אחת.</div><button class="btn ghost full" id="dupPick" style="margin-top:8px">🔁 לבחור לכל כפילות</button></div>` : ''}
     ${ccRows.length ? `<div class="card cc-card"><b>💳 ${ccRows.length > 1 ? `${ccRows.length} חיובי כרטיס אשראי` : 'חיוב כרטיס אשראי'}</b>
       <div class="sub" id="ccNow"></div><button class="btn ghost full" id="ccPick" style="margin-top:8px">💳 לבחור לכל חיוב</button></div>` : ''}
     <div class="chips imp-filter" id="impFilter"><button class="chip on" data-f="all">הכל</button><button class="chip" data-f="on">✅ נספרות</button><button class="chip" data-f="off">⏸️ לא נספרות</button><button class="chip" id="impSel">☑️ בחירה</button></div>
@@ -2047,7 +2054,8 @@ function openImportSheet(name, { kind, items, files = [name] }) {
     // קודם אשראי, אחר כך כפילויות — חלון אחרי חלון
     setTimeout(async () => {
       if (ccNew.length && sync.isParent()) await ccAsk(ccNew);
-      const d = items.filter(isDup); if (d.length && $('#sheet').classList.contains('on')) await dupAsk(d);
+      // שואלים לבד רק על "אולי רשום ידנית". מה שכבר יובא מאותו חשבון — ברור, נשאר בלי סימון, ואפשר לבדוק מהכרטיס
+      const d = items.filter(i => i.status === 'dup-manual'); if (d.length && $('#sheet').classList.contains('on')) await dupAsk(d);
     }, 450);
     sh.querySelectorAll('[data-atmall]').forEach(b => b.onclick = () => {
       const on = b.dataset.atmall === 'count';
@@ -2122,7 +2130,7 @@ function openImportSheet(name, { kind, items, files = [name] }) {
         const k = ruleKey(it.bankDesc); if ((!nm && !ct && !sk) || k.length < 2 || seenK.has(k)) continue;
         seenK.add(k); ask.push({ bank: it.bankDesc, ...(nm ? { name: it.desc } : {}), ...(ct ? { cat: it.cat } : {}), ...(sk ? { skip: !it.on } : {}) });
       }
-      setTimeout(async () => { await nameClash(msg); await ccOverlapCheck(ids); if (ask.length && sync.isParent()) askRules(ask.slice(0, 12)); }, 900);
+      setTimeout(async () => { await nameClash(msg); await ccOverlapCheck(ids); await xferAsk(ids); if (ask.length && sync.isParent()) askRules(ask.slice(0, 12)); }, 900);
     };
   });
 }
@@ -2268,6 +2276,41 @@ async function pagesCheck(manual = false) {
   else if (manual && !pairs.length && !atm.length && !longNames.length) toast('✅ בדקתי את כל הדפים — הכל מסודר');
   return pairs.length + atm.length + longNames.length;
 }
+// 💸 העברות מהבנק בלי שם ("העברה דיגיטל", "תשלום מיידי") נוחתות ב"שונות". אחרי שמירה שואלים על כל אחת: למי? על מה?
+// התשובה נזכרת ככלל לפי הטקסט המלא בבנק (כולל מספר) — בפעם הבאה אותו מקבל מקבל לבד את אותו שם וקטגוריה
+const XFER_GENERIC = /^(העברה|העב|תשלום מיידי|העברה דיגיטל|זיכוי|ביט|bit|paybox|פייבוקס)/i;
+async function xferAsk(ids) {
+  if (!sync.isParent()) return;
+  const rows = allTx().filter(t => ids.includes(t.id) && !t.skip && t.cat === 'other' && t.source === 'file' && XFER_GENERIC.test(bankOf(t) || '') && !t.xferOk && !ruleFor(bankOf(t))?.name);
+  if (!rows.length) return;
+  let n = 0;
+  for (const t of rows.slice(0, 8)) {
+    const r = await askWhatFull(t);
+    if (r === null) { t.xferOk = true; await db.putTx(t); continue; } // "אחר כך" — לא נשאל שוב על השורה הזו
+    t.desc = r.desc; t.cat = r.cat; if (r.cat === 'income') { t.income = true; } await db.putTx(t); n++;
+    if (r.remember) await saveRuleFor(bankOf(t), { name: r.desc, cat: r.cat }, true);
+  }
+  if (n) { renderAll(); toast(`✅ ${n} העברות קיבלו שם`); }
+  if (rows.length > 8) toast(`עוד ${rows.length - 8} העברות בלי שם — נשאל בפעם הבאה`);
+}
+// "למי? על מה?" לשורה מהבנק — שם, קטגוריה, ו"לזכור" לפעם הבאה
+function askWhatFull(t) {
+  return new Promise(res => {
+    const ov = document.createElement('div'); ov.className = 'cbox-ov';
+    ov.innerHTML = `<div class="cbox" role="dialog" aria-modal="true"><div class="cbox-e">💸</div><h4>${fmt(Math.abs(t.amount))} · ${new Date(t.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })} — למי? על מה?</h4>
+      <p class="sub" style="margin:0 0 8px">🏦 בבנק כתוב: <bdi>${esc(bankOf(t))}</bdi></p>
+      <div class="bank-other"><input id="awN" placeholder="למשל: שכר דירה, גננת, דוד" maxlength="40"></div>
+      <div class="bank-pick">${[...Object.keys(CATS), 'income'].map(id => `<button class="chip" data-c="${id}">${catOf(id).e} ${esc(id === 'income' ? 'הכנסה' : catOf(id).n)}</button>`).join('')}</div>
+      <label class="cbox-past cbox-opt"><input type="checkbox" checked><span>לזכור — בפעם הבאה אותו מקבל יקבל את זה לבד</span></label>
+      <div class="cbox-btns"><button class="btn ghost" data-c="__skip">אחר כך</button></div></div>`;
+    const inp = ov.querySelector('#awN');
+    const done = v => { ov.classList.add('out'); setTimeout(() => ov.remove(), 180); res(v); };
+    const pick = cat => { const d = cleanName(inp.value); done({ desc: d || catOf(cat).n, cat, remember: ov.querySelector('.cbox-opt input').checked }); };
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter' && inp.value.trim()) { const d = cleanName(inp.value); pick(classify(d, S.learned)); } });
+    ov.addEventListener('click', e => { const b = e.target.closest('[data-c]'); if (!b) { if (e.target === ov) done(null); return; } if (b.dataset.c === '__skip') return done(null); pick(b.dataset.c); });
+    document.body.appendChild(ov); setTimeout(() => inp.focus(), 60);
+  });
+}
 // 🏷️ לדף החדש יצא בדיוק אותו שם כמו לדף אחר (למשל שני חשבונות באותו בנק) — שואלים איך לקרוא לו
 async function nameClash(msg) {
   const nm = listName(msg);
@@ -2396,9 +2439,11 @@ async function alreadyUploaded(items) {
     return false; // "להעלות מחדש" — הישן נשאר בסל (נמחק לבד אחרי 30 יום), כדי שלא יאבד אם סוגרים בלי לשמור
   }
   if (inLive.length >= Math.max(1, items.length * .8)) {
-    const t = live.get(inLive[0].fp);
-    const a = await confirmBox({ e: '🏦', title: 'את הקובץ הזה כבר העלית', text: `ב־${dm(t.created)} — <b>${esc(listName(t.msg))}</b>.<br>לפתוח את הדף?`, ok: '🏦 לפתוח את הדף', no: 'להמשיך בכל זאת' });
-    if (a.how === 'ok') { openFileList(t.msg); return true; }
+    const t = live.get(inLive[0].fp), fresh = items.length - inLive.length;
+    const a = await confirmBox({ e: '🏦', title: 'את הקובץ הזה כבר העלית', text: `ב־${dm(t.created)} — <b>${esc(listName(t.msg))}</b>.${fresh ? `<br><b>יש בו ${fresh > 1 ? fresh + ' שורות חדשות' : 'שורה אחת חדשה'}</b> ${fresh > 1 ? 'שעוד לא נרשמו' : 'שעוד לא נרשמה'}.` : '<br>אין בו שורות חדשות.'}`,
+      ok: fresh ? `➕ להוסיף רק את ${fresh > 1 ? fresh + ' החדשות' : 'החדשה'}` : '🏦 לפתוח את הדף', no: fresh ? '🏦 לפתוח את הדף הקיים' : 'להמשיך בכל זאת' });
+    if (a.how === 'ok' && !fresh) { openFileList(t.msg); return true; }
+    if (a.how === 'no' && fresh) { openFileList(t.msg); return true; }
     return a.how === 'out';
   }
   return false;
@@ -3045,6 +3090,16 @@ const recId = (rid, m) => `rec_${rid}_${m}`;
 const monthsBetween = (a, b) => { const [y1, m1] = a.split('-').map(Number), [y2, m2] = b.split('-').map(Number); return (y2 - y1) * 12 + (m2 - m1); };
 const recEnd = (start, months, endM) => endM || (months > 0 ? addMonths(start, months - 1) : '');
 async function saveRule(rid, rule) { await saveKV('recurring', { ...S.recurring, [rid]: rule }); }
+// 🔁 שומרים קבוע חדש, ואותו תשלום כבר רשום החודש (נכתב בצ'אט / הגיע מהבנק)? — שואלים מיד, לא בפתיחה הבאה.
+// מחזיר true = לא לרשום החודש (כבר יש), false = לרשום, 'out' = ביטול
+async function recAlreadyThisMonth(desc, amount, cat) {
+  const m = thisMonth(), inc = cat === 'income';
+  const have = S.tx.find(t => t.source !== 'recurring' && ym(new Date(t.date)) === m && (t.cat === 'income') === inc && Math.abs(fullAmt(t) - amount) <= 1 && (t.cat === cat || (t.desc || '').includes(desc.split(' ')[0])));
+  if (!have) return false;
+  const a = await confirmBox({ e: '🔁', title: `${esc(desc)} ${fmt(amount)} — כבר רשום החודש`, text: `יש כבר:${dupPreview(have)}הקבוע יירשם לבד מהחודש הבא. ומה עם החודש הזה?`,
+    ok: '✅ כבר רשום — לא לרשום שוב', no: '➕ זה תשלום אחר — לרשום גם' });
+  return a.how === 'out' ? 'out' : a.how === 'ok';
+}
 // ⏸️/▶️ השהיה והמשך. בהמשך — שואלים מה עם החודשים שהיו בהשהיה (במקום לרשום את כולם בבת אחת)
 async function togglePause(rid) {
   const r = S.recurring[rid]; if (!r) return;
@@ -3189,7 +3244,8 @@ async function recurringCommand(raw) {
   const day = Math.min(28, Math.max(1, m[3] ? +m[3] : new Date().getDate()));
   const cat = isIncome(desc) ? 'income' : classify(desc, S.learned), rid = 'r_' + Math.random().toString(36).slice(2, 8);
   const variable = /חשמל|מים|גז/.test(desc);
-  await saveRule(rid, { desc, amount: a, cat, day, start: thisMonth(), end: '', variable, who: named.who || S.me || null });
+  const skip0 = await recAlreadyThisMonth(desc, a, cat); if (skip0 === 'out') return true;
+  await saveRule(rid, { desc, amount: a, cat, day, start: thisMonth(), end: '', variable, who: named.who || S.me || null, ...(skip0 ? { skip: [thisMonth()] } : {}) });
   await postRecurring(); // קודם רושמים (זה מרענן את הצ'אט) — ואז מוסיפים את האישור
   const me = document.createElement('div'); me.className = 'me new'; me.innerHTML = esc(raw); $('#chat').appendChild(me);
   const b = document.createElement('div'); b.className = 'bot new'; const c = catOf(cat);
@@ -3559,7 +3615,10 @@ function openCatEdit(id, back = openCatsSheet) {
     ${c && !c.custom ? '<div class="sub" style="margin-top:10px;text-align:center">קטגוריה מוכנה — אפשר לשנות לה שם, אייקון וצבע, אבל לא למחוק</div>' : ''}`, sh => {
     const prev = sh.querySelector('#cPrev');
     sh.querySelector('#cBack').onclick = () => back();
-    sh.querySelectorAll('#cEmo [data-e]').forEach(b => b.onclick = () => { e = b.dataset.e; prev.textContent = e; sh.querySelectorAll('#cEmo button').forEach(x => x.classList.toggle('on', x === b)); });
+    // 💡 אייקון מוצע לפי השם ("ביטוח" → 🛡️, "חוגים" → ⚽) — רק כל עוד לא בחרו אייקון בעצמם
+    let picked = !isNew;
+    sh.querySelector('#cName').addEventListener('input', ev => { if (picked) return; const g = suggestEmoji(ev.target.value); if (g && g !== e) { e = g; prev.textContent = e; sh.querySelectorAll('#cEmo button').forEach(x => x.classList.toggle('on', x.dataset.e === e)); } });
+    sh.querySelectorAll('#cEmo [data-e]').forEach(b => b.onclick = () => { picked = true; e = b.dataset.e; prev.textContent = e; sh.querySelectorAll('#cEmo button').forEach(x => x.classList.toggle('on', x === b)); });
     sh.querySelectorAll('#cCol [data-c]').forEach(b => b.onclick = () => { col = b.dataset.c; prev.style.background = col; sh.querySelectorAll('#cCol button').forEach(x => x.classList.toggle('on', x === b)); });
     sh.querySelector('#cSave').onclick = async () => {
       const n = sh.querySelector('#cName').value.replace(/[<>&"'`\\]/g, '').trim();
