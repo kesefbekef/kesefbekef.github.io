@@ -9,7 +9,7 @@ import nodemailer from 'npm:nodemailer@6.9.14';
 const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
 webpush.setVapidDetails(Deno.env.get('ZMAN_VAPID_SUBJECT')!, Deno.env.get('ZMAN_VAPID_PUBLIC')!, Deno.env.get('ZMAN_VAPID_PRIVATE')!);
 
-const APPS: Record<string, string> = { kesef: '💰 כסף בכיף', zman: '⏰ זמן בכיף', lomdim: '🎮 לומדים בכיף' };
+const APPS: Record<string, string> = { kesef: '💰 כסף בכיף', zman: '⏰ זמן בכיף', lomdim: '🎮 לומדים בכיף', zochrim: '🌱 זוכרים בכיף' };
 const ADMIN_URL = 'https://kesefbekef.github.io/admin/';
 const esc = (s: string) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 const ilTime = (d: string) => new Date(d).toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' });
