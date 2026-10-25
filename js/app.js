@@ -3885,6 +3885,15 @@ const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.
 // באייפון רק Safari יכול להתקין. Chrome / Firefox / וואטסאפ-בתוך-דפדפן — לא
 const iosNotSafari = () => isIOS() && (/CriOS|FxiOS|EdgiOS|OPiOS|FBAN|FBAV|Instagram|Line\//i.test(navigator.userAgent) || !/Safari/i.test(navigator.userAgent));
 const isDesktop = () => !isIOS() && !/android|mobile/i.test(navigator.userAgent);
+// 📦 דפדפן מוטמע בתוך אפליקציה אחרת (וואטסאפ, פייסבוק, אפליקציית סינון…): באנדרואיד "; wv)" או "Version/4.0" ליד Chrome, או שם מוכר.
+// שם אי אפשר להתקין על המסך — צריך לפתוח ב-Chrome
+const inWebView = () => { const ua = navigator.userAgent; return !isIOS() && /android/i.test(ua) && (/; wv\)/.test(ua) || (/Version\/\d/.test(ua) && /Chrome/.test(ua)) || /FBAN|FBAV|Instagram|Line\/|Moi\b|WhatsApp|Telegram/i.test(ua)); };
+const APP_URL = 'https://kesefbekef.github.io/';
+const CHROME_INTENT = 'intent://kesefbekef.github.io/#Intent;scheme=https;package=com.android.chrome;end';
+const openInChromeCard = () => `<div class="card tip" style="margin-bottom:10px;border-color:rgba(250,204,21,.5)"><div class="em">📦</div><p><b>נפתחתם מתוך אפליקציה אחרת</b> (וואטסאפ, אפליקציית סינון וכדומה), ומשם אי אפשר להתקין על המסך.<br>פותחים פעם אחת ב-<b>Chrome</b>, ושם ההתקנה עובדת:</p></div>
+    <a class="btn grad full" href="${CHROME_INTENT}" style="margin-bottom:8px;text-decoration:none;display:flex;align-items:center;justify-content:center">🌐 לפתוח ב-Chrome</a>
+    <button class="btn ghost full" id="instCopy" style="margin-bottom:10px">📋 להעתיק את הקישור (ולהדביק ב-Chrome)</button>
+    <div class="sub">לא נפתח? מעתיקים את הקישור, פותחים את Chrome, מדביקים למעלה ונכנסים. ושם: ⋮ ← "התקנת אפליקציה".</div>`;
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; try { sessionStorage.setItem('kesef-can-install', '1'); } catch {} drawInstallBanner(); });
 window.addEventListener('appinstalled', () => { installEvt = null; drawInstallBanner(); toast('🎉 האפליקציה הותקנה על המסך'); confetti(); });
 
@@ -3892,7 +3901,7 @@ function openInstallSheet() {
   if (installEvt) { installEvt.prompt(); installEvt.userChoice.finally(() => { installEvt = null; drawInstallBanner(); }); return; }
   openSheet(`<h3>📲 התקנה על המסך</h3>
     <div class="sub" style="margin:-6px 0 14px">אחרי זה "כסף בכיף" נפתח מאייקון במסך הבית, כמו כל אפליקציה — בלי דפדפן, במסך מלא, וגם בלי אינטרנט. לא צריך חנות.</div>
-    ${iosNotSafari() ? `<div class="card tip" style="margin-bottom:10px;border-color:rgba(250,204,21,.5)"><div class="em">⚠️</div><p><b>באייפון אפשר להתקין רק מ-Safari</b>, ומהדפדפן הזה זה לא יעבוד.<br>1. לוחצים כאן: <button class="chip" id="instCopy">📋 להעתיק את הקישור</button><br>2. פותחים <b>Safari</b>, מדביקים את הקישור למעלה ונכנסים<br>3. שם: כפתור השיתוף <b>⬆️</b> ← <b>"הוסף למסך הבית"</b> ← <b>"הוסף"</b></p></div>`
+    ${inWebView() ? openInChromeCard() : iosNotSafari() ? `<div class="card tip" style="margin-bottom:10px;border-color:rgba(250,204,21,.5)"><div class="em">⚠️</div><p><b>באייפון אפשר להתקין רק מ-Safari</b>, ומהדפדפן הזה זה לא יעבוד.<br>1. לוחצים כאן: <button class="chip" id="instCopy">📋 להעתיק את הקישור</button><br>2. פותחים <b>Safari</b>, מדביקים את הקישור למעלה ונכנסים<br>3. שם: כפתור השיתוף <b>⬆️</b> ← <b>"הוסף למסך הבית"</b> ← <b>"הוסף"</b></p></div>`
       : isIOS() ? `<div class="card tip" style="margin-bottom:10px"><div class="em">🍏</div><p><b>באייפון (Safari):</b><br>1. לוחצים על כפתור השיתוף <b>⬆️</b> בתחתית המסך<br>2. גוללים ובוחרים <b>"הוסף למסך הבית"</b><br>3. לוחצים <b>"הוסף"</b> — וזהו!</p></div>`
       : `<div class="card tip" style="margin-bottom:10px"><div class="em">🤖</div><p><b>באנדרואיד (בדפדפן Chrome):</b><br>1. לוחצים על <b>⋮</b> (שלוש הנקודות) למעלה<br>2. גוללים קצת למטה ובוחרים <b>"התקנת אפליקציה"</b> (או "הוספה למסך הבית")<br>3. לוחצים <b>"התקנה"</b> — וזהו!</p></div>
          <div class="card tip" style="margin-bottom:10px;border-color:rgba(250,204,21,.45)"><div class="em">🔒</div><p><b>דפדפן מסונן (חסימה)?</b> שם לרוב אין "התקנת אפליקציה". במקום זה עושים <b>קיצור דרך</b>: אותו אייקון במסך הבית, פותח את כסף בכיף בלחיצה אחת.<br>תפריט הדפדפן (⋮ או ☰) ← <b>"הוספה למסך הבית"</b> / <b>"קיצור דרך"</b> / <b>"סימניה למסך הבית"</b>. השם משתנה בין דפדפנים.</p></div>
@@ -3905,7 +3914,7 @@ function openInstallSheet() {
       try { await sendFeedback({ kind: 'bug', tag: 'התקנה', message: `לא הצלחתי להתקין על המסך. הדפדפן: ${navigator.userAgent.slice(0, 160)}`, device: `${navigator.userAgent.match(/iPhone|iPad|Android[^;)]*|Mac|Windows/)?.[0] || 'מכשיר'}` }); } catch { /* */ }
       sync.trackFail('install', navigator.userAgent.slice(0, 120));
     });
-    sh.querySelector('#instCopy')?.addEventListener('click', async e => { try { await navigator.clipboard.writeText(location.origin + location.pathname); e.target.textContent = '✅ הועתק — עכשיו ל-Safari'; } catch { e.target.textContent = location.origin + location.pathname; } });
+    sh.querySelector('#instCopy')?.addEventListener('click', async e => { try { await navigator.clipboard.writeText(APP_URL); e.target.textContent = inWebView() ? '✅ הועתק — עכשיו פותחים Chrome ומדביקים' : '✅ הועתק — עכשיו ל-Safari'; } catch { e.target.textContent = APP_URL; } });
   });
 }
 // 📲 כרטיס ההתקנה: רואים אותו כל עוד נכנסים מהדפדפן. ✕ מסתיר לשבוע (לא לתמיד — אחרת מי שלחץ פעם אחת לא ידע שאפשר).
@@ -3914,7 +3923,7 @@ function drawInstallBanner() {
   const el = $('#installBanner');
   let snooze = 0, times = 0; try { snooze = +localStorage.getItem('kesef-install-snooze') || 0; times = +localStorage.getItem('kesef-install-x') || 0; if (localStorage.getItem('kesef-install-hide') === '1') { localStorage.removeItem('kesef-install-hide'); times = 1; localStorage.setItem('kesef-install-x', '1'); } } catch {}
   if (isStandalone() || db.BDIKA || !location.protocol.startsWith('https') || Date.now() < snooze || times >= 3) { el.innerHTML = ''; return; }
-  const how = iosNotSafari() ? 'באייפון מתקינים מ-Safari — נסביר' : isIOS() ? 'שיתוף ⬆️ ← "הוסף למסך הבית"' : isDesktop() ? 'סמל ההתקנה בשורת הכתובת' : installEvt ? 'לחיצה אחת — וזהו' : '⋮ ← "התקנת אפליקציה" (או קיצור דרך)';
+  const how = inWebView() ? 'נפתחתם מתוך אפליקציה — צריך Chrome, נסביר' : iosNotSafari() ? 'באייפון מתקינים מ-Safari — נסביר' : isIOS() ? 'שיתוף ⬆️ ← "הוסף למסך הבית"' : isDesktop() ? 'סמל ההתקנה בשורת הכתובת' : installEvt ? 'לחיצה אחת — וזהו' : '⋮ ← "התקנת אפליקציה" (או קיצור דרך)';
   el.innerHTML = `<div class="card tip" style="margin:0 16px 14px;align-items:center">
     <div class="em">📲</div><p style="flex:1"><b>אתם בדפדפן. להתקין על המסך?</b><br>ייפתח מאייקון, כמו כל אפליקציה · ${how}</p>
     <button class="btn grad" id="instGo" style="height:40px">📲 להתקין</button><button class="chip" id="instX" aria-label="לא עכשיו">✕</button></div>`;
