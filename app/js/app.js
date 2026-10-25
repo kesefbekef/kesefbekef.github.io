@@ -3303,7 +3303,7 @@ function bdikaStart() {
   addEventListener('message', e => { const m = e.data; if (m && m.bdika === 'news') bdikaNews(m.v, m.i); });
 }
 // ↩️ שחזור הגדרות ההתחלה — רק העדפות. הנתונים (תנועות, תקציבים, קטגוריות, יעדים, הלוואות, קבועים, רשימות) נשארים
-const RESET_LOCAL = ['fontScale', 'anim', 'hebMonths', 'kesef-start', 'kesef-cathint', 'kesef-onb-later', 'kesef-tour-seen', 'kesef-fx', 'kesef-install-hide', 'ccRemind', 'fixRemind', 'debtRemind'];
+const RESET_LOCAL = ['fontScale', 'anim', 'hebMonths', 'kesef-start', 'kesef-cathint', 'kesef-onb-later', 'kesef-tour-seen', 'kesef-fx', 'kesef-install-hide', 'kesef-install-snooze', 'kesef-install-x', 'ccRemind', 'fixRemind', 'debtRemind'];
 async function resetSettings() {
   const parent = sync.isParent();
   const a = await confirmBox({ e: '↩️', title: 'לשחזר את הגדרות ההתחלה?',
@@ -3720,7 +3720,7 @@ function openSettings() {
   <button class="btn ghost full" id="toShare" style="margin-bottom:10px">📤 שתף את האפליקציה עם חבר</button>
   <button class="btn ghost full news-btn" id="toNews" style="margin-bottom:10px">✨ מה חדש</button>
   <button class="btn ghost full" id="toFeedback" style="margin-bottom:10px">💌 שליחת משוב / הצעה / תקלה</button>
-  ${isStandalone() ? '' : '<button class="btn ghost full" id="toInstall" style="margin-bottom:10px">📲 התקנה על המסך (כמו אפליקציה)</button>'}
+  ${isStandalone() ? '' : '<button class="btn grad full" id="toInstall" style="margin-bottom:10px">📲 להתקין על המסך — לפתוח כמו אפליקציה, בלי דפדפן</button>'}
   <button class="btn grad full kid-only" id="toMyBox" style="margin-bottom:10px">🐷 הקופה שלי</button>
   <button class="btn ghost full parent-only" id="toRec" style="margin-bottom:10px">🔁 הכנסות והוצאות קבועות</button>
   <button class="btn ghost full parent-only" id="toCal" style="margin-bottom:10px">📅 חיבור ליומן של הטלפון</button>
@@ -3882,26 +3882,36 @@ function openHelp(question = '', showGuide = false) {
 let installEvt = null;
 const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+// באייפון רק Safari יכול להתקין. Chrome / Firefox / וואטסאפ-בתוך-דפדפן — לא
+const iosNotSafari = () => isIOS() && (/CriOS|FxiOS|EdgiOS|OPiOS|FBAN|FBAV|Instagram|Line\//i.test(navigator.userAgent) || !/Safari/i.test(navigator.userAgent));
+const isDesktop = () => !isIOS() && !/android|mobile/i.test(navigator.userAgent);
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; drawInstallBanner(); });
 window.addEventListener('appinstalled', () => { installEvt = null; drawInstallBanner(); toast('🎉 האפליקציה הותקנה על המסך'); confetti(); });
 
 function openInstallSheet() {
   if (installEvt) { installEvt.prompt(); installEvt.userChoice.finally(() => { installEvt = null; drawInstallBanner(); }); return; }
   openSheet(`<h3>📲 התקנה על המסך</h3>
-    <div class="sub" style="margin:-6px 0 14px">ככה "כסף בכיף" יופיע עם אייקון במסך הבית, כמו וואטסאפ — ייפתח במסך מלא ויעבוד גם בלי אינטרנט</div>
-    ${isIOS() ? `<div class="card tip" style="margin-bottom:10px"><div class="em">🍏</div><p><b>באייפון (בדפדפן Safari):</b><br>1. לוחצים על כפתור השיתוף <b>⬆️</b> בתחתית המסך<br>2. גוללים ובוחרים <b>"הוסף למסך הבית"</b><br>3. לוחצים <b>"הוסף"</b> — וזהו!</p></div>`
+    <div class="sub" style="margin:-6px 0 14px">אחרי זה "כסף בכיף" נפתח מאייקון במסך הבית, כמו כל אפליקציה — בלי דפדפן, במסך מלא, וגם בלי אינטרנט. לא צריך חנות.</div>
+    ${iosNotSafari() ? `<div class="card tip" style="margin-bottom:10px;border-color:rgba(250,204,21,.5)"><div class="em">⚠️</div><p><b>באייפון אפשר להתקין רק מ-Safari</b>, ומהדפדפן הזה זה לא יעבוד.<br>1. לוחצים כאן: <button class="chip" id="instCopy">📋 להעתיק את הקישור</button><br>2. פותחים <b>Safari</b>, מדביקים את הקישור למעלה ונכנסים<br>3. שם: כפתור השיתוף <b>⬆️</b> ← <b>"הוסף למסך הבית"</b> ← <b>"הוסף"</b></p></div>`
+      : isIOS() ? `<div class="card tip" style="margin-bottom:10px"><div class="em">🍏</div><p><b>באייפון (Safari):</b><br>1. לוחצים על כפתור השיתוף <b>⬆️</b> בתחתית המסך<br>2. גוללים ובוחרים <b>"הוסף למסך הבית"</b><br>3. לוחצים <b>"הוסף"</b> — וזהו!</p></div>`
       : `<div class="card tip" style="margin-bottom:10px"><div class="em">🤖</div><p><b>באנדרואיד (בדפדפן Chrome):</b><br>1. לוחצים על <b>⋮</b> (שלוש הנקודות) למעלה<br>2. גוללים קצת למטה ובוחרים <b>"התקנת אפליקציה"</b> (או "הוספה למסך הבית")<br>3. לוחצים <b>"התקנה"</b> — וזהו!</p></div>
-         <div class="card tip"><div class="em">💻</div><p><b>במחשב (Chrome / Edge):</b> לוחצים על סמל ההתקנה בשורת הכתובת, או ⋮ ← "התקנה".</p></div>`}`);
+         <div class="card tip"><div class="em">💻</div><p><b>במחשב (Chrome / Edge):</b> לוחצים על סמל ההתקנה בשורת הכתובת, או ⋮ ← "התקנה".</p></div>`}
+    <div class="sub" style="margin-top:12px;text-align:center">לא הצלחתם? כתבו בצ'אט "משוב: לא הצלחתי להתקין" ונעזור</div>`, sh => {
+    sh.querySelector('#instCopy')?.addEventListener('click', async e => { try { await navigator.clipboard.writeText(location.origin + location.pathname); e.target.textContent = '✅ הועתק — עכשיו ל-Safari'; } catch { e.target.textContent = location.origin + location.pathname; } });
+  });
 }
+// 📲 כרטיס ההתקנה: רואים אותו כל עוד נכנסים מהדפדפן. ✕ מסתיר לשבוע (לא לתמיד — אחרת מי שלחץ פעם אחת לא ידע שאפשר).
+// אחרי 3 פעמים ✕ — נשאר רק בהגדרות
 function drawInstallBanner() {
   const el = $('#installBanner');
-  let hidden = false; try { hidden = localStorage.getItem('kesef-install-hide') === '1'; } catch {}
-  if (isStandalone() || hidden || db.BDIKA || !location.protocol.startsWith('https')) { el.innerHTML = ''; return; }
+  let snooze = 0, times = 0; try { snooze = +localStorage.getItem('kesef-install-snooze') || 0; times = +localStorage.getItem('kesef-install-x') || 0; if (localStorage.getItem('kesef-install-hide') === '1') { localStorage.removeItem('kesef-install-hide'); times = 1; localStorage.setItem('kesef-install-x', '1'); } } catch {}
+  if (isStandalone() || db.BDIKA || !location.protocol.startsWith('https') || Date.now() < snooze || times >= 3) { el.innerHTML = ''; return; }
+  const how = iosNotSafari() ? 'באייפון מתקינים מ-Safari — נסביר' : isIOS() ? 'שיתוף ⬆️ ← "הוסף למסך הבית"' : isDesktop() ? 'סמל ההתקנה בשורת הכתובת' : installEvt ? 'לחיצה אחת — וזהו' : '⋮ ← "התקנת אפליקציה"';
   el.innerHTML = `<div class="card tip" style="margin:0 16px 14px;align-items:center">
-    <div class="em">📲</div><p style="flex:1"><b>להתקין כאפליקציה?</b><br>אייקון במסך הבית, כמו וואטסאפ</p>
-    <button class="btn grad" id="instGo" style="height:40px">התקנה</button><button class="chip" id="instX" aria-label="סגירה">✕</button></div>`;
+    <div class="em">📲</div><p style="flex:1"><b>אתם בדפדפן. להתקין על המסך?</b><br>ייפתח מאייקון, כמו כל אפליקציה · ${how}</p>
+    <button class="btn grad" id="instGo" style="height:40px">📲 להתקין</button><button class="chip" id="instX" aria-label="לא עכשיו">✕</button></div>`;
   $('#instGo').onclick = openInstallSheet;
-  $('#instX').onclick = () => { try { localStorage.setItem('kesef-install-hide', '1'); } catch {} drawInstallBanner(); };
+  $('#instX').onclick = () => { try { localStorage.setItem('kesef-install-snooze', String(Date.now() + 7 * 864e5)); localStorage.setItem('kesef-install-x', String(times + 1)); } catch {} drawInstallBanner(); toast(times + 1 >= 3 ? '📲 ההתקנה תמיד בהגדרות ⚙️' : '📲 נזכיר בעוד שבוע. ההתקנה תמיד בהגדרות ⚙️'); };
 }
 drawInstallBanner();
 
