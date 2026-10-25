@@ -77,7 +77,8 @@ Deno.serve(async req => {
   const out: any[] = [];
   for (const cat of new Set(cats)) {
     if (cat === 'income' || !(CATS as any)[cat]) continue;
-    const b = budgets[cat] ?? (budgets._mode === 'auto' ? budgets._auto?.[cat] : null) ?? (CATS as any)[cat].budget ?? 0;
+    // במצב אוטומטי: רק מה שהאפליקציה שמרה (הערכה שלא התייצבה = בלי תקציב = בלי התראה)
+    const b = budgets[cat] ?? (budgets._mode === 'auto' ? (budgets._auto?.[cat] ?? 0) : (CATS as any)[cat].budget ?? 0);
     if (!(b > 0)) continue;
     const spent = occ.filter((o: any) => o.t.cat === cat).reduce((s: number, o: any) => s + o.amount, 0);
     const level = spent > b ? 100 : spent >= b * .9 ? 90 : 0;

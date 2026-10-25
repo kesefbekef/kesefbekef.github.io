@@ -32,7 +32,7 @@ function summaryHTML(name: string, label: string, tx: any[], budgets: any, peopl
   const byCat: Record<string, number> = {};
   for (const o of occ) if (o.t.cat !== 'income') byCat[o.t.cat] = (byCat[o.t.cat] || 0) + o.amount;
   const top = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
-  const budgetOf = (c: string) => budgets?.[c] ?? (budgets?._mode === 'auto' ? budgets?._auto?.[c] : null) ?? (CATS as any)[c]?.budget ?? 0;
+  const budgetOf = (c: string) => budgets?.[c] ?? (budgets?._mode === 'auto' ? (budgets?._auto?.[c] ?? 0) : (CATS as any)[c]?.budget ?? 0);
   const over = top.filter(([c, v]) => budgetOf(c) > 0 && v > budgetOf(c));
   const bal = inc - exp;
   const incWho: Record<string, number> = {};
