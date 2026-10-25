@@ -3885,7 +3885,7 @@ const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.
 // באייפון רק Safari יכול להתקין. Chrome / Firefox / וואטסאפ-בתוך-דפדפן — לא
 const iosNotSafari = () => isIOS() && (/CriOS|FxiOS|EdgiOS|OPiOS|FBAN|FBAV|Instagram|Line\//i.test(navigator.userAgent) || !/Safari/i.test(navigator.userAgent));
 const isDesktop = () => !isIOS() && !/android|mobile/i.test(navigator.userAgent);
-window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; drawInstallBanner(); });
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; try { sessionStorage.setItem('kesef-can-install', '1'); } catch {} drawInstallBanner(); });
 window.addEventListener('appinstalled', () => { installEvt = null; drawInstallBanner(); toast('🎉 האפליקציה הותקנה על המסך'); confetti(); });
 
 function openInstallSheet() {
@@ -3895,8 +3895,16 @@ function openInstallSheet() {
     ${iosNotSafari() ? `<div class="card tip" style="margin-bottom:10px;border-color:rgba(250,204,21,.5)"><div class="em">⚠️</div><p><b>באייפון אפשר להתקין רק מ-Safari</b>, ומהדפדפן הזה זה לא יעבוד.<br>1. לוחצים כאן: <button class="chip" id="instCopy">📋 להעתיק את הקישור</button><br>2. פותחים <b>Safari</b>, מדביקים את הקישור למעלה ונכנסים<br>3. שם: כפתור השיתוף <b>⬆️</b> ← <b>"הוסף למסך הבית"</b> ← <b>"הוסף"</b></p></div>`
       : isIOS() ? `<div class="card tip" style="margin-bottom:10px"><div class="em">🍏</div><p><b>באייפון (Safari):</b><br>1. לוחצים על כפתור השיתוף <b>⬆️</b> בתחתית המסך<br>2. גוללים ובוחרים <b>"הוסף למסך הבית"</b><br>3. לוחצים <b>"הוסף"</b> — וזהו!</p></div>`
       : `<div class="card tip" style="margin-bottom:10px"><div class="em">🤖</div><p><b>באנדרואיד (בדפדפן Chrome):</b><br>1. לוחצים על <b>⋮</b> (שלוש הנקודות) למעלה<br>2. גוללים קצת למטה ובוחרים <b>"התקנת אפליקציה"</b> (או "הוספה למסך הבית")<br>3. לוחצים <b>"התקנה"</b> — וזהו!</p></div>
+         <div class="card tip" style="margin-bottom:10px;border-color:rgba(250,204,21,.45)"><div class="em">🔒</div><p><b>דפדפן מסונן (חסימה)?</b> שם לרוב אין "התקנת אפליקציה". במקום זה עושים <b>קיצור דרך</b>: אותו אייקון במסך הבית, פותח את כסף בכיף בלחיצה אחת.<br>תפריט הדפדפן (⋮ או ☰) ← <b>"הוספה למסך הבית"</b> / <b>"קיצור דרך"</b> / <b>"סימניה למסך הבית"</b>. השם משתנה בין דפדפנים.</p></div>
          <div class="card tip"><div class="em">💻</div><p><b>במחשב (Chrome / Edge):</b> לוחצים על סמל ההתקנה בשורת הכתובת, או ⋮ ← "התקנה".</p></div>`}
-    <div class="sub" style="margin-top:12px;text-align:center">לא הצלחתם? כתבו בצ'אט "משוב: לא הצלחתי להתקין" ונעזור</div>`, sh => {
+    <button class="btn ghost full" id="instFail" style="margin-top:12px">😕 ניסיתי ולא הצלחתי</button>
+    <div class="sub" style="margin-top:8px;text-align:center">נקבל הודעה עם סוג הדפדפן שלכם (בלי שום פרט אחר) ונוסיף הסבר מדויק</div>`, sh => {
+    sh.querySelector('#instFail')?.addEventListener('click', async e => {
+      e.target.disabled = true; e.target.textContent = '✅ קיבלנו — נבדוק ונחזור';
+      // 🔎 רק סוג הדפדפן (ממחרוזת הזיהוי), בלי שום נתון אישי — כדי ללמוד איזה דפדפנים מסוננים נפוצים
+      try { await sendFeedback({ kind: 'bug', tag: 'התקנה', message: `לא הצלחתי להתקין על המסך. הדפדפן: ${navigator.userAgent.slice(0, 160)}`, device: `${navigator.userAgent.match(/iPhone|iPad|Android[^;)]*|Mac|Windows/)?.[0] || 'מכשיר'}` }); } catch { /* */ }
+      sync.trackFail('install', navigator.userAgent.slice(0, 120));
+    });
     sh.querySelector('#instCopy')?.addEventListener('click', async e => { try { await navigator.clipboard.writeText(location.origin + location.pathname); e.target.textContent = '✅ הועתק — עכשיו ל-Safari'; } catch { e.target.textContent = location.origin + location.pathname; } });
   });
 }
@@ -3906,7 +3914,7 @@ function drawInstallBanner() {
   const el = $('#installBanner');
   let snooze = 0, times = 0; try { snooze = +localStorage.getItem('kesef-install-snooze') || 0; times = +localStorage.getItem('kesef-install-x') || 0; if (localStorage.getItem('kesef-install-hide') === '1') { localStorage.removeItem('kesef-install-hide'); times = 1; localStorage.setItem('kesef-install-x', '1'); } } catch {}
   if (isStandalone() || db.BDIKA || !location.protocol.startsWith('https') || Date.now() < snooze || times >= 3) { el.innerHTML = ''; return; }
-  const how = iosNotSafari() ? 'באייפון מתקינים מ-Safari — נסביר' : isIOS() ? 'שיתוף ⬆️ ← "הוסף למסך הבית"' : isDesktop() ? 'סמל ההתקנה בשורת הכתובת' : installEvt ? 'לחיצה אחת — וזהו' : '⋮ ← "התקנת אפליקציה"';
+  const how = iosNotSafari() ? 'באייפון מתקינים מ-Safari — נסביר' : isIOS() ? 'שיתוף ⬆️ ← "הוסף למסך הבית"' : isDesktop() ? 'סמל ההתקנה בשורת הכתובת' : installEvt ? 'לחיצה אחת — וזהו' : '⋮ ← "התקנת אפליקציה" (או קיצור דרך)';
   el.innerHTML = `<div class="card tip" style="margin:0 16px 14px;align-items:center">
     <div class="em">📲</div><p style="flex:1"><b>אתם בדפדפן. להתקין על המסך?</b><br>ייפתח מאייקון, כמו כל אפליקציה · ${how}</p>
     <button class="btn grad" id="instGo" style="height:40px">📲 להתקין</button><button class="chip" id="instX" aria-label="לא עכשיו">✕</button></div>`;
