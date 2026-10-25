@@ -103,10 +103,17 @@ function fixedIn(cat) {
   return Object.values(S.recurring || {}).filter(r => r && r.cat === cat && !r.paused && (!r.start || r.start <= m) && (!r.end || r.end >= m)).reduce((s, r) => s + (r.amount || 0), 0);
 }
 const recPart = (cat, m) => S.tx.filter(t => t.cat === cat && t.source === 'recurring').reduce((s, t) => s + amountIn(t, m), 0);
+// חודש "מלא" = יש בו לפחות 8 תנועות (לא רק שורה-שתיים שנכתבו בצ'אט) — אחרת הממוצע מטעה
+const fullMonth = m => txInMonth(m).length >= 8;
+// 🪄 התקציב האוטומטי "בטוח" רק אחרי שני חודשים מלאים לפני החודש הזה. לפני זה הוא הערכה — בלי אדום ובלי התראות חריגה
+// ולכל קטגוריה בנפרד: רק אם היו בה הוצאות באותם חודשים (קטגוריה שחיה רק באשראי, בלי פירוט כרטיס — נשארת הערכה)
+const autoFirm = cat => { let n = 0; for (let i = 1; i <= 3; i++) { const m = addMonths(thisMonth(), -i); if (fullMonth(m) && (!cat || spentIn(cat, m) > 0)) n++; } return n >= 2; };
+const budgetFirm = cat => S.budgets[cat] != null || S.budgets._mode !== 'auto' || autoFirm(cat);
 function recommend(cat) {
   const months = [], fixed = fixedIn(cat);
-  for (let i = 1; i <= 3; i++) { const m = addMonths(thisMonth(), -i); if (txInMonth(m).length) months.push(m); }
+  for (let i = 1; i <= 3; i++) { const m = addMonths(thisMonth(), -i); if (fullMonth(m)) months.push(m); }
   if (!months.length) {
+    // עוד אין היסטוריה — ההערכה היא מה שיצא עד עכשיו החודש (+10%), ולא מינימום של 50 שגורם ל"חריגה" על כל הוצאה
     const cur = Math.max(0, spentIn(cat, thisMonth()) - recPart(cat, thisMonth()));
     return fixed || cur ? Math.ceil((fixed + cur * 1.1) / 50) * 50 : null;
   }
@@ -117,7 +124,8 @@ function recommend(cat) {
 let autoSaved = '';
 function syncAutoBudget() {
   if (S.budgets._mode !== 'auto' || !sync.isParent() || db.DEMO) return;
-  const map = Object.fromEntries(Object.keys(CATS).map(c => [c, recommend(c) || 0]));
+  // הערכה שעוד לא התייצבה — לא נשמרת לשרת, כדי שלא יצאו התראות "עברתם" ומיילים אדומים על תקציב מדומה
+  const map = Object.fromEntries(Object.keys(CATS).filter(c => autoFirm(c)).map(c => [c, recommend(c) || 0]));
   const j = JSON.stringify(map); if (j === autoSaved || j === JSON.stringify(S.budgets._auto || {})) { autoSaved = j; return; }
   autoSaved = j; saveKV('budgets', { ...S.budgets, _auto: map });
 }
@@ -238,7 +246,7 @@ function botHTML(t) {
     sub = `${c.n} · `;
     if (t.inst > 1) sub += `${t.inst} תשלומים של ${fmt(t.amount)} · `;
     const m = ym(new Date(t.date)), b = budgetOf(t.cat), left = b - spentIn(t.cat, m);
-    sub += !b ? `${fmt(spentIn(t.cat, m))} החודש` : left >= 0 ? `נשארו ${fmt(left)}` : `⚠️ חריגה של ${fmt(-left)}`;
+    sub += !b || !budgetFirm(t.cat) ? `${fmt(spentIn(t.cat, m))} עד עכשיו החודש` : left >= 0 ? `נשארו ${fmt(left)}` : `⚠️ חריגה של ${fmt(-left)}`;
   }
   const day = ymd(new Date(t.date)) !== ymd(new Date(t.created)) ? ` · ${new Date(t.date).toLocaleDateString('he-IL')}` : '';
   const pay = t.pay ? `<button data-act="pay" data-id="${t.id}">${PAY[t.pay].e} ${PAY[t.pay].n}</button>` : '';
@@ -601,7 +609,7 @@ function renderStories() {
   // ➕ חדשה — ראשון בשורה (שיהיה אי אפשר לפספס)
   $('#stories').innerHTML = (sync.isParent() ? '<button class="story story-new" id="stNew" aria-label="קטגוריה חדשה"><div class="ring"><span>➕</span></div>חדשה</button>' : '') +
     (allMsgs().length ? '<button class="story story-bk" id="stBank" aria-label="דפי בנק ואשראי"><div class="ring"><span>🏦</span></div>דפי בנק</button>' : '') + Object.entries(CATS).map(([id, c]) => {
-    const b = budgetOf(id), sp = spentIn(id, m), p = b ? Math.min(100, sp / b * 100) : sp ? 100 : 0, over = b && sp > b;
+    const b = budgetOf(id), sp = spentIn(id, m), p = b ? Math.min(100, sp / b * 100) : sp ? 100 : 0, over = b && sp > b && budgetFirm(id);
     return `<button class="story" id="st-${id}" data-cat="${id}"><div class="ring" style="background:conic-gradient(${over ? '#F43F5E' : c.c} ${p}%, rgba(255,255,255,.12) 0)"><span>${c.e}</span>${sync.isParent() ? '<i class="st-pen" data-edit aria-label="עריכת הקטגוריה">✏️</i>' : ''}</div>${c.n.split(' ')[0]}</button>`;
   }).join('');
 }
@@ -629,7 +637,7 @@ function openCategory(id, m = S.month) {
   const c = catOf(id), isInc = id === 'income';
   const list = txInMonth(m).filter(t => t.cat === id).sort((a, b) => b.date.localeCompare(a.date));
   const total = list.reduce((s, t) => s + amountIn(t, m), 0);
-  const b = isInc ? 0 : budgetOf(id), p = b ? Math.min(100, total / b * 100) : 0, over = b && total > b;
+  const b = isInc ? 0 : budgetOf(id), p = b ? Math.min(100, total / b * 100) : 0, firm = budgetFirm(id), over = b && total > b && firm;
   openSheet(`<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
       <div class="cat-ic" style="background:${c.g};width:52px;height:52px;font-size:26px">${c.e}</div>
       <div style="flex:1;min-width:0"><h3 style="margin:0">${c.n}</h3><div class="sub">${list.length} ${isInc ? 'הכנסות' : 'הוצאות'}</div></div>${!isInc && sync.isParent() ? '<button class="chip" id="cEditCat" style="flex:none">✏️ שם, אייקון וצבע</button>' : ''}</div>
@@ -638,7 +646,7 @@ function openCategory(id, m = S.month) {
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px"><span class="sub">${isInc ? 'נכנס החודש' : 'יצא החודש'}</span>
         <b style="font-size:26px;direction:ltr" class="${over ? 'over' : ''}">${fmt(total)}${b ? ` <span class="sub" style="font-size:14px">/ ${fmt(b)}</span>` : ''}</b></div>
       ${b ? `<div class="pbar"><i style="width:${p}%;background:${over ? 'linear-gradient(90deg,#F43F5E,#FB7185)' : c.g}"></i></div>
-      <div class="sub" style="margin-top:6px">${over ? `⚠️ חריגה של ${fmt(total - b)}` : `נשארו ${fmt(b - total)}`}</div>` : ''}
+      <div class="sub" style="margin-top:6px">${over ? `⚠️ חריגה של ${fmt(total - b)}` : !firm ? '🪄 הערכה — התקציב יתייצב אחרי חודשיים מלאים' : `נשארו ${fmt(b - total)}`}</div>` : ''}
     </div>
     ${list.length ? `<div class="sub" style="margin-bottom:6px">👆 נוגעים ב${isInc ? 'הכנסה' : 'הוצאה'} — לשנות או למחוק</div>` : ''}
     <div class="card" style="padding:4px 14px;margin-bottom:12px">${list.length ? list.map(t => {
@@ -667,12 +675,12 @@ function renderBudget() {
   $('#budgetList').innerHTML = `<div class="bud-top"><button class="card newcat ${hint ? 'pulse' : ''}" id="catsBtn"><span class="plus">🏷️</span><span><b>הקטגוריות שלכם — להוסיף / לשנות</b><small>➕ קטגוריה חדשה · ✏️ שם, אייקון וצבע</small></span><i class="cats-go">›</i>${hint ? '<i class="hint">חדש ✨</i>' : ''}</button>
     <div class="bmode" role="group" aria-label="סוג התקציב"><button data-bmode="auto" class="${mode === 'auto' ? 'on' : ''}">🪄 אוטומטי</button><button data-bmode="manual" class="${mode === 'manual' ? 'on' : ''}">✍️ אני קובע</button></div></div>
     ${bankCardHtml('bkBudget')}<button class="card rec-card" id="recCard"><span class="plus">🔁</span><span><b>הקבועים שלי${rl.length ? ` · ${rl.length}` : ''}</b><small>${rl.length ? `נכנס ${fmt(rIn)} · יוצא ${fmt(rOut)} — כל חודש, לבד` : 'שכירות, ועד בית, משכורת — פעם אחת, ונרשם לבד כל חודש'}</small></span></button>` + Object.entries(CATS).map(([id, c]) => {
-    const s = spentIn(id, m), b = budgetOf(id), p = b ? Math.min(100, s / b * 100) : 0, o = b && s > b, left = b - s;
-    // ✉️ מעטפה: כמה נשאר — בגדול. אדום כשנגמר / חרגנו
-    const env = !b ? `<div class="env"><small>הוצאתם</small><b>${fmt(s)}</b></div>`
+    const s = spentIn(id, m), b = budgetOf(id), p = b ? Math.min(100, s / b * 100) : 0, firm = budgetFirm(id), o = b && s > b && firm, left = b - s;
+    // ✉️ מעטפה: כמה נשאר — בגדול. אדום כשנגמר / חרגנו. תקציב אוטומטי שעוד לא התייצב — "הערכה", בלי אדום
+    const env = !b || (!firm && left <= 0) ? `<div class="env"><small>${b ? '🪄 הערכה · הוצאתם' : 'הוצאתם'}</small><b>${fmt(s)}</b></div>`
       : left > 0 ? `<div class="env ${p >= 90 ? 'warn' : ''}"><small>נשארו</small><b>${fmt(left)}</b></div>`
       : `<div class="env empty-env"><small>${left === 0 ? 'המעטפה ריקה' : 'חריגה'}</small><b>${left === 0 ? '0₪' : '-' + fmt(-left)}</b></div>`;
-    return `<button class="card" data-cat="${id}"><div class="cat-row"><div class="cat-ic" style="background:${c.g}">${c.e}</div><div class="nm">${esc(c.n)} <span class="cedit2" data-ecat="${id}" role="button" aria-label="עריכת קטגוריה">✏️ עריכה</span><small class="sub" style="display:block">${b ? `${fmt(s)} מתוך ${fmt(b)}${S.budgets._mode === 'auto' && S.budgets[id] == null ? ' 🪄' : ''}` : 'בלי תקציב'}</small></div>${env}</div><div class="pbar"><i style="width:${p}%;background:${o || (b && left <= 0) ? 'linear-gradient(90deg,#F43F5E,#FB7185)' : c.g}"></i></div></button>`;
+    return `<button class="card" data-cat="${id}"><div class="cat-row"><div class="cat-ic" style="background:${c.g}">${c.e}</div><div class="nm">${esc(c.n)} <span class="cedit2" data-ecat="${id}" role="button" aria-label="עריכת קטגוריה">✏️ עריכה</span><small class="sub" style="display:block">${b ? `${fmt(s)} מתוך ${fmt(b)}${S.budgets._mode === 'auto' && S.budgets[id] == null ? ' 🪄' : ''}` : 'בלי תקציב'}</small></div>${env}</div><div class="pbar"><i style="width:${!firm && left <= 0 ? 100 : p}%;background:${o || (b && left <= 0 && firm) ? 'linear-gradient(90deg,#F43F5E,#FB7185)' : c.g}"></i></div></button>`;
   }).join('');
 }
 $('#budgetList').addEventListener('click', e => {
@@ -884,7 +892,7 @@ function renderInsights() {
   const tips = [];
   if (!exp && !inc) tips.push(['🌱', '<b>עוד אין נתונים לחודש הזה.</b> רשום כמה הוצאות בצ\'אט והתובנות יופיעו כאן.']);
   for (const p of parts) {
-    const b = budgetOf(p.id); if (!b) continue;
+    const b = budgetOf(p.id); if (!b || !budgetFirm(p.id)) continue; // הערכה — לא מתריעים
     const pct = Math.round(p.v / b * 100);
     if (p.v > b) tips.push(['🚨', `<b>${p.c.n} עבר את התקציב ב-${pct - 100}%</b> (${fmt(p.v)} מתוך ${fmt(b)}).`]);
     else if (pct >= 80 && m === thisMonth()) tips.push(['⚠️', `<b>${p.c.n}: נוצלו ${pct}%</b> ונשארו ${daysLeft()} ימים לסוף החודש. כדאי להאט.`]);
@@ -2247,9 +2255,18 @@ async function pagesCheck(manual = false) {
     if (a.how === 'ok') for (const t of atm) { t.skipWhy = 'atm'; t.pay = 'cash'; await setCounted(t, false); ch++; }
     else if (a.how === 'no') for (const t of atm) { t.atmOk = true; t.pay = 'cash'; await db.putTx(t); }
   }
+  // 📝 שמות ארוכים מהצ'אט (מלפני התיקון): "חשמל לרכב. יופיע בדף של…" — השם נשאר עד הנקודה, השאר הערה
+  const longNames = S.tx.filter(t => t.source !== 'file' && !t.nameOk && /^[^.]{2,40}\.\s+\S/.test(t.desc || '') && !/\d\.\d/.test(t.desc));
+  if (longNames.length) {
+    const split = t => { const i = t.desc.indexOf('.'); return { desc: t.desc.slice(0, i).trim(), note: t.desc.slice(i + 1).trim() }; };
+    const a = await confirmBox({ e: '📝', title: `${longNames.length} ${longNames.length > 1 ? 'הוצאות עם שם ארוך' : 'הוצאה עם שם ארוך'}`, text: `משפט שלם נשמר כשם. לקצר: מה שלפני הנקודה נשאר שם, והשאר הופך להערה:<span class="cb-steps">${longNames.slice(0, 4).map(t => { const x = split(t); return `✂️ <b>${esc(x.desc)}</b> · <small>${esc(x.note.slice(0, 40))}${x.note.length > 40 ? '…' : ''}</small>`; }).join('<br>')}${longNames.length > 4 ? `<br>ועוד ${longNames.length - 4}` : ''}</span>`,
+      ok: '✂️ כן, לקצר', no: 'להשאיר כמו שזה' });
+    if (a.how === 'ok') { for (const t of longNames) { const x = split(t); t.desc = x.desc; if (x.note && !t.note) t.note = x.note; t.nameOk = true; await db.putTx(t); ch++; } }
+    else if (a.how === 'no') for (const t of longNames) { t.nameOk = true; await db.putTx(t); }
+  }
   if (ch) { renderAll(); toast(`✅ ${ch} שורות סודרו`); }
-  else if (manual && !pairs.length && !atm.length) toast('✅ בדקתי את כל הדפים — הכל מסודר');
-  return pairs.length + atm.length;
+  else if (manual && !pairs.length && !atm.length && !longNames.length) toast('✅ בדקתי את כל הדפים — הכל מסודר');
+  return pairs.length + atm.length + longNames.length;
 }
 // 🏷️ לדף החדש יצא בדיוק אותו שם כמו לדף אחר (למשל שני חשבונות באותו בנק) — שואלים איך לקרוא לו
 async function nameClash(msg) {
@@ -2636,7 +2653,8 @@ function openMaaser(mm) {
 // S.pocket = { rate: { stars: 10, nis: 5 }, [personId]: { goal: { n, target } | null, mv: [{ id, d, a, note, src }] } }
 const pocketOf = pid => S.pocket?.[pid] || { goal: null, mv: [] };
 const pocketBal = pid => (pocketOf(pid).mv || []).reduce((s, x) => s + x.a, 0);
-const kidsList = () => S.people;
+// 🧒 קופות דמי כיס — לילדים: מי שמחובר כילד, או בן בית בלי חשבון משלו (ילד קטן). לא ההורים
+const kidsList = () => { const parents = new Set((S.members || []).filter(m => m.role === 'parent').map(m => m.user_id)); return S.people.filter(p => !p.uid || !parents.has(p.uid)); };
 function openPocket(only = null) {
   sheetReopen = () => openPocket(only);
   const kids = only ? S.people.filter(p => p.id === only) : kidsList();
@@ -4253,6 +4271,9 @@ load().then(async () => {
     onStatus: st => { const el = document.querySelector('#syncState'); if (el) el.textContent = st === 'ok' ? '· מסונכרן ✓' : '· ממתין לרשת…'; },
   });
   syncUser = r.user;
+  // 👨‍👩‍👧 מי הורה ומי ילד — לקופות דמי הכיס (נשמר בטלפון, מתעדכן כשיש רשת)
+  S.members = await db.getKV('members', []);
+  if (r.household && navigator.onLine) sync.listMembers().then(async m => { S.members = m; await db.setKV('members', m, true); }).catch(() => {});
   if (r.removed) { // 🔐 הוסרת מהמשפחה — העותק בטלפון נמחק, ומתחילים מההתחלה כמו משתמש חדש (רק החשבון נשאר)
     S.me = null; S.month = thisMonth(); S.catFilter = null; S.whoFilter = null;
     for (const k of ['kesef-onb-later', 'kesef-cathint', 'debtRemind', 'kesef-tour-seen']) { try { localStorage.removeItem(k); } catch { /* */ } }
