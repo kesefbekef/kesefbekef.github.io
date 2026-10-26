@@ -16,6 +16,7 @@ import { CONFIG } from './config.js';
 // אלמנט שלא קיים (למשל בטעינה חצי-מעודכנת: index.html ישן עם app.js חדש) — מחזירים "אלמנט ריק" שבולע הכל, במקום קריסה
 const NOEL = new Proxy({}, { get: (_, k) => k === 'classList' ? { add() {}, remove() {}, toggle() {}, contains: () => false } : k === 'style' || k === 'dataset' ? {} : () => NOEL, set: () => true });
 const $ = s => document.querySelector(s) || (console.warn('missing element', s), NOEL);
+const has = s => document.querySelector(s) !== null; // בדיקת קיום אמיתית ($ תמיד מחזירה "משהו")
 const $$ = s => [...document.querySelectorAll(s)];
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmt = n => Math.round(n).toLocaleString('he-IL') + '₪';
@@ -958,7 +959,7 @@ function demoEvents() {
     .map(([t, n], i) => ({ uid: 'demo-ev-' + i, starts_at: d(n), all_day: true, title: t }));
 }
 async function fillExpected() {
-  const el = $('#fxCard'); if (!el || !sync.isParent()) return;
+  if (!has('#fxCard') || !sync.isParent()) return; const el = $('#fxCard');
   let ev = [];
   if (db.DEMO) ev = demoEvents();
   else { try { if (!(await sync.myCalendar())) return; ev = await sync.upcomingEvents(45, 40); } catch { return; } }
@@ -3394,14 +3395,14 @@ async function tourGo(i) {
   // גוללים פעמיים: תוכן החלון נטען קצת אחרי שהוא נפתח ויכול להזיז את היעד
   if (el && el.id !== 'sheet') { el.scrollIntoView({ block: 'center' }); await new Promise(r => setTimeout(r, s.open ? 300 : 60)); el.scrollIntoView({ block: 'center' }); await new Promise(r => setTimeout(r, 60)); }
   if (tourI !== i) return; // בינתיים עברו לשלב אחר
-  let ring = $('.tour-ring'); if (!ring) { ring = document.createElement('div'); ring.className = 'tour-ring'; document.body.appendChild(ring); }
+  let ring = has('.tour-ring') ? $('.tour-ring') : null; if (!ring) { ring = document.createElement('div'); ring.className = 'tour-ring'; document.body.appendChild(ring); }
   let low = false;
   if (el) {
     const r = el.getBoundingClientRect(), pad = 6;
     Object.assign(ring.style, { display: 'block', top: `${r.top - pad}px`, left: `${r.left - pad}px`, width: `${r.width + pad * 2}px`, height: `${r.height + pad * 2}px` });
     low = r.top + r.height / 2 > innerHeight / 2;
   } else ring.style.display = 'none';
-  let card = $('.tour-card'); if (!card) { card = document.createElement('div'); card.className = 'tour-card'; document.body.appendChild(card); }
+  let card = has('.tour-card') ? $('.tour-card') : null; if (!card) { card = document.createElement('div'); card.className = 'tour-card'; document.body.appendChild(card); }
   card.classList.toggle('top', low); card.classList.toggle('mid', !el);
   if (s.review) { reviewCard(card, s, i); notesFab(); return; }
   card.classList.remove('rv');
@@ -3468,7 +3469,7 @@ function rvUnsent() {
   return REVIEW.filter(r => (done[r.id] && done[r.id] !== 'seen' && sent[r.id] !== done[r.id]) || (notes[r.id] || '').trim()).map(r => ({ r, st: done[r.id] || '', note: (notes[r.id] || '').trim() }));
 }
 function reviewBadge() {
-  const b = $('#dbReview'); if (!b) return;
+  if (!has('#dbReview')) return; const b = $('#dbReview');
   const n = rvPending().length, u = rvUnsent().length;
   b.hidden = !n && !u; b.textContent = n ? `🔁 תיקונים ${n}` : `📤 ${u} לשליחה`;
 }
@@ -3548,7 +3549,7 @@ const getNotes = () => { try { return JSON.parse(lsGet('kesef-demoNotes') || '[]
 const setNotes = l => lsSet('kesef-demoNotes', JSON.stringify(l));
 function notesFab() {
   const show = db.DEMO || tourI >= 0;
-  let b = $('.notes-fab');
+  let b = has('.notes-fab') ? $('.notes-fab') : null;
   if (!show) { b?.remove(); return; }
   if (!b) { b = document.createElement('button'); b.className = 'notes-fab'; b.setAttribute('aria-label', 'הערות לתיקון'); b.onclick = openNotes; $('#app').appendChild(b); }
   const n = getNotes().length;
