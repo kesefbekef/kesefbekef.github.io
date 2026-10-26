@@ -1,5 +1,5 @@
 // מאפשר לאפליקציה להיפתח גם בלי אינטרנט — ומהר
-const CACHE = 'kesef-20261025202759';
+const CACHE = 'kesef-20261026131933';
 // קבצים שנשמרים מיד בהתקנה (הספריות הכבדות — אקסל/PDF — נשמרות רק בפעם הראשונה שמשתמשים בהן)
 const FILES = ['./', 'index.html', 'css/style.css', 'js/app.js', 'js/db.js', 'js/parse.js', 'js/categories.js', 'js/importer.js', 'js/exporter.js', 'js/sync.js', 'js/lock.js', 'js/help.js', 'js/demo-data.js', 'js/fixed.js', 'js/whats-new.js', 'js/review.js', 'js/config.js', 'js/track.js', 'vendor/supabase.js',
   'manifest.webmanifest', 'guide/', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png', 'icons/icon-maskable-512.png'];
@@ -31,8 +31,11 @@ self.addEventListener('fetch', e => {
   if (!mine && !fonts) return;
   e.respondWith(caches.open(CACHE).then(async c => {
     const hit = await c.match(e.request, { ignoreSearch: mine });
+    // קוד האפליקציה (index, js, css) מתחלף רק כיחידה אחת, כשמותקנת גרסה חדשה של הקובץ הזה.
+    // רענון ברקע של קובץ בודד יצר טעינה "חצי-מעודכנת" (index ישן + app.js חדש) שקרסה
+    const code = mine && /(^|\/)(index\.html)?$|\.(js|css|webmanifest)$/.test(url.pathname) && !url.pathname.includes('/vendor/');
     const net = fetch(e.request, mine ? { cache: 'no-cache' } : {}).then(r => {
-      if (r.ok || r.type === 'opaque') c.put(e.request, r.clone());
+      if ((r.ok || r.type === 'opaque') && !(code && hit)) c.put(e.request, r.clone());
       return r;
     });
     if (hit) { e.waitUntil(net.catch(() => {})); return hit; }

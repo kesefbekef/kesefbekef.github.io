@@ -13,7 +13,9 @@ import { REVIEW } from './review.js';
 import { CONFIG } from './config.js';
 
 // ---------- עזרים ----------
-const $ = s => document.querySelector(s);
+// אלמנט שלא קיים (למשל בטעינה חצי-מעודכנת: index.html ישן עם app.js חדש) — מחזירים "אלמנט ריק" שבולע הכל, במקום קריסה
+const NOEL = new Proxy({}, { get: (_, k) => k === 'classList' ? { add() {}, remove() {}, toggle() {}, contains: () => false } : k === 'style' || k === 'dataset' ? {} : () => NOEL, set: () => true });
+const $ = s => document.querySelector(s) || (console.warn('missing element', s), NOEL);
 const $$ = s => [...document.querySelectorAll(s)];
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmt = n => Math.round(n).toLocaleString('he-IL') + '₪';
