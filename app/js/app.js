@@ -2465,7 +2465,7 @@ function openExportSheet(kind = 'month', anchor = new Date(), initRange = null) 
   const draw = () => {
     const st = xp.quickStats(S.tx, kind, kind === 'range' ? range : anchor);
     openSheet(`<h3>📊 סיכום לאקסל</h3>
-      <div class="sub" style="margin:-6px 0 12px">קובץ צבעוני לקריאה, עם טבלת תנועות שאפשר גם להעלות ל-AI לניתוח</div>
+      <div class="sub" style="margin:-6px 0 12px">ברירת מחדל: החודש הנוכחי. אפשר לבחור כאן תקופה אחרת. בקובץ: לשונית הוצאות שמשנים בה קטגוריות, וסיכום שמתחשבן לבד</div>
       <div class="chips" style="margin-bottom:12px">${Object.entries(xp.KINDS).map(([k, n]) => `<button class="chip ${k === kind ? 'on' : ''}" data-k="${k}">${n}</button>`).join('')}</div>
       ${kind === 'range' ? `<div class="row2"><label class="field"><span>מתאריך</span><input type="date" id="rFrom" value="${ymd(range.from)}"></label><label class="field"><span>עד תאריך</span><input type="date" id="rTo" value="${ymd(range.to)}"></label></div><div class="err" id="rErr"></div>`
         : `<div class="monthnav" style="justify-content:space-between;margin-bottom:12px"><button data-sh="-1" aria-label="קודם">›</button><span>${st.label}</span><button data-sh="1" aria-label="הבא">‹</button></div>`}
@@ -2509,7 +2509,8 @@ function openExportSheet(kind = 'month', anchor = new Date(), initRange = null) 
   };
   draw();
 }
-$('#exportBtn').onclick = () => openExportSheet(S.view === 'chat' ? 'month' : 'month', S.view === 'chat' ? new Date() : new Date(S.month + '-01T12:00:00'));
+// ברירת מחדל תמיד: החודש הנוכחי. משנים תקופה או חודש בתוך החלון.
+$('#exportBtn').onclick = () => openExportSheet();
 
 // מכווץ תמונה (צילום קבלה) לבערך 200KB — רוחב עד 1280, JPEG
 async function shrinkImage(file) {
