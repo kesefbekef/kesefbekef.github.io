@@ -4207,11 +4207,14 @@ async function drawSync0(el) {
       if (!/^\S+@\S+\.\S+$/.test(e)) { el.querySelector('#sErr').textContent = 'צריך מייל תקין'; return; }
       if (p.length < 6) { el.querySelector('#sErr').textContent = 'הסיסמה צריכה להיות לפחות 6 תווים'; return; }
       try { await fn(e, p); syncUser = await sync.user(); try { await sync.loadHousehold(); } catch {} if (sync.household()) { await sync.connected(); await reloadFromDb(); } drawSync(el); toast('✅ מחובר'); }
-      catch (err) { el.querySelector('#sErr').textContent = err.message; }
+      catch (err) {
+        if (err.code === 'exists') return alreadyRegistered(el, { email: el.querySelector('#sEmail'), pass: el.querySelector('#sPass'), errEl: el.querySelector('#sErr'), inBtn: el.querySelector('#sIn'), upBtn: el.querySelector('#sUp'), forgot: el.querySelector('#sForgot') });
+        el.querySelector('#sErr').className = 'err'; el.querySelector('#sErr').textContent = err.message;
+      }
     };
     el.querySelector('#sIn').onclick = () => go2(sync.signIn);
     el.querySelector('#sUp').onclick = () => go2(sync.signUp);
-    el.querySelectorAll('input').forEach(i => i.oninput = () => el.querySelector('#sErr').textContent = '');
+    el.querySelectorAll('input').forEach(i => i.oninput = () => { if (el.querySelector('#sErr').classList.contains('info')) return; el.querySelector('#sErr').textContent = ''; });
     return;
   }
   if (!hh) {
@@ -4415,6 +4418,16 @@ function newPasswordSheet() {
   });
   history.replaceState(null, '', location.pathname + location.search);
 }
+// 👋 הרשמה עם מייל שכבר רשום (גם דרך זמן/לומדים/זוכרים בכיף — חשבון אחד לכולן): לא שגיאה אדומה, אלא מעבר לכניסה
+function alreadyRegistered(box, { email, pass, errEl, inBtn, upBtn, forgot }) {
+  errEl.className = 'err info';
+  errEl.innerHTML = `👋 <b>המייל הזה כבר רשום</b>, גם אם נרשמתם דרך אפליקציה אחרת שלנו (זמן בכיף, לומדים בכיף, זוכרים בכיף). נכנסים עם אותה סיסמה. לא זוכרים? 🔑 "שכחתי סיסמה" למטה.`;
+  pass.value = ''; pass.setAttribute('autocomplete', 'current-password'); pass.placeholder = 'הסיסמה שלכם'; pass.focus();
+  inBtn.classList.replace('ghost', 'grad'); upBtn.classList.replace('grad', 'ghost');
+  if (inBtn.textContent.includes('כבר נרשמתי')) inBtn.textContent = 'כניסה';
+  forgot.classList.add('pulse');
+  box.querySelector('.cc-card, .err')?.scrollIntoView?.({ block: 'nearest' });
+}
 // כפתור "שכחתי סיסמה" — משתמש במייל שכבר הוקלד
 async function forgotPassword(emailInput, errEl, btn) {
   const e = emailInput.value.trim();
@@ -4464,12 +4477,16 @@ async function showGate() {
         try { await sync.loadHousehold(); } catch {}
         if (sync.household()) { await sync.connected(); await reloadFromDb(); }
         showGate();
-      } catch (x) { err(x.message); busy(btn, false); }
+      } catch (x) {
+        busy(btn, false);
+        if (x.code === 'exists') return alreadyRegistered(body, { email: body.querySelector('#gEmail'), pass: body.querySelector('#gPass'), errEl: body.querySelector('.err'), inBtn: body.querySelector('#gIn'), upBtn: body.querySelector('#gUp'), forgot: body.querySelector('#gForgot') });
+        body.querySelector('.err').className = 'err'; err(x.message);
+      }
     };
     body.querySelector('#gUp').onclick = e => go2(sync.signUp, e.target);
     body.querySelector('#gIn').onclick = e => go2(sync.signIn, e.target);
     body.querySelector('#gForgot').onclick = e => forgotPassword(body.querySelector('#gEmail'), body.querySelector('.err'), e.target);
-    body.querySelectorAll('input').forEach(i => i.oninput = () => err(''));
+    body.querySelectorAll('input').forEach(i => i.oninput = () => { if (body.querySelector('.err').classList.contains('info')) return; err(''); });
     return;
   }
 

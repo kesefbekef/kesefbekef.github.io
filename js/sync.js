@@ -56,6 +56,12 @@ export async function signIn(email, password) {
 }
 export async function signUp(email, password) {
   const { data, error } = await (await client()).auth.signUp({ email, password });
+  if (error && (error.code === 'user_already_exists' || /already registered/i.test(error.message))) {
+    // 👋 המייל כבר רשום (אולי דרך אפליקציה אחרת שלנו — החשבון משותף). זו לא תקלה: מנסים להיכנס עם הסיסמה שהוקלדה
+    const { error: e2 } = await (await client()).auth.signInWithPassword({ email, password });
+    if (!e2) return data;
+    const x = new Error('המייל הזה כבר רשום — נכנסים עם הסיסמה שלכם'); x.code = 'exists'; throw x;
+  }
   if (error) { track.fail('auth', `signUp ${error.status || ''} ${error.code || error.message}`); throw new Error(nice(error)); }
   if (!data.session) throw new Error(HEB_ERR['Email not confirmed']);
 }
