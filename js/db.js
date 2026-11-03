@@ -8,21 +8,33 @@ let dbp;
 
 function open() {
   if (dbp) return dbp;
-  dbp = new Promise((res, rej) => {
+  const p = dbp = new Promise((res, rej) => {
     const r = indexedDB.open(DB_NAME, 1);
     r.onupgradeneeded = () => {
       const db = r.result;
       db.createObjectStore('tx', { keyPath: 'id' });
       db.createObjectStore('kv');
     };
-    r.onsuccess = () => res(r.result);
-    r.onerror = () => rej(r.error);
+    r.onsuccess = () => {
+      const db = r.result;
+      // 🔌 הדפדפן סגר את החיבור (ברקע, עדכון, לחץ זיכרון) — שוכחים אותו, והפעולה הבאה פותחת חדש
+      db.onclose = () => { if (dbp === p) dbp = null; };
+      db.onversionchange = () => { db.close(); if (dbp === p) dbp = null; };
+      res(db);
+    };
+    r.onerror = () => { if (dbp === p) dbp = null; rej(r.error); };
   });
-  return dbp;
+  return p;
 }
 
+// פותחים טבלה. אם החיבור נסגר בינתיים ("connection is closing") — פותחים מחדש ומנסים עוד פעם אחת
 async function store(name, mode) {
-  return (await open()).transaction(name, mode).objectStore(name);
+  try { return (await open()).transaction(name, mode).objectStore(name); }
+  catch (e) {
+    if (e?.name !== 'InvalidStateError' && !/closing|closed/i.test(e?.message || '')) throw e;
+    dbp = null;
+    return (await open()).transaction(name, mode).objectStore(name);
+  }
 }
 const done = req => new Promise((res, rej) => { req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error); });
 
@@ -58,10 +70,9 @@ export async function importAll(data) {
 
 // מעבר משפחה: מוחקים מהמכשיר את נתוני המשפחה הקודמת (בענן הם נשארים אצלה)
 export async function clearFamilyData() {
-  const db = await open();
-  await done(db.transaction('tx', 'readwrite').objectStore('tx').clear());
+  await done((await store('tx', 'readwrite')).clear());
   for (const k of ['budgets', 'learned', 'people', 'outbox', 'outboxRejected', 'members', 'lastSync', 'household', 'me', 'base:budgets', 'base:learned', 'base:people', 'cats', 'base:cats', 'goals', 'base:goals', 'maaser', 'base:maaser', 'pocket', 'base:pocket', 'debts', 'base:debts', 'recurring', 'base:recurring', 'rules', 'base:rules', 'lists', 'base:lists', 'dataHousehold'])
-    await done(db.transaction('kv', 'readwrite').objectStore('kv').delete(k));
+    await done((await store('kv', 'readwrite')).delete(k));
 }
 
 export const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -69,7 +80,6 @@ export const newId = () => Date.now().toString(36) + Math.random().toString(36).
 // 🎭 איפוס נתוני ההדגמה: מרוקנים את המאגר במקום למחוק אותו (מחיקה נתקעת כשהאפליקציה פתוחה)
 export async function clearAll() {
   if (!DEMO) throw new Error('only in demo');
-  const db = await open();
-  await done(db.transaction('tx', 'readwrite').objectStore('tx').clear());
-  await done(db.transaction('kv', 'readwrite').objectStore('kv').clear());
+  await done((await store('tx', 'readwrite')).clear());
+  await done((await store('kv', 'readwrite')).clear());
 }
