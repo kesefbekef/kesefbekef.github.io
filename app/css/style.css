@@ -774,3 +774,7 @@ body.over-gate .sheet{z-index:111}
 .story-bk .ring { background: linear-gradient(135deg,#0EA5E9,#6366F1) !important; }
 .story-bk { color: #7DD3FC !important; font-weight: 700; }
 .bk-card { margin-bottom: 10px; }
+
+/* 💵 שדה הקלדה בחלון אישור (כמה זה היה בשקלים) */
+.cbox-in { width: 100%; font-size: 18px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card2); color: inherit; margin: 6px 0 10px; text-align: center; outline: none; }
+.cbox-in:focus { border-color: var(--accent, #a855f7); }

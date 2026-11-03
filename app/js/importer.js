@@ -34,7 +34,7 @@ async function readPdfRows(file) {
   }
   const out = pdfSheets(pages);
   if (!out) throw Object.assign(new Error('scanned'), { scanned: true, pages: pdf.numPages });
-  out[0].meta = { pages: pdf.numPages };
+  out[0].meta = { ...(out[0].meta || {}), pages: pdf.numPages };
   return out;
 }
 
@@ -84,33 +84,44 @@ export function pdfSheets(pages) {
   // אין טבלה מסודרת — קוראים כל שורה כטקסט:
   // 🏦 דף חשבון (תאריך · תיאור · סכום · יתרה) ואחרת 💳 פירוט אשראי (תאריך · בית עסק · סכום)
   const st = statementLines(text) || cardLines(text);
+  if (st) st.meta = { head: text.slice(0, 20).join(' ') }; // הכותרת (שם הבנק, תאריך חיוב) — לזיהוי הבנק
   return [st || rows];
 }
 
 // 💳 פירוט אשראי כשורות טקסט: תאריך, שם בית העסק, סכום עסקה ואולי סכום חיוב (הוא הקובע), ופירוט נוסף
 const CAMT_RE = /(?:₪\s*)?-?\d{1,3}(?:,\d{3})*\.\d{2}-?(?:\s*₪)?/g;
 const CDATE_RE = /\d{1,2}[./]\d{1,2}[./]\d{2,4}/;
+// סוג העסקה שנדבק לשם בית העסק (לאומי): "HOT MOBILE רגילה" ← "HOT MOBILE"
+const TX_KIND_RE = /\s+(רגילה|תשלומים|קרדיט|חיוב מיידי|נדחה|הו"ק)$/;
+// תאריך החיוב של כל הדף — בכותרת ("פירוט החיובים בחשבון לתאריך 15/10/26", "לחיוב ב-10.11.26")
+const CHARGE_RE = /(?:תאריך חיוב אחרון|תאריך החיוב הבא|לתאריך|בתאריך|מועד חיוב|תאריך חיוב|לחיוב ב)[-:\s]*(\d{1,2}[./]\d{1,2}[./]\d{2,4})/;
 export function cardLines(lines) {
   const num = v => { let x = String(v).replace(/[₪,\s]/g, ''); if (/-$/.test(x)) x = '-' + x.slice(0, -1); return parseFloat(x); };
-  const out = [];
+  const out = [], charge = (lines.map(norm).join(' ').match(CHARGE_RE) || [])[1] || '';
   for (const l0 of lines) {
     const l = norm(l0), d = l.match(CDATE_RE); if (!d) continue;
-    const rest = l.slice(d.index + d[0].length), am = [...rest.matchAll(CAMT_RE)];
+    // "4.75%" (הודעה על ריבית) זה לא סכום — מוחקים אחוזים לפני שמחפשים סכומים
+    const rest = l.slice(d.index + d[0].length).replace(/\d+(?:[.,]\d+)?\s*%/g, ' '), am = [...rest.matchAll(CAMT_RE)];
     if (!am.length) continue;
-    const clean = t => t.replace(CDATE_RE, ' ').replace(/(^|\s)[-₪](?=\s|$)/g, ' ').replace(/[₪]/g, ' ').replace(/\s+/g, ' ').trim();
+    const clean = t => t.replace(CDATE_RE, ' ').replace(/(^|\s)[-₪$€£](?=\s|$)/g, ' ').replace(/[₪$€£]/g, ' ').replace(/\s+/g, ' ').trim();
     const head = rest.slice(0, am[0].index), mid = rest.slice(am[0].index, am[am.length - 1].index + am[am.length - 1][0].length);
+    const tailRaw = rest.slice(am[am.length - 1].index + am[am.length - 1][0].length);
     let desc = clean(head);
-    const tail = clean(rest.slice(am[am.length - 1].index + am[am.length - 1][0].length));
+    const tail = clean(tailRaw);
     if (!/[א-תa-z]/i.test(desc)) { desc = tail; }
     if (!/[א-תa-z]/i.test(desc) || /^סה.?כ/.test(desc)) continue;
+    desc = desc.replace(TX_KIND_RE, '');
     const vals = am.map(a => Math.abs(num(a[0]))).filter(v => !isNaN(v));
     let v = vals.length > 1 && vals[1] ? vals[1] : vals[0]; // סכום החיוב (העמודה השנייה) כשיש
     if (!v) continue;
     // מינוס = זיכוי. בקובץ מימין לשמאל המינוס יכול לצאת כתו נפרד ליד ה־₪
     if (/(^|\s)-(\s|₪|$)|-\s*₪|\d-|-\d/.test(head.slice(-3) + mid)) v = -v;
-    out.push([d[0], desc, v, desc === tail ? '' : tail]);
+    // 💵 מטבע זר: הסכומים עם $ / € / £ ובלי ₪ בכלל — החיוב הוא בדולרים (חשבון מט"ח), לא בשקלים
+    const money = mid + ' ' + tailRaw, curM = money.match(/[$€£]|\b(?:USD|EUR|GBP)\b/i);
+    const cur = curM && !/₪|ש"ח|nis|ils/i.test(money) ? curM[0].toUpperCase() : '';
+    out.push([d[0], desc, v, desc === tail ? '' : tail, cur, charge]);
   }
-  return out.length >= 2 ? [['תאריך', 'בית העסק', 'סכום', 'פירוט נוסף'], ...out] : null;
+  return out.length >= 2 ? [['תאריך', 'בית העסק', 'סכום', 'פירוט נוסף', 'מטבע', 'תאריך חיוב'], ...out] : null;
 }
 
 // 🏦 דף חשבון כשורות טקסט: לכל שורה תאריך, תיאור, סכום אחד (זכות או חובה — העמודה הריקה נעלמת) ויתרה.
@@ -175,7 +186,8 @@ function headerMap(row) {
     debit: pick(cells, ['חובה']),
     credit: pick(cells, ['זכות']),
     hint: pick(cells, ['קטגוריה', 'ענף']),
-    notes: ['הערות', 'פירוט נוסף', 'סוג עסקה'].map(w => cells.findIndex(c => c.includes(w))).filter(i => i >= 0),
+    cur: cells.findIndex(c => /^מטבע( ל?חיוב)?$/.test(c)), // מטבע החיוב (לא "מטבע מקור" של העסקה)
+    notes: ['הערות', 'פירוט נוסף', 'מידע נוסף', 'סוג עסקה'].map(w => cells.findIndex(c => c.includes(w))).filter(i => i >= 0),
   };
   if (m.date < 0) m.date = pick(cells, ['תאריך']);
   if (m.desc < 0) m.desc = pick(cells, ['תאור'], ['מורחב']); if (m.desc < 0) m.desc = pick(cells, ['תאור']); // "תאור" בלי י' (לאומי / הבינלאומי)
@@ -240,13 +252,19 @@ export function extract(sheets, learned = {}) {
   const items = [];
   let kind = 'card';
   for (const rows of sheets) {
-    let m = null;
+    let m = null, sheetCharge = null; // תאריך החיוב של כל הדף — מהכותרת ("תאריך חיוב אחרון 15/10/2026")
     for (const row of rows) {
       const h = headerMap(row);
       if (h) { m = h; if (h.bank) kind = 'bank'; continue; }
-      if (!m) continue;
+      if (!m) { const c = norm((Array.isArray(row) ? row : [row]).join(' ')).match(CHARGE_RE); if (c) sheetCharge = parseDate(c[1]); continue; }
       let date = parseDate(row[m.date]);
-      const desc = norm(row[m.desc]);
+      let desc = norm(row[m.desc]);
+      // שם בית עסק שנשבר לשורה שנייה ("35314369001" ואז "~PAYPAL") — מצרפים לשורה שמעליו
+      if (!date && desc && !norm(row[m.date]) && kind === 'card' && items.length && !/^סה.?כ|^עמוד/.test(desc)) {
+        const prev = items[items.length - 1]; prev.desc = (prev.desc + ' ' + desc.replace(/^~/, '')).trim();
+        if (!prev.income && !prev.refund) prev.cat = classify(prev.desc, learned) === 'other' ? prev.cat : classify(prev.desc, learned);
+        continue;
+      }
       if (!date || !desc || /^סה.?כ/.test(desc)) continue;
 
       let amount, income = false;
@@ -261,9 +279,11 @@ export function extract(sheets, learned = {}) {
         else amount = v; // באשראי: מספר שלילי = זיכוי/החזר
       }
 
-      const note = m.notes.map(i => norm(row[i])).filter(Boolean).join(' · ');
-      const inst = note.match(/תשלום\s*(\d+)\s*(?:מתוך|מ-|\/)\s*(\d+)/);
-      if (inst && m.chargeDate >= 0) date = parseDate(row[m.chargeDate]) || date;
+      const note = m.notes.map(i => norm(row[i])).filter(x => x && !/^(null|undefined|-|—)$/i.test(x)).join(' · '); // "null" = תא ריק (יהב)
+      const cur = m.cur >= 0 ? norm(row[m.cur]) : '', foreign = cur && !/₪|ש.?ח|ils|nis/i.test(cur) ? cur : '';
+      // תשלום 2 מתוך 3 / "2/3" (יהב): התאריך שקובע הוא תאריך החיוב, לא יום הקנייה המקורי
+      const inst = note.match(/תשלום\s*(\d+)\s*(?:מתוך|מ-|\/)\s*(\d+)/) || note.match(/^\s*(\d{1,2})\s*\/\s*(\d{1,2})\s*$/);
+      if (inst) date = (m.chargeDate >= 0 ? parseDate(row[m.chargeDate]) : null) || sheetCharge || date;
 
       let cat = income ? 'income' : classify(desc, learned), refund = false;
       if (cat === 'other' && !income) cat = hintCat(row[m.hint]) || 'other';
@@ -275,7 +295,7 @@ export function extract(sheets, learned = {}) {
         else if (/זיכוי|ביטול/.test(desc)) { income = false; amount = -amount; cat = 'other'; refund = true; }
       }
       if (amount < 0 && !income) refund = true; // באשראי: זיכוי
-      items.push({ date, desc, amount: Math.round(amount * 100) / 100, income, cat, note, refund,
+      items.push({ date, desc, amount: Math.round(amount * 100) / 100, income, cat, note, refund, foreign,
         ccCharge: kind === 'bank' && !income && !refund && CC_RE.test(desc), atm: !income && !refund && ATM_RE.test(desc),
         own: kind === 'bank' && OWN_RE.test(desc) });
     }
@@ -354,8 +374,11 @@ const BANKS = [['לאומי קארד|max|מקס', 'מקס'], ['ישראכרט', 
   ['מזרחי|טפחות|mizrahi', 'מזרחי טפחות'], ['ירושלים|jerusalem', 'ירושלים'], ['וואן.?זירו|one.?zero', 'וואן זירו'],
   ['יהב|yahav', 'יהב'], ['אוצר החייל|otsar', 'אוצר החייל'], ['מסד|massad', 'מסד'], ['פאגי|pagi', 'פאגי']];
 export const BANK_NAMES = BANKS.map(b => b[1]);
+// קוד הבנק במספר החשבון: "חשבון 04-488-144000" ← 04 = יהב
+const BANK_CODES = { '04': 'יהב', '10': 'לאומי', '11': 'דיסקונט', '12': 'הפועלים', '14': 'אוצר החייל', '17': 'מרכנתיל', '18': 'וואן זירו', '20': 'מזרחי טפחות', '31': 'הבינלאומי', '46': 'מסד', '52': 'פאגי', '54': 'ירושלים' };
 export function detectBank(sheets, fileName = '') {
   const rows = (sheets?.[0] || []).map(r => (Array.isArray(r) ? r : [r]).join(' '));
+  const acct = (rows.slice(0, 12).join(' ') + ' ' + (sheets?.[0]?.meta?.head || '')).match(/(?:חשבון|לעסקות בש"ח|account)\D{0,12}(\d{2})-\d{3}-\d{4,}/i);
   // 1) "בנק יהב" שחוזר בכותרת / בתחתית כל עמוד — הכי אמין (תנועה בודדת כמו "העברה לבנק לאומי" לא מנצחת)
   const cnt = {};
   for (const t of rows) for (const [re, name] of BANKS.slice(4)) if (new RegExp('בנק\\s*(' + re + ')', 'i').test(t)) cnt[name] = (cnt[name] || 0) + 1;
@@ -363,9 +386,9 @@ export function detectBank(sheets, fileName = '') {
   if (top && top[1] >= 2) return top[0];
   // 2) רק מה שמעל שורת הכותרות (לא שורות התנועות) + שם הקובץ
   let hi = rows.findIndex(t => /יתרה|תאריך/.test(t) && /סכום|חובה|זכות|תיאור|פרטים/.test(t)); if (hi < 0) hi = 8;
-  const head = rows.slice(0, Math.min(hi, 8)).join(' ') + ' ' + fileName;
+  const head = (sheets?.[0]?.meta?.head || '') + ' ' + rows.slice(0, Math.min(hi, 8)).join(' ') + ' ' + fileName;
   const hit = BANKS.find(([re]) => new RegExp(re, 'i').test(head));
-  return hit ? hit[1] : top ? top[0] : 'לא זוהה';
+  return hit ? hit[1] : top ? top[0] : (acct && BANK_CODES[acct[1]]) || 'לא זוהה';
 }
 export const isSupported = name => /\.(xlsx|xls|csv|txt|pdf)$/i.test(name);
 export const isImage = name => /\.(png|jpe?g|heic|webp)$/i.test(name);

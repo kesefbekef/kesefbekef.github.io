@@ -1459,7 +1459,7 @@ function markDuplicates(items) {
     if (seen !== undefined && seen !== fk(it) && sameFiles(seen, fk(it))) { it.status = 'dup-file'; continue; }
     if (seen !== undefined) it.twice = true;
     upFp.set(it.fp, fk(it));
-    if (it.ccCharge || it.atm || it.own) { it.status = it.ccCharge ? 'cc' : it.atm ? 'atm' : 'own'; continue; } // לא מתאימים להוצאה ידנית
+    if (it.ccCharge || it.atm || it.own || it.foreign) { it.status = it.ccCharge ? 'cc' : it.atm ? 'atm' : it.own ? 'own' : 'foreign'; continue; } // לא מתאימים להוצאה ידנית
     // 🔄 העברה בין שני חשבונות של המשפחה: אותו יום ואותו סכום — הכנסה בדף אחד והוצאה בדף אחר (או בקובץ אחר באותה העלאה)
     const XFER = /העב|העברה|ביט|bit|פייבוקס|paybox|הפקדה|זיכוי מ/i;
     if (it.kind === 'bank') {
@@ -1516,19 +1516,21 @@ const genericBank = b => /(^| )(העב|העברה|העברת|ביט|bit|pay ?box
 const sameBank = (bank, except, exact = false) => { const f = exact ? exactKey : ruleKey, k = f(bank); return k.length < 2 ? [] : allTx().filter(t => t.id !== except && f(bankOf(t)) === k); };
 
 // 💬 חלון קטן באמצע המסך (מעל הכל) — מחזיר { ok, past }
-function confirmBox({ e = '📏', title, text = '', warn = '', past = 0, ok = '✅ אישור', no = 'לא, רק הפעם', opt = '', optOn = false, onOpt = null }) {
+function confirmBox({ e = '📏', title, text = '', warn = '', past = 0, ok = '✅ אישור', no = 'לא, רק הפעם', opt = '', optOn = false, onOpt = null, input = '' }) {
   return new Promise(res => {
     const ov = document.createElement('div'); ov.className = 'cbox-ov';
     ov.innerHTML = `<div class="cbox" role="dialog" aria-modal="true"><div class="cbox-e">${e}</div><h4>${title}</h4>${text ? `<p>${text}</p>` : ''}
       ${warn ? `<p class="cbox-warn">⚠️ ${warn}</p>` : ''}
+      ${input ? `<input class="cbox-in" type="number" inputmode="decimal" step="0.01" min="0" placeholder="${input}" aria-label="${input}">` : ''}
       ${opt ? `<label class="cbox-past cbox-opt"><input type="checkbox" ${optOn ? 'checked' : ''}><span>${opt}</span></label>` : ''}
       <label class="cbox-past" ${past ? '' : 'hidden'}><input type="checkbox" checked><span>לעשות את זה גם ל־<b class="cb-n">${past}</b> השורות הקודמות עם אותו טקסט</span></label>
       <div class="cbox-btns"><button class="btn ghost" data-r="0">${no}</button><button class="btn grad" data-r="1">${ok}</button></div></div>`;
     const pl = () => ov.querySelector('.cbox-past:not(.cbox-opt)');
-    const done = (r, how) => { ov.classList.add('out'); setTimeout(() => ov.remove(), 180); res({ ok: r, how, past: !pl().hidden && pl().querySelector('input').checked, opt: !!ov.querySelector('.cbox-opt input')?.checked }); };
+    const done = (r, how) => { ov.classList.add('out'); setTimeout(() => ov.remove(), 180); res({ ok: r, how, past: !pl().hidden && pl().querySelector('input').checked, opt: !!ov.querySelector('.cbox-opt input')?.checked, val: ov.querySelector('.cbox-in')?.value || '' }); };
     ov.querySelector('.cbox-opt input')?.addEventListener('change', e => { const n = onOpt?.(e.target.checked); if (n != null) { pl().hidden = !n; pl().querySelector('.cb-n').textContent = n; } });
     ov.addEventListener('click', ev => { const b = ev.target.closest('[data-r]'); if (b) done(b.dataset.r === '1', b.dataset.r === '1' ? 'ok' : 'no'); else if (ev.target === ov) done(false, 'out'); });
-    document.body.appendChild(ov); setTimeout(() => ov.querySelector('[data-r="1"]').focus(), 50);
+    document.body.appendChild(ov); setTimeout(() => (ov.querySelector('.cbox-in') || ov.querySelector('[data-r="1"]')).focus(), 50);
+    ov.querySelector('.cbox-in')?.addEventListener('keydown', ev => { if (ev.key === 'Enter') done(true, 'ok'); });
   });
 }
 // 💳 חיוב כרטיס אשראי בעו"ש — לספור את הסכום הכולל כאן, או לחכות לפירוט מחברת האשראי?
@@ -1749,6 +1751,7 @@ const STATUS = {
   'cc': '💳 חיוב כרטיס אשראי — כבר נספר בפירוט של הכרטיס',
   'own': '🔄 העברה בין החשבונות שלכם — הכסף לא יצא מהבית (וגם לא נכנס)',
   'atm': '💵 משיכת מזומן — מה לעשות איתה?',
+  'foreign': '💵 עסקה במטבע זר — יורדת מחשבון מט"ח, לא נספרת כאן',
 };
 
 // 📎 — קובץ מהבנק / מהאשראי (אקסל, CSV, PDF). העלאה מתמונה הוסרה (22.10) — לא מספיק מדויקת
@@ -1966,8 +1969,9 @@ function openImportSheet(name, { kind, items, files = [name] }) {
   const why = it => it.status === 'dup-manual' ? `✋ כבר רשום ידנית: "${esc(it.match)}" — כדי שלא ייספר פעמיים`
     : it.ruleSkip ? '📏 לפי כלל: לא לספור'
     : it.status === 'cc' ? (it.on ? '💳 חיוב כרטיס אשראי — נספר כסכום כולל' : '💳 חיוב כרטיס אשראי — מחכה לפירוט מחברת האשראי (אזכיר אם לא יגיע)')
+    : it.status === 'foreign' ? `💵 ${esc(it.foreign)} — מטבע זר, יורד מחשבון מט"ח או מומר בבנק. לא נספר כאן. לסמן = להקליד כמה זה היה בשקלים`
     : STATUS[it.status] || '';
-  const amt = it => it.amount < 0 ? `−${fmt(-it.amount)}` : (it.income ? '+' : '') + fmt(it.amount);
+  const amt = it => it.foreign ? `${it.amount} ${esc(it.foreign)}` : it.amount < 0 ? `−${fmt(-it.amount)}` : (it.income ? '+' : '') + fmt(it.amount);
   openSheet(`<!--page--><h3>📄 ${esc(name)}</h3>
     <div class="sub" style="margin:-6px 0 10px">${kind === 'multi' ? '📚 ' + files.map(esc).join(' · ') : kind === 'bank' ? '🏦 דף חשבון בנק' : kind === 'image' ? '📸 צילום מסך — כדאי לעבור על השורות, הזיהוי לא תמיד מדויק' : '💳 פירוט כרטיס אשראי'} · ${items.length} תנועות · ${monthsSpan(items.map(i => i.date))}</div>
     <div class="imp-tot">
@@ -1977,7 +1981,7 @@ function openImportSheet(name, { kind, items, files = [name] }) {
     </div>
     <div class="card tip" style="margin-bottom:10px"><div class="em">✅</div><p><b>מה שמסומן — נספר.</b> מה שלא מסומן נשמר באפור, אבל לא נכנס לתקציב, לסיכומים ולאקסל. ✏️ נוגעים בשם כדי לשנות.</p></div>
     ${S.people.length ? `<div class="sub" style="margin-bottom:6px">של מי ${kind === 'bank' ? 'החשבון' : kind === 'multi' ? 'הקבצים' : 'הכרטיס'}?</div><div class="chips" id="impWho" style="flex-wrap:wrap;margin-bottom:10px">${whoChips(fileWho)}</div>` : ''}
-    ${off0 ? `<div class="card tip" style="margin-bottom:10px"><div class="em">⏸️</div><p><b>${off0} שורות הגיעו בלי סימון</b> — ${[count('dup-manual') && `${count('dup-manual')} כבר רשומות ידנית`, count('cc') && `${count('cc')} חיובי אשראי (נספרים בפירוט הכרטיס)`, count('own') && `${count('own')} העברות בין החשבונות שלכם`, count('dup-file') && `${count('dup-file')} כבר יובאו בעבר`, count('atm') && `${count('atm')} משיכות מזומן`].filter(Boolean).join(' · ')}. אפשר לסמן כל אחת.</p></div>` : ''}
+    ${off0 ? `<div class="card tip" style="margin-bottom:10px"><div class="em">⏸️</div><p><b>${off0} שורות הגיעו בלי סימון</b> — ${[count('dup-manual') && `${count('dup-manual')} כבר רשומות ידנית`, count('cc') && `${count('cc')} חיובי אשראי (נספרים בפירוט הכרטיס)`, count('own') && `${count('own')} העברות בין החשבונות שלכם`, count('dup-file') && `${count('dup-file')} כבר יובאו בעבר`, count('atm') && `${count('atm')} משיכות מזומן`, count('foreign') && `${count('foreign')} עסקאות במטבע זר`].filter(Boolean).join(' · ')}. אפשר לסמן כל אחת.</p></div>` : ''}
     ${count('atm') ? `<div class="card atm-all"><b>💵 ${count('atm')} משיכות מזומן</b><div class="sub">אפשר לבחור לכל משיכה בנפרד ברשימה, או לכולן יחד:</div>
       <div class="row2"><button class="btn ghost" data-atmall="skip">⏸️ לכולן: לא לספור<small>אני רושם את ההוצאות במזומן</small></button><button class="btn ghost" data-atmall="count">✅ לכולן: לספור<small>כהוצאה, עם קטגוריה</small></button></div></div>` : ''}
     ${noBank ? `<div class="card cc-card"><b>🏦 איזה ${kind === 'card' ? 'כרטיס' : 'בנק'}?</b><div class="sub">לא כתוב בקובץ — כדי שהדף יקבל שם ברור (למשל "עו"ש ${kind === 'card' ? 'ישראכרט' : 'לאומי'} · אוקטובר")</div>
@@ -2003,7 +2007,7 @@ function openImportSheet(name, { kind, items, files = [name] }) {
     <div class="imp-bar"><button class="btn grad full" id="impGo"></button>
       <div class="imp-selbar" hidden><span id="selN"></span><button class="chip" data-bulk="on">✅ לספור</button><button class="chip" data-bulk="off">⏸️ לא לספור</button><button class="chip" data-bulk="x">✕</button></div></div>`, sh => {
     const rows = [...sh.querySelectorAll('.imp-row')];
-    const sum = (inc, onOnly) => items.filter(i => i.status !== 'dup-file' && !!i.income === inc && (!onOnly || i.on)).reduce((s, i) => s + i.amount, 0);
+    const sum = (inc, onOnly) => items.filter(i => i.status !== 'dup-file' && !i.foreign && !!i.income === inc && (!onOnly || i.on)).reduce((s, i) => s + i.amount, 0);
     const refresh = () => {
       for (const row of rows) {
         const it = items[row.dataset.i];
@@ -2072,6 +2076,16 @@ function openImportSheet(name, { kind, items, files = [name] }) {
     for (const row of rows) {
       const it = items[row.dataset.i];
       row.querySelector('.cnt input').onchange = async e => {
+        // 💵 מטבע זר: לספור = להקליד כמה ירד בשקלים (הסכום בקובץ הוא בדולרים)
+        if (it.foreign && e.target.checked) {
+          const a = await confirmBox({ e: '💵', title: 'כמה זה היה בשקלים?', text: `<b>${esc(it.desc)}</b> · ${it.amount} ${esc(it.foreign)}<br><small>הסכום שירד בפועל בשקלים — מדף הבנק, או לפי השער</small>`, input: 'סכום בשקלים', ok: '✅ לספור', no: 'ביטול' });
+          const v = parseFloat(a.val);
+          if (!a.ok || !(v > 0)) { e.target.checked = false; return; }
+          it.note = [it.note, `${it.amount} ${it.foreign}`].filter(Boolean).join(' · '); it.amount = Math.round(v * 100) / 100; it.foreign = ''; it.status = 'new';
+          row.querySelector('.am').textContent = fmt(it.amount); row.querySelector('.imp-why')?.remove();
+          const dl = row.querySelector('.nm > small:not(.imp-bank)'); if (dl) dl.textContent = `${it.date.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric', year: '2-digit' })} · ${it.note}`;
+          setOn(it, true); refresh(); return;
+        }
         setOn(it, e.target.checked); refresh();
         if (it.bankDesc && ['new', 'own'].includes(it.status)) { // (חיובי אשראי — לפי הבחירה למעלה, לא כלל לכל שורה)
           const id = await ruleBox(it.bankDesc, { skip: !it.on });
