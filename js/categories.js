@@ -152,6 +152,8 @@ export function classify(text, learned = {}) {
     .find(w => learnedRe(w)?.test(s));
   if (mine && (CATS[learned[mine]] || learned[mine] === 'income') && !(hit && hit[0].length > normText(mine).trim().length)) return learned[mine];
   // "תרומה לישיבה" / "צדקה לבית הכנסת" — המילה תרומה קובעת, גם אם שם המקבל הוא מילה של קטגוריה אחרת
+  // "הע. אינטרנט" / "רשויות אינטרנט" בדף הבנק = העברה שבוצעה באינטרנט, לא מנוי אינטרנט
+  if (/(^|\s)(הע\.?\s*אינטרנט|רשויות אינטרנט|העברה באינטרנט|העברת אינטרנט)(\s|$)/.test(s)) return 'other';
   if (CATS.give && /תרומ|תרמתי|צדקה|מעשר/.test(s)) return 'give';
   return hit ? hit[1] : 'other';
 }

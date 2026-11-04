@@ -258,7 +258,7 @@ function botHTML(t) {
   const pay = t.pay ? `<button data-act="pay" data-id="${t.id}">${PAY[t.pay].e} ${PAY[t.pay].n}</button>` : '';
   // שאלה קלה "איך שולם?" — רק על רשומות חדשות, אפשר לדלג
   const askPay = !t.pay && !t.paySkip && t.source !== 'file' && Date.now() - new Date(t.created) < 12 * 3600e3
-    ? `<div class="paynow"><span>💳 איך שולם?</span>${['credit', 'cash', 'transfer', 'bit'].map(k => `<button data-act="setpay" data-pay="${k}" data-id="${t.id}">${PAY[k].e} ${PAY[k].n.split('/')[0]}</button>`).join('')}<button data-act="skippay" data-id="${t.id}" class="skip">דלג</button></div>` : '';
+    ? `<div class="paynow"><span>💳 איך שולם?</span>${['credit', 'cash', 'transfer', 'bit', 'check', 'standing'].map(k => `<button data-act="setpay" data-pay="${k}" data-id="${t.id}">${PAY[k].e} ${PAY[k].n.split('/')[0]}</button>`).join('')}<button data-act="skippay" data-id="${t.id}" class="skip">דלג</button></div>` : '';
   return `<div class="cat-ic" style="background:${c.g}">${c.e}</div>
     <div><b>${t.rec ? '🔁 ' : ''}${title}</b><div class="sub">${sub}${day}${t.rec ? ' · קבוע' : ''}</div>${t.estimate ? `<div class="est"><span>💡 סכום משוער — כמה יצא החשבון?</span><input type="number" inputmode="decimal" value="${t.amount}" aria-label="הסכום האמיתי"><button data-act="estok" data-id="${t.id}">✅</button></div>` : ''}${t.tags?.length ? `<div class="tags">${t.tags.map(x => `<span class="tag">#${esc(x)}</span>`).join('')}</div>` : ''}
     ${askPay}
@@ -1953,7 +1953,8 @@ async function importFiles(files) {
 function monthsSpan(dates) {
   if (!dates.length) return '';
   const ms = [...new Set(dates.map(d => ym(new Date(d))))].sort();
-  return ms.length === 1 ? monthLabel(ms[0]) : `${monthLabel(ms[0]).split(' ')[0]}–${monthLabel(ms[ms.length - 1])} (${ms.length} חודשים)`;
+  const a = ms[0], b = ms[ms.length - 1];
+  return ms.length === 1 ? monthLabel(a) : `${a.slice(0, 4) === b.slice(0, 4) ? monthLabel(a).split(' ')[0] : monthLabel(a)}–${monthLabel(b)} (${ms.length} חודשים)`;
 }
 
 function openImportSheet(name, { kind, items, files = [name] }) {

@@ -30,7 +30,7 @@ async function readPdfRows(file) {
     const page = await pdf.getPage(p);
     pages.push((await page.getTextContent()).items
       .filter(i => i.str && i.str.trim())
-      .map(i => ({ s: i.str.trim(), x: i.transform[4] + i.width / 2, y: i.transform[5] })));
+      .map(i => ({ s: fixParens(i.str.trim()), x: i.transform[4] + i.width / 2, y: i.transform[5] })));
   }
   const out = pdfSheets(pages);
   if (!out) throw Object.assign(new Error('scanned'), { scanned: true, pages: pdf.numPages });
@@ -49,6 +49,8 @@ function joinHeader(a, b) {
 }
 
 /** הטקסט מכל עמוד ([{s,x,y}]) ← גיליון. null = אין טקסט (סרוק) */
+// PDF עברי מוציא סוגריים הפוכים: "יד שרה )ער(" ← "יד שרה (ער)"
+export const fixParens = t => /[\u0590-\u05FF]/.test(t) ? t.replace(/[()]/g, c => c === '(' ? ')' : '(') : t;
 export function pdfSheets(pages) {
   const rows = [], text = [];
   let cols = null; // מרכזי העמודות לפי שורת הכותרת
@@ -259,7 +261,8 @@ export function extract(sheets, learned = {}) {
       const rowText = norm((Array.isArray(row) ? row : [row]).join(' '));
       if (!m) { const c = rowText.match(CHARGE_RE); if (c) sheetCharge = parseDate(c[1]); continue; }
       let date = parseDate(row[m.date]);
-      let desc = norm(row[m.desc]);
+      // "117-38308042/עמלות תקופתיות" (יהב) — מספר אסמכתא שנדבק לשם: מורידים
+      let desc = norm(row[m.desc]).replace(/^\/?\d{2,4}-\d{5,}\s*\/?\s*(?=[א-תa-z])/i, '');
       // "מסטרקארד - 4376 · מועד חיוב 20/11/26" — כרטיס שני באותו קובץ (ישראכרט): תאריך חיוב חדש לשורות הבאות
       if (!date) { const c = rowText.match(CHARGE_RE); if (c && !desc) { sheetCharge = parseDate(c[1]); continue; } }
       // שם בית עסק שנשבר לשורה שנייה ("35314369001" ואז "~PAYPAL") — מצרפים לשורה שמעליו
@@ -384,7 +387,8 @@ export function detectBank(sheets, fileName = '') {
   const acct = (rows.slice(0, 12).join(' ') + ' ' + (sheets?.[0]?.meta?.head || '')).match(/(?:חשבון|לעסקות בש"ח|account)\D{0,12}(\d{2})-\d{3}-\d{4,}/i);
   // 1) "בנק יהב" שחוזר בכותרת / בתחתית כל עמוד — הכי אמין (תנועה בודדת כמו "העברה לבנק לאומי" לא מנצחת)
   const cnt = {};
-  for (const t of rows) for (const [re, name] of BANKS.slice(4)) if (new RegExp('בנק\\s*(' + re + ')', 'i').test(t)) cnt[name] = (cnt[name] || 0) + 1;
+  const isTx = t => /^\s*\d{1,2}[./]\d{1,2}[./]\d{2,4}/.test(t); // שורת תנועה ("14.10.2026 מבנק יהב") לא מעידה על הבנק של הדף
+  for (const t of rows) if (!isTx(t)) for (const [re, name] of BANKS.slice(4)) if (new RegExp('בנק\\s*(' + re + ')', 'i').test(t)) cnt[name] = (cnt[name] || 0) + 1;
   const top = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0];
   if (top && top[1] >= 2) return top[0];
   // 2) רק מה שמעל שורת הכותרות (לא שורות התנועות) + שם הקובץ
@@ -392,6 +396,7 @@ export function detectBank(sheets, fileName = '') {
   const head = (sheets?.[0]?.meta?.head || '') + ' ' + rows.slice(0, Math.min(hi, 8)).join(' ') + ' ' + fileName;
   const hit = BANKS.find(([re]) => new RegExp(re, 'i').test(head));
   if (hit) return hit[1]; if (top) return top[0]; if (acct && BANK_CODES[acct[1]]) return BANK_CODES[acct[1]];
+  if (/מספר חשבון:?\s*\d{3}-\d{8}\b/.test(head) && /סוג תנועה/.test(rows.slice(0, 12).join(' '))) return 'לאומי'; // ייצוא דפי חשבון של לאומי (סניף-חשבון, בלי שם הבנק)
   const all = rows.join(' ');
   if (/מספר שובר/.test(all) && /מטבע לחיוב/.test(all)) return 'ישראכרט'; // הייצוא של ישראכרט (גם כרטיסי יהב / פועלים שלהם)
   return 'לא זוהה';
