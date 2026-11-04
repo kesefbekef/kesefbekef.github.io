@@ -217,7 +217,7 @@ export function parseDate(v) {
 export function parseNum(v) {
   if (typeof v === 'number') return v;
   let s = norm(v).replace(/[₪,\s]|nis|ש"ח|שח/gi, '');
-  if (!s) return NaN;
+  if (!s || /[\/:]/.test(s)) return NaN; // ריק, או תאריך/שעה שנפלו לעמודת הסכום
   if (/^-?[\d.]+-$/.test(s)) s = '-' + s.slice(0, -1);
   return parseFloat(s);
 }
@@ -256,16 +256,19 @@ export function extract(sheets, learned = {}) {
     for (const row of rows) {
       const h = headerMap(row);
       if (h) { m = h; if (h.bank) kind = 'bank'; continue; }
-      if (!m) { const c = norm((Array.isArray(row) ? row : [row]).join(' ')).match(CHARGE_RE); if (c) sheetCharge = parseDate(c[1]); continue; }
+      const rowText = norm((Array.isArray(row) ? row : [row]).join(' '));
+      if (!m) { const c = rowText.match(CHARGE_RE); if (c) sheetCharge = parseDate(c[1]); continue; }
       let date = parseDate(row[m.date]);
       let desc = norm(row[m.desc]);
+      // "מסטרקארד - 4376 · מועד חיוב 20/11/26" — כרטיס שני באותו קובץ (ישראכרט): תאריך חיוב חדש לשורות הבאות
+      if (!date) { const c = rowText.match(CHARGE_RE); if (c && !desc) { sheetCharge = parseDate(c[1]); continue; } }
       // שם בית עסק שנשבר לשורה שנייה ("35314369001" ואז "~PAYPAL") — מצרפים לשורה שמעליו
-      if (!date && desc && !norm(row[m.date]) && kind === 'card' && items.length && !/^סה.?כ|^עמוד/.test(desc)) {
+      if (!date && desc && !norm(row[m.date]) && kind === 'card' && items.length && !/^סה.?כ|^סך|^עמוד|total/i.test(desc)) {
         const prev = items[items.length - 1]; prev.desc = (prev.desc + ' ' + desc.replace(/^~/, '')).trim();
         if (!prev.income && !prev.refund) prev.cat = classify(prev.desc, learned) === 'other' ? prev.cat : classify(prev.desc, learned);
         continue;
       }
-      if (!date || !desc || /^סה.?כ/.test(desc)) continue;
+      if (!date || !desc || /^סה.?כ|^סך|^total/i.test(desc)) continue;
 
       let amount, income = false;
       if (m.debit >= 0 || m.credit >= 0) {
@@ -273,7 +276,7 @@ export function extract(sheets, learned = {}) {
         if (d > 0) amount = d; else if (c > 0) { amount = c; income = true; } else continue;
       } else {
         let v = parseNum(row[m.amount]);
-        if ((!v || isNaN(v)) && m.amount2 >= 0) v = parseNum(row[m.amount2]);
+        if (isNaN(v) && m.amount2 >= 0 && /^[-—\s]*$/.test(norm(row[m.amount]))) v = parseNum(row[m.amount2]); // ריק / "--" = טרם נקלטה (כאל, דיסקונט); 0 = חיוב אפס (דמי כרטיס בהנחה)
         if (!v || isNaN(v)) continue;
         if (m.bank) { income = v > 0; amount = Math.abs(v); }
         else amount = v; // באשראי: מספר שלילי = זיכוי/החזר
@@ -388,7 +391,10 @@ export function detectBank(sheets, fileName = '') {
   let hi = rows.findIndex(t => /יתרה|תאריך/.test(t) && /סכום|חובה|זכות|תיאור|פרטים/.test(t)); if (hi < 0) hi = 8;
   const head = (sheets?.[0]?.meta?.head || '') + ' ' + rows.slice(0, Math.min(hi, 8)).join(' ') + ' ' + fileName;
   const hit = BANKS.find(([re]) => new RegExp(re, 'i').test(head));
-  return hit ? hit[1] : top ? top[0] : (acct && BANK_CODES[acct[1]]) || 'לא זוהה';
+  if (hit) return hit[1]; if (top) return top[0]; if (acct && BANK_CODES[acct[1]]) return BANK_CODES[acct[1]];
+  const all = rows.join(' ');
+  if (/מספר שובר/.test(all) && /מטבע לחיוב/.test(all)) return 'ישראכרט'; // הייצוא של ישראכרט (גם כרטיסי יהב / פועלים שלהם)
+  return 'לא זוהה';
 }
 export const isSupported = name => /\.(xlsx|xls|csv|txt|pdf)$/i.test(name);
 export const isImage = name => /\.(png|jpe?g|heic|webp)$/i.test(name);
