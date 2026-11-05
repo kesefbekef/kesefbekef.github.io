@@ -1,4 +1,4 @@
-import { CATS, classify, isIncome, incomeGuess, suggestEmoji, catOf, applyCustomCats, isBaseCat, CAT_COLORS, CAT_EMOJIS } from './categories.js';
+import { CATS, classify, isIncome, incomeGuess, suggestEmoji, catOf, applyCustomCats, isBaseCat, CAT_COLORS, CAT_EMOJIS, KINDS as XKINDS, kindOf } from './categories.js';
 import { parseMessage, stripVav, detectPay, PAY, takeTags, cleanTag } from './parse.js';
 import * as db from './db.js';
 import * as imp from './importer.js';
@@ -236,6 +236,9 @@ $('#app').addEventListener('scroll', e => { e.target.scrollTop = 0; e.target.scr
   $('#overlay').addEventListener('touchmove', e => e.preventDefault(), { passive: false });
 })();
 
+// 🧱 צרכים / 🎈 רצונות / 📈 השקעה — לכל הוצאה (לא להכנסה ולא לתרומה, שלה יש "מתוך המעשר / בנוסף")
+const kindChips = (id, sel) => `<div class="sub" style="margin-bottom:8px">זה צרכים, רצונות או השקעה? (לא חובה, ניחשתי לפי הקטגוריה)</div><div class="chips" id="${id}" style="flex-wrap:wrap;margin-bottom:14px">${Object.entries(XKINDS).map(([k, v]) => `<button class="chip kn ${k === sel ? 'on' : ''}" data-k="${k}" style="--kc:${v.c}">${v.e} ${v.n}</button>`).join('')}</div>`;
+const instLeft = (t, m = S.month) => { if (!(t.inst > 1)) return ''; const n = Math.min(t.inst, Math.max(1, installmentNo(t, m))); return ` · תשלום ${n}/${t.inst}${t.inst - n > 0 ? ` · נשארו ${t.inst - n}` : ' · אחרון 🎉'}`; };
 function catGrid(selected, withIncome = true) {
   const ids = [...Object.keys(CATS), ...(withIncome ? ['income'] : [])];
   return `<div class="catgrid">${ids.map(id => { const c = catOf(id);
@@ -942,7 +945,12 @@ function renderInsights() {
   const inst = txInMonth(m).filter(t => t.inst > 1);
   if (inst.length) tips.push(['💳', `<b>${inst.length} תשלומים פעילים</b> בסך ${fmt(inst.reduce((s, t) => s + t.amount, 0))} החודש.`]);
 
-  $('#tips').innerHTML = historyCard(m) + (m === thisMonth() ? '<div class="card fx-card" id="fxCard" hidden></div>' + fixedCard() : '') + hebCard() + tagsCard() + tips.map(([e, h]) => `<div class="card tip"><div class="em">${e}</div><p>${h}</p></div>`).join('');
+  // 🤲 אחרי המעשר: ההוצאות כבר כוללות את מה שניתן החודש; על ההכנסות של החודש עוד חייבים
+  if (S.maaser?.pct && inc) {
+    const r = maaserCalc(), mo = r.months[m] || { inc: 0, given: 0, ded: 0 }, owed = Math.max(0, mo.inc - mo.ded) * r.pct / 100, after = inc - exp + mo.given - owed;
+    tips.push(['🤲', `<b>אחרי ה${r.pct === 20 ? 'חומש' : 'מעשר'}: ${after < 0 ? 'חסרים ' + fmt(-after) : 'נשארים ' + fmt(after)}.</b> על ההכנסות של החודש חייבים ${fmt(owed)}${S.maaser.forward ? ' (נותנים בחודש הבא)' : ''}${mo.given ? `, וניתנו החודש ${fmt(mo.given)}${S.maaser.forward ? ' על החודש הקודם' : ''}` : ''}. <button class="chip" data-open-maaser style="margin-top:6px">🤲 למסך המעשר</button>`]);
+  }
+  $('#tips').innerHTML = kindsCard(m) + historyCard(m) + (m === thisMonth() ? '<div class="card fx-card" id="fxCard" hidden></div>' + fixedCard() : '') + hebCard() + tagsCard() + tips.map(([e, h]) => `<div class="card tip"><div class="em">${e}</div><p>${h}</p></div>`).join('');
   fillExpected();
 }
 
@@ -1068,6 +1076,15 @@ async function openCalendarSub(renew = false) {
 }
 
 // 🏷️ אירועים: כמה עלה כל אירוע (מכל הזמנים, בכל הקטגוריות)
+// 🧱 צרכים / 🎈 רצונות / 📈 השקעה / 💝 תרומה — כמה מההוצאות של החודש הלך לכל סוג
+function kindsCard(m) {
+  const by = { need: 0, want: 0, invest: 0, give: 0, none: 0 }; let tot = 0;
+  for (const t of txInMonth(m)) { if (t.cat === 'income') continue; const v = amountIn(t, m); tot += v; by[t.cat === 'give' ? 'give' : (kindOf(t) || 'none')] += v; }
+  if (tot <= 0) return '';
+  const row = (e, n, v, c) => `<div class="kind-row"><span>${e} ${n}</span><div class="pbar"><i style="width:${Math.max(0, Math.min(100, v / tot * 100))}%;background:${c}"></i></div><b>${fmt(v)} · ${Math.round(v / tot * 100)}%</b></div>`;
+  return `<div class="card"><b style="font-size:16px">🧱 צרכים, רצונות, השקעה</b><div class="sub" style="margin:2px 0 8px">לפי הסימון בכל הוצאה (ניחוש לפי קטגוריה, משנים ב-✏️ עריכה)</div>
+    ${Object.entries(XKINDS).map(([k, v]) => row(v.e, v.n, by[k], v.c)).join('')}${by.give ? row('💝', 'תרומות', by.give, '#E879F9') : ''}${by.none ? row('⬜', 'בלי סימון', by.none, '#94A3B8') : ''}</div>`;
+}
 function tagsCard() {
   const by = new Map();
   for (const t of S.tx) for (const g of t.tags || []) {
@@ -1082,6 +1099,7 @@ function tagsCard() {
       <div class="am">${fmt(o.exp)}</div></button>`).join('')}</div>`;
 }
 $('#tips').addEventListener('click', e => {
+  if (e.target.closest('[data-open-maaser]')) { openMaaser(S.month); return; }
   const b = e.target.closest('[data-tag]'); if (!b) return;
   const g = b.dataset.tag, list = S.tx.filter(t => t.tags?.includes(g)).sort((a, b) => b.date.localeCompare(a.date));
   openSheet(`<h3>🏷️ #${esc(g)}</h3><div class="sub" style="margin:-6px 0 12px">${list.length} רשומות · סה״כ ${fmt(list.filter(t => t.cat !== 'income').reduce((s, t) => s + (t.inst > 1 ? t.total : t.amount), 0))}</div>
@@ -1133,8 +1151,8 @@ function renderTx() {
     .sort((a, b) => b.date.localeCompare(a.date));
   $('#txList').innerHTML = list.length ? list.map(t => {
     const c = catOf(t.cat), inc = t.cat === 'income';
-    const extra = t.inst > 1 ? ` · תשלום ${installmentNo(t, m)}/${t.inst}` : '';
-    return `<button class="tx" data-id="${t.id}"><div class="cat-ic" style="background:${c.g}">${c.e}</div><div class="nm"><div>${esc(t.desc)}${twinOf(t) ? ' <span class="twin-b">🔁 כפול?</span>' : ''}</div><small>${c.n} · ${new Date(t.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}${extra}${t.pay ? ' · ' + PAY[t.pay].e + ' ' + PAY[t.pay].n : ''}${t.who && personOf(t.who) ? ' · ' + (whoLabel(t.who)) : ''}${t.tags?.length ? ' · ' + t.tags.map(g => '#' + esc(g)).join(' ') : ''}${t.receipt ? ' · 🧾' : ''}${t.rec ? ' · 🔁' : ''}</small></div><div class="am ${inc || t.amount < 0 ? 'plus' : ''}">${inc ? '+' : t.amount < 0 ? '↩️ −' : ''}${t.estimate ? '≈' : ''}${fmt(Math.abs(t.amount))}</div></button>`;
+    const extra = instLeft(t, m), kd = kindOf(t);
+    return `<button class="tx" data-id="${t.id}"><div class="cat-ic" style="background:${c.g}">${c.e}</div><div class="nm"><div>${esc(t.desc)}${twinOf(t) ? ' <span class="twin-b">🔁 כפול?</span>' : ''}</div><small>${c.n} · ${new Date(t.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}${extra}${t.pay ? ' · ' + PAY[t.pay].e + ' ' + PAY[t.pay].n : ''}${t.who && personOf(t.who) ? ' · ' + (whoLabel(t.who)) : ''}${t.tags?.length ? ' · ' + t.tags.map(g => '#' + esc(g)).join(' ') : ''}${t.receipt ? ' · 🧾' : ''}${t.rec ? ' · 🔁' : ''}${kd ? ' · ' + XKINDS[kd].e : ''}</small></div><div class="am ${inc || t.amount < 0 ? 'plus' : ''}">${inc ? '+' : t.amount < 0 ? '↩️ −' : ''}${t.estimate ? '≈' : ''}${fmt(Math.abs(t.amount))}</div></button>`;
   }).join('') : `<div class="empty"><span class="em">🔍</span>אין תנועות ${S.catFilter || q ? 'שמתאימות לחיפוש' : 'בחודש הזה'}</div>`;
 }
 $('#txFilter').addEventListener('click', e => {
@@ -1167,14 +1185,16 @@ function openEditSheet(t) {
       <label class="field"><span>${t.amount < 0 ? '↩️ סכום הזיכוי' : t.inst > 1 ? 'סכום כולל' : 'סכום'}</span><input id="eAmt" type="number" inputmode="decimal" value="${Math.abs(t.inst > 1 ? t.total : t.amount)}"></label>
       <label class="field"><span>תאריך</span><input id="eDate" type="date" value="${ymd(new Date(t.date))}"></label>
     </div>
-    ${t.inst > 1 ? `<div class="sub" style="margin:-4px 0 10px">${t.inst} תשלומים של ${fmt(t.amount)}</div>` : ''}
+    ${t.inst > 1 ? `<div class="sub" style="margin:-4px 0 10px">${t.inst} תשלומים של ${fmt(t.amount)}${instLeft(t, thisMonth())}</div>` : ''}
     <div class="err" id="eErr"></div>
     <button class="ed-cat" id="eCatBtn"><span>🏷️ קטגוריה:</span> <b id="eCatNm">${tc.e} ${esc(tc.n)}</b><small>לשנות ▾</small></button>
     <div id="eCatWrap" hidden>${catGrid(cat)}</div>
     <div class="sub" style="margin-bottom:8px">אמצעי תשלום</div>
     <div class="chips" id="ePay" style="flex-wrap:wrap;margin-bottom:14px">${Object.entries(PAY).map(([id, p]) => `<button class="chip ${id === pay ? 'on' : ''}" data-p="${id}">${p.e} ${p.n}</button>`).join('')}</div>
     ${S.people.length ? `<div class="sub" style="margin-bottom:8px">של מי?</div><div class="chips" id="eWho" style="flex-wrap:wrap;margin-bottom:14px">${whoChips(who)}</div>` : ''}
+    <div id="eKind" ${inc0 || t.cat === 'give' ? 'hidden' : ''}>${kindChips('eKindC', kindOf(t))}</div>
     ${tagField('eTag', t.tags || [])}
+    <button class="chip ${(t.tags || []).includes('לבדוק') ? 'on' : ''}" id="eCheck" style="margin-bottom:10px">🔖 לבדוק מה זה (תזכורת בתובנות)</button>
     ${t.source === 'file' || t.skip ? `<button class="chip cnt-chip ${t.skip ? '' : 'on'}" id="eCnt" style="margin-bottom:10px">${t.skip ? '⏸️ לא נספר — לא נכנס לתקציב ולסיכומים' : '✅ נספר בתקציב ובסיכומים'}</button>` : ''}
     ${t.cat !== 'income' && sync.isParent() ? '<button class="chip" id="eSplit" style="margin-bottom:10px">➗ לחלק את ההוצאה עם מישהו</button>' : ''}
     <div class="receipt" id="eRec">${t.receipt ? '<button class="chip" id="rShow">🧾 לראות את הקבלה</button> <button class="chip" id="rDel">🗑️ הסרה</button>' : '<button class="chip" id="rAdd">🧾 צילום קבלה</button>'}
@@ -1184,10 +1204,13 @@ function openEditSheet(t) {
     <div class="row2"><button class="btn danger" id="eDel">🗑️ מחיקה</button><button class="btn grad" id="eSave">שמירה</button></div>`, sh => {
     sh.querySelectorAll('[data-cat]').forEach(btn => btn.onclick = () => {
       cat = btn.dataset.cat; sh.querySelectorAll('[data-cat]').forEach(x => x.classList.toggle('sel', x === btn));
-      sh.querySelector('#eGive').hidden = cat !== 'give';
+      sh.querySelector('#eGive').hidden = cat !== 'give'; sh.querySelector('#eKind').hidden = cat === 'give' || cat === 'income';
       sh.querySelector('#eCatNm').textContent = `${catOf(cat).e} ${catOf(cat).n}`; sh.querySelector('#eCatWrap').hidden = true;
     });
     sh.querySelector('#eCatBtn').onclick = () => { const w = sh.querySelector('#eCatWrap'); w.hidden = !w.hidden; };
+    let kind = t.kind || '';
+    sh.querySelectorAll('#eKindC [data-k]').forEach(b => b.onclick = () => { kind = kind === b.dataset.k ? '' : b.dataset.k; sh.querySelectorAll('#eKindC [data-k]').forEach(x => x.classList.toggle('on', x.dataset.k === kind)); });
+    sh.querySelector('#eCheck').onclick = e => { const f = sh.querySelector('#eTag'); const l = new Set((f.value || '').split(/[\s,]+/).filter(Boolean)); l.has('לבדוק') ? l.delete('לבדוק') : l.add('לבדוק'); f.value = [...l].join(' '); e.currentTarget.classList.toggle('on', l.has('לבדוק')); };
     let gx = !!t.extraGive;
     sh.querySelectorAll('[data-gx]').forEach(b => b.onclick = () => { gx = b.dataset.gx === '1'; sh.querySelectorAll('[data-gx]').forEach(x => x.classList.toggle('on', x === b)); });
     sh.querySelectorAll('#eWho [data-w]').forEach(btn => btn.onclick = () => {
@@ -1235,6 +1258,7 @@ function openEditSheet(t) {
       const tg = readTags(sh, 'eTag'); if (tg.length) t.tags = tg; else delete t.tags;
       if (cat === 'income' && noM) t.noMaaser = true; else delete t.noMaaser;
       if (cat === 'give' && gx) t.extraGive = true; else delete t.extraGive;
+      if (kind && cat !== 'income' && cat !== 'give') t.kind = kind; else delete t.kind;
       if (t.inst > 1) { t.total = v; t.amount = Math.round(v / t.inst * 100) / 100; } else { t.amount = v; t.total = v; }
       if (cntCh) await setCounted(t, counted); else await db.putTx(t);
       closeSheet(); renderAll(); toast(cntCh ? (counted ? '✅ נשמר — ונספר' : '⏸️ נשמר — לא נספר') : '✅ נשמר');
@@ -1722,6 +1746,7 @@ function openRulesSheet() {
     <div class="card cc-card" style="margin-bottom:12px"><b>💳 חיוב כרטיס אשראי בדף הבנק</b>
       <div class="sub">הבחירה נשמרת לכל כרטיס בנפרד — כאן למטה, ככלל עם "⏸️ לא לספור" (= מחכה לפירוט) או בלי (= סכום כולל). מוחקים את הכלל — ובפעם הבאה נשאל שוב.</div>
       ${ccWaiting().length ? `<button class="btn ghost full" id="ccCountNow" style="margin-top:8px">⏳ ${ccWaiting().length} חיובים מחכים לפירוט — לספור אותם עכשיו</button>` : ''}</div>
+    <button class="btn ghost full" id="rPaste" style="margin-bottom:12px">📋 הדבקת רשימת כללים (מקלוד / מהסימולטור)</button>
     ${list.length ? list.map(([id, r]) => `<div class="card rule-card" data-id="${id}">
       <small>🏦 כשבבנק כתוב:</small><div class="rule-bank"><bdi>${esc(r.bank || r.match)}</bdi></div><small class="rule-hint">${r.exact ? '🔢 רק כשגם המספר זהה' : '🔢 מתאים גם כשהמספרים שונים (סניף, אסמכתא)'}</small>
       <label class="field"><span>✏️ לקרוא לזה</span><input class="rName" value="${esc(r.name || '')}" placeholder="(בלי לשנות שם)"></label>
@@ -1730,6 +1755,7 @@ function openRulesSheet() {
       <div class="row2" style="margin-top:8px"><button class="btn danger rDel">🗑️ מחיקה</button><button class="btn grad rSave">שמירה</button></div>
     </div>`).join('') : `<div class="card tip"><div class="em">💡</div><p>עוד אין כללים. משנים שם או קטגוריה של תנועה שהגיעה מקובץ — והאפליקציה תשאל "גם בפעם הבאה?"</p></div>`}`, sh => {
     sh.querySelector('#ccCountNow')?.addEventListener('click', async e => { const l = ccWaiting(); for (const t of l) await setCounted(t, true); renderAll(); e.target.remove(); toast(`✅ ${l.length} חיובי אשראי נספרו`); });
+    sh.querySelector('#rPaste').onclick = () => openRulesPaste();
     sh.querySelectorAll('.rule-card').forEach(c => {
       const id = c.dataset.id;
       c.querySelector('.rSave').onclick = async () => {
@@ -1743,6 +1769,48 @@ function openRulesSheet() {
         const rules = { ...S.rules }; delete rules[id]; await saveKV('rules', rules); c.remove(); toast('🗑️ הכלל נמחק');
       };
     });
+  });
+}
+
+// 📋 הדבקת כללים: רשימה בפורמט JSON — [{"בבנק":"טקסט מדף הבנק","שם":"שם ברור","קטגוריה":"שם קטגוריה","לא לספור":false}]
+// קטגוריה שלא קיימת נוצרת כקטגוריה שלכם. הכלל חל גם על תנועות שכבר נמצאות באפליקציה
+function catByName(n) {
+  const clean = s => String(s || '').replace(/[^\u0590-\u05FFa-zA-Z0-9 "'׳״-]/g, '').trim().toLowerCase();
+  const q = clean(n); if (!q) return '';
+  if (q === 'הכנסה') return 'income';
+  return Object.keys(CATS).find(id => clean(CATS[id].n) === q) || '';
+}
+function openRulesPaste() {
+  openSheet(`<h3>📋 הדבקת רשימת כללים</h3><div class="sub" style="margin:-6px 0 10px">מדביקים כאן רשימה שקלוד הכין (או שהעתקתם מהסימולטור). כל שורה: מה כתוב בבנק ← איזה שם וקטגוריה לתת. קטגוריה שאין — נוצרת. חל גם על תנועות שכבר כאן.</div>
+    <textarea id="rpTxt" rows="8" style="width:100%;font-size:16px;background:var(--card2);color:inherit;border:1px solid var(--line);border-radius:14px;padding:10px" placeholder='[{"בבנק":"טפחות-משכנתא","שם":"משכנתא","קטגוריה":"בית וחשבונות"}]'></textarea>
+    <div class="err" id="rpErr" style="margin-top:6px"></div>
+    <button class="btn grad full" id="rpGo" style="margin-top:10px">✅ להפעיל את הכללים</button>`, sh => {
+    sh.querySelector('#rpGo').onclick = async () => {
+      let list; const err = sh.querySelector('#rpErr');
+      try { list = JSON.parse(sh.querySelector('#rpTxt').value.trim()); if (!Array.isArray(list)) throw 0; } catch { err.textContent = 'זה לא נראה כמו רשימה. צריך להדביק בדיוק את מה שקיבלתם, מהסוגר [ עד הסוגר ].'; return; }
+      let n = 0, fixed = 0, newCats = 0;
+      for (const it of list) {
+        const bank = String(it['בבנק'] || it.bank || '').trim(), name = cleanName(String(it['שם'] || it.name || '')), catN = it['קטגוריה'] || it.cat || '', skip = it['לא לספור'] === true || it.skip === true;
+        if (bank.length < 2) continue;
+        let cat = catByName(catN);
+        if (!cat && String(catN).trim()) { // קטגוריה חדשה שלכם
+          const nm = String(catN).replace(/[^\u0590-\u05FFa-zA-Z0-9 "'׳״-]/g, '').trim().slice(0, 24);
+          if (nm) { cat = 'c_' + Math.random().toString(36).slice(2, 8); S.cats = { ...(S.cats || {}), [cat]: { n: nm, e: suggestEmoji(nm) || '⭐', c: CAT_COLORS[Object.keys(S.cats || {}).length % CAT_COLORS.length], custom: true } }; applyCustomCats(S.cats); newCats++; }
+        }
+        const patch = { ...(name ? { name } : {}), ...(cat ? { cat } : {}), ...(skip ? { skip: true } : {}) };
+        if (!Object.keys(patch).length) continue;
+        if (!await saveRuleFor(bank, patch)) continue; n++;
+        for (const t of sameBank(bank, null)) { // גם מה שכבר באפליקציה
+          let ch = false;
+          if (name && t.desc !== name) { t.desc = name; ch = true; }
+          if (cat && t.cat !== cat && (cat === 'income') === (t.cat === 'income')) { t.cat = cat; ch = true; }
+          if (ch) { await db.putTx(t); fixed++; }
+        }
+      }
+      if (newCats) await saveCats();
+      closeSheet(); renderAll(); toast(n ? `✅ ${n} כללים נשמרו${fixed ? ` · ${fixed} תנועות עודכנו` : ''}${newCats ? ` · ${newCats} קטגוריות חדשות` : ''}` : 'לא נמצאו כללים ברשימה', !n);
+      if (n) setTimeout(openRulesSheet, 400);
+    };
   });
 }
 
@@ -1830,6 +1898,7 @@ function openAddForm(cat) {
     <div class="sub" style="margin-bottom:8px">${inc ? 'איך התקבל?' : 'איך שולם?'} (לא חובה)</div>
     <div class="chips" id="aPay" style="flex-wrap:wrap;margin-bottom:14px">${Object.entries(PAY).map(([id, p]) => `<button class="chip" data-p="${id}">${p.e} ${p.n}</button>`).join('')}</div>
     ${!inc && S.people.length ? `<div class="sub" style="margin-bottom:8px">של מי?</div><div class="chips" id="aWho" style="flex-wrap:wrap;margin-bottom:14px">${whoChips(who)}</div>` : ''}
+    ${inc || cat === 'give' ? '' : kindChips('aKind', kindOf({ cat }))}
     ${tagField('aTag', [])}
     <button class="btn grad full" id="aSave">✅ שמירה</button>`, sh => {
     sh.querySelector('#aBack').onclick = () => openAddSheet();
@@ -1847,6 +1916,8 @@ function openAddForm(cat) {
     sh.querySelectorAll('#aWho [data-w]').forEach(b => b.onclick = () => {
       who = b.dataset.w; sh.querySelectorAll('#aWho [data-w]').forEach(x => x.classList.toggle('on', x === b));
     });
+    let kind = kindOf({ cat });
+    sh.querySelectorAll('#aKind [data-k]').forEach(b => b.onclick = () => { kind = kind === b.dataset.k ? '' : b.dataset.k; sh.querySelectorAll('#aKind [data-k]').forEach(x => x.classList.toggle('on', x.dataset.k === kind)); });
     const amt = sh.querySelector('#aAmt'), err = sh.querySelector('#aErr');
     amt.oninput = () => err.textContent = '';
     setTimeout(() => amt.focus({ preventScroll: true }), 400);
@@ -1871,6 +1942,7 @@ function openAddForm(cat) {
         created: now.toISOString(), date: new Date(d + 'T12:00:00').toISOString(),
         amount: inst ? Math.round(total / inst * 100) / 100 : total, total, inst, pay: pay || (inst ? 'credit' : null), paySkip: !pay, who };
       const tg = readTags(sh, 'aTag'); if (tg.length) t.tags = tg;
+      if (kind && kind !== kindOf({ cat })) t.kind = kind;
       const dup = !force && findDup(t);
       if (dup) {
         force = true;
@@ -2651,7 +2723,8 @@ function openMaaser(mm) {
   const mon = typeof mm === 'string' ? mm : S.month; maaserM = mon;
   sheetReopen = () => openMaaser(mon);
   const r = maaserCalc(), M = S.maaser || {};
-  const mo = r.months[mon] || { inc: 0, given: 0, ded: 0 }, mBase = Math.max(0, mo.inc - mo.ded), mOwed = mBase * r.pct / 100, mLeft = mOwed - mo.given;
+  const mo = r.months[mon] || { inc: 0, given: 0, ded: 0 }, fw = !!M.forward, src = fw ? (r.months[addMonths(mon, -1)] || { inc: 0, given: 0, ded: 0 }) : mo;
+  const mBase = Math.max(0, src.inc - src.ded), mOwed = mBase * r.pct / 100, mLeft = mOwed - mo.given;
   const custom = ![10, 20].includes(r.pct);
   const kinds = Object.entries(r.kinds).sort((a, b) => b[1].v - a[1].v);
   openSheet(`<h3>🤲 מעשר</h3><div class="sub" style="margin:-6px 0 10px">${r.pct === 20 ? 'חומש 20%' : r.pct + '%'}</div>
@@ -2660,7 +2733,8 @@ function openMaaser(mm) {
       <small class="sub">${mLeft > 0.5 ? `נשאר לתת ב${monthLabel(mon).split(' ')[0]}` : mLeft < -0.5 ? 'נתתם יותר החודש' : mOwed ? 'הכל ניתן החודש 👏' : 'אין הכנסות בחודש הזה'}</small>
       <div class="big-num" id="mLeft" style="color:${mLeft > 0.5 ? '#FACC15' : '#4ADE80'}">${fmt(Math.abs(mLeft))}</div>
       <div class="pbar" style="margin:8px 0"><i style="width:${mOwed ? Math.min(100, mo.given / mOwed * 100) : 0}%;background:linear-gradient(90deg,#E879F9,#A855F7)"></i></div>
-      <div class="sub">החודש: חייבים <b>${fmt(mOwed)}</b> (${r.pct}% מ-${fmt(mBase)}) · ניתן <b>${fmt(mo.given)}</b></div></div>
+      <div class="sub">${fw ? `על ההכנסות של ${monthLabel(addMonths(mon, -1))}` : 'החודש'}: חייבים <b>${fmt(mOwed)}</b> (${r.pct}% מ-${fmt(mBase)}) · ניתן ב${monthLabel(mon).split(' ')[0]} <b>${fmt(mo.given)}</b></div></div>
+    <button class="chip ${fw ? 'on' : ''}" id="mFw" style="display:block;margin:0 auto 8px">${fw ? '✅' : '⬜'} מחשבים בראשון לחודש ונותנים קדימה</button>
     <div class="sub" style="text-align:center;margin-bottom:12px">🧮 מצטבר${r.since ? ` מאז ${monthLabel(r.since)}` : ' מההתחלה'}: ${r.left > 0.5 ? `נשאר לתת <b>${fmt(r.left)}</b>` : r.left < -0.5 ? `נתתם יותר ב-<b>${fmt(-r.left)}</b>` : 'הכל ניתן 👏'} (חייבים ${fmt(r.owed)} · ניתן ${fmt(r.given)})</div>
 
     <div class="msec"><b>🎯 כמה אחוז?</b>
@@ -2687,6 +2761,7 @@ function openMaaser(mm) {
     sh.querySelector('#mCustom').onchange = e => { const v = num(e.target.value); if (v > 0 && v <= 100) saveMaaser({ pct: v }); };
     sh.querySelectorAll('[data-ik]').forEach(b => b.onclick = () => { const off = { ...(S.maaser?.incOff || {}) }; const k = b.dataset.ik; if (off[k] === false) delete off[k]; else off[k] = false; saveMaaser({ incOff: off }); });
     sh.querySelector('#mDed').onclick = () => saveMaaser({ deduct: !S.maaser?.deduct });
+    sh.querySelector('#mFw').onclick = () => saveMaaser({ forward: !S.maaser?.forward });
     sh.querySelectorAll('[data-dc]').forEach(b => b.onclick = () => { const l = new Set(S.maaser?.deductCats || []); l.has(b.dataset.dc) ? l.delete(b.dataset.dc) : l.add(b.dataset.dc); saveMaaser({ deductCats: [...l] }); });
     sh.querySelector('#mGive').onclick = () => saveMaaser({ giveCounts: S.maaser?.giveCounts === false });
     // ✅ בוצע = נרשמת הוצאה ב-💝 תרומות (כדי שתופיע במאזן). ביטול ✅ — ההוצאה נמחקת

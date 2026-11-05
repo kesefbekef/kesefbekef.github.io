@@ -778,3 +778,7 @@ body.over-gate .sheet{z-index:111}
 /* 💵 שדה הקלדה בחלון אישור (כמה זה היה בשקלים) */
 .cbox-in { width: 100%; font-size: 18px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card2); color: inherit; margin: 6px 0 10px; text-align: center; outline: none; }
 .cbox-in:focus { border-color: var(--accent, #a855f7); }
+
+/* 🧱 סוג הוצאה */
+.chip.kn.on{background:var(--kc);border-color:transparent;color:#111}
+.kind-row{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;margin:6px 0;font-size:14px}.kind-row b{white-space:nowrap;font-size:13px}.kind-row .pbar{min-width:40px;margin-top:0}
